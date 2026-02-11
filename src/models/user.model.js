@@ -73,6 +73,7 @@ const createUser = async (user) => {
       state,
       city,
       district,
+      area,
       pincode,
 
       father_name,
@@ -112,7 +113,7 @@ const createUser = async (user) => {
       ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?,
-      ?, ?, ?, ?, ?
+      ?, ?, ?, ?, ?, ?
     )
     `,
     [
@@ -132,6 +133,7 @@ const createUser = async (user) => {
       user.state || null,
       user.city || null,
       user.district || null,
+      user.area || null,
       user.pincode || null,
 
       user.father_name || null,
@@ -222,6 +224,7 @@ const getAllUsers = async ({ search = "", page = 1, limit = 10 }) => {
       u.state, 
       u.city, 
       u.district, 
+      u.area,
       u.pincode,
 
       u.father_name, 
@@ -252,6 +255,7 @@ const getAllUsers = async ({ search = "", page = 1, limit = 10 }) => {
       u.logout_time,
       u.pf,
       u.esi,
+      u.is_active,
 
       u.approver_name,
       r.name AS role
@@ -280,6 +284,73 @@ const getAllUsers = async ({ search = "", page = 1, limit = 10 }) => {
     users: rows,
     total: countResult[0].total
   };
+};
+
+const getUserById = async (id) => {
+  const [rows] = await db.query(
+    `
+    SELECT 
+      u.id,
+      u.name,
+      u.email,
+      u.gender,
+      u.contact_no,
+      u.date_of_birth,
+
+      u.address_line1,
+      u.address_line2,
+      u.country,
+      u.state,
+      u.city,
+      u.district,
+      u.area,
+      u.pincode,
+
+      u.father_name,
+      u.pan_number,
+      u.aadhar_no,
+      u.blood_group,
+
+      u.department_id,
+      d.name AS department_name,
+
+      u.job_role_id,
+      jr.name AS job_role_name,
+
+      u.date_of_joining,
+      u.salary,
+
+      u.week_off,
+      u.attendance_selfie,
+      u.travelling_allowance_per_km,
+      u.avg_travel_km_per_day,
+      u.city_allowance_per_km,
+      u.daily_allowance_with_doc,
+      u.daily_allowance_without_doc,
+      u.hotel_allowance,
+
+      u.total_leaves,
+      u.authentication_amount,
+      u.headquarter,
+      u.approver_name,
+
+      u.login_time,
+      u.logout_time,
+      u.pf,
+      u.esi,
+
+      u.role_id,
+      r.name AS role
+    FROM users u
+    JOIN roles r ON r.id = u.role_id
+    LEFT JOIN department d ON d.id = u.department_id AND d.is_active = 1
+    LEFT JOIN job_roles jr ON jr.id = u.job_role_id AND jr.is_active = 1
+    WHERE u.id = ?
+    `,
+    [id]
+  );
+
+  return rows[0];
 };
 
 
@@ -314,6 +385,56 @@ const updateUserById = async (id, userData) => {
 };
 
 
+const updateUserStatus = async (userId, is_active) => {
+  const [result] = await db.query(
+    `UPDATE users SET is_active = ? WHERE id = ?`,
+    [is_active, userId]
+  );
+
+  return result.affectedRows > 0;
+};
+
+const softDeleteUser = async (userId) => {
+  const conn = await db.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    // 1. Copy to deleted_users
+    const [rows] = await conn.query(
+      `INSERT INTO deleted_users SELECT *, NOW() FROM users WHERE id = ?`,
+      [userId]
+    );
+
+    if (rows.affectedRows === 0) {
+      await conn.rollback();
+      return false;
+    }
+
+    // 2. Delete from users
+    await conn.query(`DELETE FROM users WHERE id = ?`, [userId]);
+
+    await conn.commit();
+    return true;
+
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
+const getDeletedUsers = async () => {
+  const [rows] = await db.query(
+    `SELECT * FROM deleted_users ORDER BY deleted_at DESC`
+  );
+  return rows;
+};
+
+
+
+
 module.exports = {
-  createUser, findUserByEmail, getAllUsers, updateUserById, updatePasswordByAdmin
+  createUser, findUserByEmail, getAllUsers, getUserById, updateUserById, updatePasswordByAdmin, updateUserStatus, softDeleteUser, getDeletedUsers
 };

@@ -15,6 +15,10 @@ const jobRoleRoute = require("../src/routes/jobRole.routes");
 const authRoutes = require('../src/routes/auth.routes');
 const userDocumentRoute = require("../src/routes/userDocument.routes");
 const pincodeRoute = require("../src/routes/pincode.routes");
+const uploadEmpSalaryRoute = require("../src/routes/uploadEmpSalary.routes");
+const empAttendanceRoute = require("../src/routes/empAttendance.routes");
+const empSalaryRoute = require("../src/routes/empSalary.route")
+
 // Health check
 app.get('/', (req, res) => {
   res.send('CRM API is running');
@@ -27,6 +31,10 @@ app.use('/department', departmentRoute);
 app.use( jobRoleRoute);
 app.use(userDocumentRoute);
 app.use(pincodeRoute);
+app.use(uploadEmpSalaryRoute);
+app.use(empAttendanceRoute);
+app.use(empSalaryRoute);
+
 
 // 404 handler
 app.use((req, res) => {

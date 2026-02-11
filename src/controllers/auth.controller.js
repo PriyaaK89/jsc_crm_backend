@@ -47,6 +47,7 @@ exports.createUserByRole = async (req, res) => {
       state,
       city,
       district,
+      area,
       pincode,
 
       father_name,
@@ -100,6 +101,7 @@ exports.createUserByRole = async (req, res) => {
       state,
       city,
       district,
+      area,
       pincode,
       father_name,
       pan_number,
@@ -367,6 +369,26 @@ exports.createUserByRole = async (req, res) => {
 // };
 
 
+exports.getUserById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await User.getUserById(id);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: user
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
 const getClientIp = (req) => {
   return (
     req.headers['x-forwarded-for']?.split(',')[0] ||
@@ -380,6 +402,11 @@ exports.login = async (req, res) => {
   const { email, password } = req.body;
   const user = await User.findUserByEmail(email);
   if (!user) return res.status(401).json({ message: "Invalid credentials" });
+  if (user.is_active === 0) {
+  return res.status(403).json({
+    message: "Your account is deactivated. Please contact admin."
+  });
+}
 
   const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) return res.status(401).json({ message: "Invalid credentials" });
@@ -480,13 +507,14 @@ exports.updateUserById = async (req, res) => {
       gender,
       contact_no,
       date_of_birth,
-
+      email,
       address_line1,
       address_line2,
       country,
       state,
       city,
       district,
+      area,
       pincode,
 
       father_name,
@@ -498,7 +526,8 @@ exports.updateUserById = async (req, res) => {
       job_role_id,
       date_of_joining,
       salary,
-
+      
+      week_off,
       attendance_selfie,
       travelling_allowance_per_km,
       avg_travel_km_per_day,
@@ -523,13 +552,14 @@ exports.updateUserById = async (req, res) => {
       gender,
       contact_no,
       date_of_birth,
-
+      email,
       address_line1,
       address_line2,
       country,
       state,
       city,
       district,
+      area,
       pincode,
 
       father_name,
@@ -542,6 +572,7 @@ exports.updateUserById = async (req, res) => {
       date_of_joining,
       salary,
 
+      week_off,
       attendance_selfie,
       travelling_allowance_per_km,
       avg_travel_km_per_day,
@@ -588,4 +619,77 @@ exports.setUserPassword = async (req, res) => {
 
   res.json({ message: "Password set successfully" });
 };
+
+exports.updateUserStatusByAction = async (req, res) => {
+  try {
+    const { action } = req.params;
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required" });
+    }
+
+    let is_active;
+
+    if (action === "activate") {
+      is_active = 1;
+    } else if (action === "deactivate") {
+      is_active = 0;
+    } else {
+      return res.status(400).json({
+        message: "Invalid action. Use activate or deactivate"
+      });
+    }
+
+    const updated = await User.updateUserStatus(userId, is_active);
+
+    if (!updated) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json({
+      success: true,
+      message: `User ${action}d successfully`
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+exports.deleteUserById = async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    const deleted = await User.softDeleteUser(userId);
+
+    if (!deleted) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json({
+      success: true,
+      message: "User deleted successfully"
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.getDeletedUsers = async (req, res) => {
+  try {
+    const users = await User.getDeletedUsers();
+
+    res.json({
+      success: true,
+      data: users
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 

@@ -13,7 +13,13 @@ const uploadToS3 = async (file, userId, folder = "users") => {
     })
   );
 
-  return `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+  return {
+    bucket: process.env.AWS_BUCKET_NAME,
+    key,
+    url: `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`,
+    mimeType: file.mimetype,
+    sizeKb: Math.round(file.size / 1024)
+  };
 };
 
 module.exports = uploadToS3;

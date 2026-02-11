@@ -23,12 +23,18 @@ router.post( "/approve-ip/:ipId", authMiddleware, isAdmin, auth.approveIpRequest
 router.post('/login', auth.login);
 router.get( '/get-users', authMiddleware, isAdmin, auth.getUsersList);
 router.put( "/update-user/:id", authMiddleware, isAdmin, auth.updateUserById);
+router.get("/get-employee-details/:id",authMiddleware, isAdmin, auth.getUserById);
 
-router.post(
-  "/set-password/:userId",
+// router.patch( "/update-user-status/:id", authMiddleware, isAdmin, auth.updateUserStatus);
+router.patch(
+  "/user-status/:action",
   authMiddleware,
-  allowRoles("ADMIN", "SUPER_ADMIN"),
-  auth.setUserPassword
+  isAdmin,
+  auth.updateUserStatusByAction
 );
+router.delete( "/delete-user/:id", authMiddleware, isAdmin, auth.deleteUserById);
+router.get( "/get-deleted-users", authMiddleware, isAdmin, auth.getDeletedUsers);
+
+router.post( "/set-password/:userId", authMiddleware, allowRoles("ADMIN", "SUPER_ADMIN"), auth.setUserPassword);
 
 module.exports = router;

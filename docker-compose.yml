@@ -17,8 +17,8 @@ services:
     image: mariadb:10.11
     container_name: mysql
     environment:
-      MYSQL_ROOT_PASSWORD:  ${DB_PASS}
-      MYSQL_DATABASE: ${DB_NAME}
+      DB_PASS:  ${DB_PASS}
+      DB_NAME: ${DB_NAME}
     volumes:
       - mysql-data:/var/lib/mysql
       - ./crm_db:/docker-entrypoint-initdb.d

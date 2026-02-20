@@ -17,7 +17,8 @@ const userDocumentRoute = require("../src/routes/userDocument.routes");
 const pincodeRoute = require("../src/routes/pincode.routes");
 const uploadEmpSalaryRoute = require("../src/routes/uploadEmpSalary.routes");
 const empAttendanceRoute = require("../src/routes/empAttendance.routes");
-const empSalaryRoute = require("../src/routes/empSalary.route")
+const empSalaryRoute = require("../src/routes/empSalary.route");
+const empDailySalaryRoute = require("../src/routes/empDailySalary.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -34,6 +35,7 @@ app.use(pincodeRoute);
 app.use(uploadEmpSalaryRoute);
 app.use(empAttendanceRoute);
 app.use(empSalaryRoute);
+app.use(empDailySalaryRoute);
 
 
 // 404 handler

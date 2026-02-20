@@ -1,10 +1,5 @@
 const db = require("../config/db");
 
-// exports.getUserSalaryInfo = async (employeeId) => {
-//   const [[row]] = await db.query( ` SELECT name, salary, pf, esi FROM users WHERE id = ? `, [employeeId] );
-//   return row;
-// };
-
 exports.getUserSalaryInfo = async (employeeId) => {
   const [[row]] = await db.query(
     `
@@ -27,23 +22,26 @@ exports.getUserSalaryInfo = async (employeeId) => {
   return row;
 };
 
-
-exports.getMonthlyAttendanceCounts = async (
-  employeeId,
-  month,
-  year
-) => {
+exports.getMonthlySalarySummary = async (employeeId, month, year) => {
   const [[row]] = await db.query(
     `
     SELECT
-      SUM(attendance_unit = 'full') AS full_days,
-      SUM(attendance_unit = 'half') AS half_days,
-      SUM(attendance_unit = 'absent') AS absent_days,
-      SUM(status = 'leave') AS leave_days
-    FROM emp_attendance
+      COUNT(CASE WHEN attendance_type = 'full' THEN 1 END) as full_days,
+      COUNT(CASE WHEN attendance_type = 'half' THEN 1 END) as half_days,
+      COUNT(CASE WHEN attendance_type = 'absent' THEN 1 END) as absent_days,
+      COUNT(CASE WHEN attendance_type = 'leave' THEN 1 END) as leave_days,
+
+      SUM(basic_salary) as total_basic,
+      SUM(travelling_allowance) as total_travel,
+      SUM(city_allowance) as total_city,
+      SUM(daily_allowance) as total_daily,
+      SUM(hotel_allowance) as total_hotel,
+      SUM(gross_salary) as total_gross
+
+    FROM emp_salary_daily
     WHERE employee_id = ?
-      AND MONTH(attendance_date) = ?
-      AND YEAR(attendance_date) = ?
+    AND MONTH(salary_date) = ?
+    AND YEAR(salary_date) = ?
     `,
     [employeeId, month, year]
   );
@@ -51,27 +49,6 @@ exports.getMonthlyAttendanceCounts = async (
   return row;
 };
 
-// exports.saveMonthlySalary = async (data) => {
-//   const [result] = await db.query(
-
-//     `
-//     INSERT INTO emp_salary (
-//   employee_id, month, year,
-//   basic_salary, per_day_salary,
-//   full_days, half_days, absent_days, leave_days,
-//   payable_days, gross_salary,
-//   travelling_allowance, city_allowance,
-//   daily_allowance, hotel_allowance,
-//   total_allowances,
-//   pf, esi, total_deductions, net_salary
-// )
-// VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-// `,
-//     data
-//   );
-
-//   return result.insertId;
-// };
 
 exports.saveMonthlySalary = async (data) => {
   const [result] = await db.query(
@@ -86,10 +63,30 @@ exports.saveMonthlySalary = async (data) => {
       total_allowances,
       pf, esi, total_deductions, net_salary
     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    
+    ON DUPLICATE KEY UPDATE
+      basic_salary = VALUES(basic_salary),
+      per_day_salary = VALUES(per_day_salary),
+      full_days = VALUES(full_days),
+      half_days = VALUES(half_days),
+      absent_days = VALUES(absent_days),
+      leave_days = VALUES(leave_days),
+      payable_days = VALUES(payable_days),
+      gross_salary = VALUES(gross_salary),
+      travelling_allowance = VALUES(travelling_allowance),
+      city_allowance = VALUES(city_allowance),
+      daily_allowance = VALUES(daily_allowance),
+      hotel_allowance = VALUES(hotel_allowance),
+      total_allowances = VALUES(total_allowances),
+      pf = VALUES(pf),
+      esi = VALUES(esi),
+      total_deductions = VALUES(total_deductions),
+      net_salary = VALUES(net_salary)
     `,
     data
   );
 
-  return result.insertId;
+  return result;
 };
+
 

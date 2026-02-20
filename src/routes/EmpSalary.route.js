@@ -7,5 +7,10 @@ router.get(
   "/get-monthly-salary/:employeeId", auth,
   salaryController.calculateMonthlySalary
 );
+router.post(
+  "/lock-monthly-salary/:employeeId",
+  auth,
+  salaryController.lockMonthlySalary
+);
 
 module.exports = router;

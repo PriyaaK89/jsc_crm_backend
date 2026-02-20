@@ -1,4 +1,4 @@
-const Salary = require("../models/empSalary.model");
+const Salary = require("../models/EmpSalary.model");
 
 
 exports.calculateMonthlySalary = async (req, res) => {

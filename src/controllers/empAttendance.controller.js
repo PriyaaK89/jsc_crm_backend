@@ -195,15 +195,34 @@ exports.markAttendance = async (req, res) => {
 
       const { day_over_odometer_reading, day_over_location } = req.body;
 
-      if (!day_over_odometer_reading) {
-        return res.status(400).json({ message: "Odometer reading required" });
-      }
+      if (
+  todayAttendance.work_type === "field" &&
+  todayAttendance.travel_mode === "private" &&
+  !day_over_odometer_reading
+) {
+  return res.status(400).json({ message: "Odometer reading required" });
+}
 
-      if (!req.files?.day_over_selfie || !req.files?.day_over_odometer) {
-        return res.status(400).json({
-          message: "Day over selfie and odometer image required",
-        });
-      }
+      // if (!req.files?.day_over_selfie || !req.files?.day_over_odometer) {
+      //   return res.status(400).json({
+      //     message: "Day over selfie and odometer image required",
+      //   });
+      // }
+      if (!req.files?.day_over_selfie) {
+  return res.status(400).json({
+    message: "Day over selfie required",
+  });
+}
+
+if (
+  todayAttendance.work_type === "field" &&
+  todayAttendance.travel_mode === "private" &&
+  !req.files?.day_over_odometer
+) {
+  return res.status(400).json({
+    message: "Day over odometer image required",
+  });
+}
 
       const checkIn = new Date(todayAttendance.check_in_time);
       const checkOut = new Date();

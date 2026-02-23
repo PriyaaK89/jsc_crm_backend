@@ -4,7 +4,7 @@ const User = require("../models/user.model");
 const Role = require("../models/role.model");
 const UserDocument = require("../models/userDocument.model")
 const UserIp = require("../models/UserIp.model");
-const { sendUserRegisteredMail } = require("../utils/mail.util");
+const { sendUserRegisteredMail, sendIpApprovedMail  } = require("../utils/mail.util");
 
 
 exports.registerAdmin = async (req, res) => {
@@ -413,6 +413,19 @@ exports.login = async (req, res) => {
 
   const ipAddress = getClientIp(req);
 
+  if (user.role === "ADMIN" || user.role === "SUPER_ADMIN") {
+  const token = jwt.sign(
+    { id: user.id, role: user.role, ip: ipAddress },
+    process.env.JWT_SECRET,
+    { expiresIn: "1d" }
+  );
+
+  return res.json({
+    token,
+    user: { id: user.id, name: user.name, role: user.role, ip: ipAddress }
+  });
+}
+
   let ipRecord = await UserIp.getByUserIdAndIp(user.id, ipAddress);
 
   if (!ipRecord) {
@@ -452,21 +465,55 @@ exports.getPendingIpRequests = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
 exports.approveIpRequest = async (req, res) => {
   try {
     const { ipId } = req.params;
+
     const adminId = req.user.id;
 
-    await UserIp.approveIp(ipId, adminId);
+    const approvedIpData = await UserIp.approveIp(ipId, adminId);
+
+    if (!approvedIpData) {
+      return res.status(404).json({ error: "IP request not found" });
+    }
+
+    const user = await UserIp.findById(approvedIpData.user_id);
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    await sendIpApprovedMail(
+      user.email,
+      user.name,
+      approvedIpData.ip_address
+    );
 
     res.json({
-      message: "IP approved successfully"
+      message: "IP approved successfully and notification email sent"
     });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+
+// exports.approveIpRequest = async (req, res) => {
+//   try {
+//     const { ipId } = req.params;
+//     const adminId = req.user.id;
+
+//     await UserIp.approveIp(ipId, adminId);
+
+//     res.json({
+//       message: "IP approved successfully"
+//     });
+//   } catch (err) {
+//     res.status(500).json({ error: err.message });
+//   }
+// };
+
+
 
 exports.getUsersList = async (req, res) => {
   try {

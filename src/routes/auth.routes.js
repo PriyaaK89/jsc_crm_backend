@@ -23,7 +23,7 @@ router.post( "/approve-ip/:ipId", authMiddleware, isAdmin, auth.approveIpRequest
 router.post('/login', auth.login);
 router.get( '/get-users', authMiddleware, isAdmin, auth.getUsersList);
 router.put( "/update-user/:id", authMiddleware, isAdmin, auth.updateUserById);
-router.get("/get-employee-details/:id",authMiddleware, isAdmin, auth.getUserById);
+router.get("/get-employee-details/:id",authMiddleware,  auth.getUserById);
 
 // router.patch( "/update-user-status/:id", authMiddleware, isAdmin, auth.updateUserStatus);
 router.patch(

@@ -16,6 +16,7 @@ const getAnyIpForUser = async (userId) => {
   return rows.length > 0;
 };
 
+
 const createIp = async (userId, ip, is_allowed = 0) => {
   await db.query(
     `INSERT INTO user_ips (user_id, ip_address, is_allowed) VALUES (?, ?, ?)`,
@@ -23,11 +24,39 @@ const createIp = async (userId, ip, is_allowed = 0) => {
   );
 };
 
+// const approveIp = async (ipId, adminId) => {
+//   await db.query(
+//     `UPDATE user_ips SET is_allowed = 1, approved_at = NOW(), approved_by = ? WHERE id = ?`,
+//     [adminId, ipId]
+//   );
+// };
+
+const findById = async (id) => {
+  const [rows] = await db.query(
+    "SELECT * FROM users WHERE id = ?",
+    [id]
+  );
+
+  return rows[0];
+};
+
+
 const approveIp = async (ipId, adminId) => {
   await db.query(
-    `UPDATE user_ips SET is_allowed = 1, approved_at = NOW(), approved_by = ? WHERE id = ?`,
+    `UPDATE user_ips 
+     SET is_allowed = 1, 
+         approved_at = NOW(), 
+         approved_by = ? 
+     WHERE id = ?`,
     [adminId, ipId]
   );
+
+  const [rows] = await db.query(
+    `SELECT * FROM user_ips WHERE id = ?`,
+    [ipId]
+  );
+
+  return rows[0]; //  required
 };
 
 const getPendingRequests = async () => {
@@ -37,4 +66,4 @@ const getPendingRequests = async () => {
   return rows;
 };
 
-module.exports = { getByUserIdAndIp, getAnyIpForUser, createIp, approveIp, getPendingRequests };
+module.exports = { getByUserIdAndIp, getAnyIpForUser, createIp, approveIp, getPendingRequests, findById };

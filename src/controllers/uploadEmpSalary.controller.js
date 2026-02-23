@@ -19,7 +19,7 @@ const uploadSalarySlip = async (req, res) => {
       });
     }
 
-    const imageUrl = await uploadToS3(
+    const uploadResult = await uploadToS3(
       req.file,
       emp_id,
       "salary-slips"
@@ -29,7 +29,7 @@ const uploadSalarySlip = async (req, res) => {
       emp_id,
       emp_name,
       salary_month: month, //  mapping
-      salary_slip_url: imageUrl
+      salary_slip_url: uploadResult.url
     });
 
     return res.status(201).json({

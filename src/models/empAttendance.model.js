@@ -154,11 +154,49 @@ exports.getMonthlyAttendanceSummary = async (
   const [[row]] = await db.query(
     `
     SELECT
-      SUM(attendance_unit = 'full') AS full_days,
-      SUM(attendance_unit = 'half') AS half_days,
-      SUM(attendance_unit = 'absent') AS absent_days,
-      SUM(status = 'leave') AS leave_days,
+
+      -- Leave Days
+      SUM(
+        CASE 
+          WHEN status = 'leave' THEN 1
+          ELSE 0
+        END
+      ) AS leave_days,
+
+      -- Absent (login but no checkout OR no working minutes)
+      SUM(
+        CASE 
+          WHEN status IN ('present','day_over')
+               AND (check_out_time IS NULL 
+                    OR working_minutes IS NULL)
+          THEN 1
+          ELSE 0
+        END
+      ) AS absent_days,
+
+      -- Full Days
+      SUM(
+        CASE 
+          WHEN status IN ('present','day_over')
+               AND working_minutes >= 360
+          THEN 1
+          ELSE 0
+        END
+      ) AS full_days,
+
+      -- Half Days
+      SUM(
+        CASE 
+          WHEN status IN ('present','day_over')
+               AND working_minutes > 0
+               AND working_minutes < 360
+          THEN 1
+          ELSE 0
+        END
+      ) AS half_days,
+
       COUNT(*) AS total_days
+
     FROM emp_attendance
     WHERE employee_id = ?
       AND MONTH(attendance_date) = ?

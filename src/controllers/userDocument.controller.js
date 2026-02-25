@@ -1,6 +1,28 @@
 const uploadToS3 = require("../utils/S3Upload");
 const UserDoc = require("../models/userDocument.model");
 
+// exports.uploadUserDocument = async (req, res) => {
+//   try {
+//     const { user_id, document_type } = req.body;
+//     const file = req.file;
+
+//     if (!file) {
+//       return res.status(400).json({ message: "File is required" });
+//     }
+
+//     const url = await uploadToS3(file, user_id);
+//     await UserDoc.updateDocument(user_id, document_type, url);
+
+//     res.json({
+//       message: "Document uploaded successfully",
+//       document_type,
+//     url:  uploadResult.url
+//     });
+//   } catch (err) {
+//     res.status(500).json({ error: err.message });
+//   }
+// };
+
 exports.uploadUserDocument = async (req, res) => {
   try {
     const { user_id, document_type } = req.body;
@@ -10,18 +32,27 @@ exports.uploadUserDocument = async (req, res) => {
       return res.status(400).json({ message: "File is required" });
     }
 
-    const url = await uploadToS3(file, user_id);
-    await UserDoc.updateDocument(user_id, document_type, url);
+    //  get full upload result
+    const uploadResult = await uploadToS3(file, user_id);
+
+    //  pass ONLY the URL string to DB
+    await UserDoc.updateDocument(
+      user_id,
+      document_type,
+      uploadResult.url
+    );
 
     res.json({
       message: "Document uploaded successfully",
       document_type,
-      url
+      url: uploadResult.url
     });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+
 exports.getUserDocuments = async (req, res) => {
   try {
     const { user_id } = req.params;

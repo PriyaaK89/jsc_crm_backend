@@ -66,31 +66,6 @@ exports.saveAttendanceImage = async (data) => {
   );
 };
 
-// exports.getDayWiseAttendance = async (employeeId, month, year) => {
-//   const [rows] = await db.query(
-//     `
-//     SELECT
-//       ea.attendance_date,
-//       ea.status,
-//       ea.attendance_unit,
-//       ea.working_minutes,
-//       TIME(ea.check_in_time) AS check_in_time,
-//       TIME(ea.check_out_time) AS check_out_time,
-//       u.id AS employee_id,
-//       u.name AS employee_name
-//     FROM emp_attendance ea
-//     JOIN users u ON u.id = ea.employee_id
-//     WHERE ea.employee_id = ?
-//       AND MONTH(ea.attendance_date) = ?
-//       AND YEAR(ea.attendance_date) = ?
-//     ORDER BY ea.attendance_date ASC
-//     `,
-//     [employeeId, month, year]
-//   );
-
-//   return rows;
-// };
-
 exports.getDayWiseAttendance = async ({
   employeeId,
   startDate,
@@ -206,4 +181,24 @@ exports.getMonthlyAttendanceSummary = async (
   );
 
   return row;
+};
+
+exports.getAttendanceImagesByDate = async (employeeId, date) => {
+  const [rows] = await db.query(
+    `
+    SELECT 
+      ea.id AS attendance_id,
+      ea.attendance_date,
+      eai.image_type,
+      eai.s3_url
+    FROM emp_attendance ea
+    LEFT JOIN emp_attendance_images eai 
+      ON ea.id = eai.attendance_id
+    WHERE ea.employee_id = ?
+      AND ea.attendance_date = ?
+    `,
+    [employeeId, date]
+  );
+
+  return rows;
 };

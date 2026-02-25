@@ -24,10 +24,15 @@ exports.getUserSalaryInfo = async (employeeId) => {
 };
 
 // Get attendance for specific date
+
 exports.getAttendanceByDate = async (employeeId, date) => {
   const [[row]] = await db.query(
     `
-    SELECT attendance_unit, working_minutes
+    SELECT 
+      attendance_unit, 
+      working_minutes,
+      odometer_reading,
+      day_over_odometer_reading
     FROM emp_attendance
     WHERE employee_id = ?
     AND attendance_date = ?
@@ -50,14 +55,11 @@ exports.saveDailySalary = async (data) => {
       per_day_salary,
       basic_salary,
       travelling_allowance,
-      city_allowance,
       daily_allowance,
-      hotel_allowance,
-      other_expense,
       gross_salary,
       net_salary
     )
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+    VALUES (?,?,?,?,?,?,?,?,?,?)
     
     ON DUPLICATE KEY UPDATE
       attendance_type = VALUES(attendance_type),
@@ -65,10 +67,7 @@ exports.saveDailySalary = async (data) => {
       per_day_salary = VALUES(per_day_salary),
       basic_salary = VALUES(basic_salary),
       travelling_allowance = VALUES(travelling_allowance),
-      city_allowance = VALUES(city_allowance),
       daily_allowance = VALUES(daily_allowance),
-      hotel_allowance = VALUES(hotel_allowance),
-      other_expense = VALUES(other_expense),
       gross_salary = VALUES(gross_salary),
       net_salary = VALUES(net_salary)
     `,

@@ -13,16 +13,14 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   const year = new Date(date).getFullYear();
   const month = new Date(date).getMonth() + 1;
 
-  //  Check if month locked
+  // Check if month locked
   const [[lockedRow]] = await require("../config/db").query(
     `SELECT salary_locked FROM emp_salary 
      WHERE employee_id = ? AND month = ? AND year = ?`,
-    [employeeId, month, year],
+    [employeeId, month, year]
   );
 
-  if (lockedRow && lockedRow.salary_locked === 1) {
-    return; // stop silently
-  }
+  if (lockedRow && lockedRow.salary_locked === 1) return;
 
   const daysInMonth = new Date(year, month, 0).getDate();
   const perDaySalary = Number(user.salary) / daysInMonth;
@@ -36,43 +34,63 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   } else if (attendance.attendance_unit === "half") {
     basicSalary = perDaySalary * 0.5;
     allowanceMultiplier = 0.5;
-  } else {
-    basicSalary = 0;
   }
 
-  const travelAllowance =
+  /* ---------- Working Hours Format ---------- */
+  const totalMinutes = attendance.working_minutes || 0;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const formattedWorkingHours = `${hours} hr ${minutes} min`;
+
+  /* ---------- Travel KM Calculation ---------- */
+  let travelledKm = 0;
+
+  if (
+    attendance.odometer_reading &&
+    attendance.day_over_odometer_reading
+  ) {
+    travelledKm =
+      Number(attendance.day_over_odometer_reading) -
+      Number(attendance.odometer_reading);
+
+    if (travelledKm < 0) travelledKm = 0;
+  }
+
+  /* ---------- TA & DA ---------- */
+  let travelAllowance =
+    travelledKm *
     (user.travelling_allowance_per_km || 0) *
-    (user.avg_travel_km_per_day || 0) *
     allowanceMultiplier;
 
-  const cityAllowance = (user.city_allowance_per_km || 0) * allowanceMultiplier;
+  let dailyAllowance = 0;
 
-  const dailyAllowance =
-    (user.daily_allowance_with_doc || 0) * allowanceMultiplier;
+  if (
+    travelledKm >= (user.avg_travel_km_per_day || 0)
+  ) {
+    dailyAllowance =
+      (user.daily_allowance_with_doc || 0) *
+      allowanceMultiplier;
+  }
 
-  const hotelAllowance = (user.hotel_allowance || 0) * allowanceMultiplier;
-
+  /* ---------- Final Salary ---------- */
   const grossSalary =
     basicSalary +
     travelAllowance +
-    cityAllowance +
-    dailyAllowance +
-    hotelAllowance;
+    dailyAllowance;
+
+  const netSalary = grossSalary;
 
   await SalaryDaily.saveDailySalary([
     employeeId,
     date,
     attendance.attendance_unit,
-    attendance.working_minutes || "0 hr",
+    formattedWorkingHours,
     perDaySalary.toFixed(2),
     basicSalary.toFixed(2),
     travelAllowance.toFixed(2),
-    cityAllowance.toFixed(2),
     dailyAllowance.toFixed(2),
-    hotelAllowance.toFixed(2),
-    0,
     grossSalary.toFixed(2),
-    grossSalary.toFixed(2),
+    netSalary.toFixed(2),
   ]);
 };
 
@@ -372,6 +390,51 @@ exports.getMonthlyAttendanceSummary = async (req, res) => {
     console.error("Monthly Summary Error:", error);
     return res.status(500).json({
       message: "Server error",
+    });
+  }
+};
+
+exports.getAttendanceImagesByDate = async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({
+        message: "Date is required (YYYY-MM-DD)"
+      });
+    }
+
+    const rows = await Attendance.getAttendanceImagesByDate(
+      employeeId,
+      date
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        message: "No attendance found for this date"
+      });
+    }
+
+    // Format response properly
+    const response = {
+      employee_id: employeeId,
+      attendance_date: date,
+      images: {}
+    };
+
+    rows.forEach(row => {
+      if (row.image_type && row.s3_url) {
+        response.images[row.image_type] = row.s3_url;
+      }
+    });
+
+    return res.json(response);
+
+  } catch (error) {
+    console.error("Get Attendance Images Error:", error);
+    return res.status(500).json({
+      message: "Server error"
     });
   }
 };

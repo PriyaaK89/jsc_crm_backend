@@ -94,6 +94,33 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   ]);
 };
 
+const autoClosePreviousDay = async (employeeId) => {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const dateStr = yesterday.toISOString().split("T")[0];
+
+  const attendance = await SalaryDaily.getAttendanceByDate(employeeId, dateStr);
+
+  if (
+    attendance &&
+    attendance.status === "present" &&
+    !attendance.check_out_time
+  ) {
+    // Mark as half day
+    await Attendance.updateDayOver([
+      0,            // working minutes
+      "half",       // attendance unit
+      0,            // late
+      null,
+      null,
+      attendance.id,
+    ]);
+
+    await generateDailySalaryInternal(employeeId, dateStr);
+  }
+};
+
 exports.markAttendance = async (req, res) => {
   try {
     const { employee_id, status } = req.body;
@@ -101,6 +128,8 @@ exports.markAttendance = async (req, res) => {
     if (!employee_id || !status) {
       return res.status(400).json({ message: "Required fields missing" });
     }
+
+     await autoClosePreviousDay(employee_id);
 
     const todayAttendance = await Attendance.getTodayAttendance(employee_id);
 

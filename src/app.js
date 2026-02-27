@@ -19,6 +19,7 @@ const uploadEmpSalaryRoute = require("../src/routes/uploadEmpSalary.routes");
 const empAttendanceRoute = require("../src/routes/empAttendance.routes");
 const empSalaryRoute = require("../src/routes/empSalary.routes");
 const empDailySalaryRoute = require("../src/routes/empDailySalary.routes");
+const locationRoute = require("../src/routes/location.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -36,6 +37,7 @@ app.use(uploadEmpSalaryRoute);
 app.use(empAttendanceRoute);
 app.use(empSalaryRoute);
 app.use(empDailySalaryRoute);
+app.use(locationRoute);
 
 
 // 404 handler

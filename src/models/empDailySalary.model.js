@@ -117,3 +117,18 @@ exports.getMonthlyTotals = async (employeeId, month, year) => {
 
   return row;
 };
+
+exports.getSalaryByDateRange = async (employeeId, startDate, endDate) => {
+  const [rows] = await db.query(
+    `
+    SELECT *
+    FROM emp_salary_daily
+    WHERE employee_id = ?
+    AND salary_date BETWEEN ? AND ?
+    ORDER BY salary_date ASC
+    `,
+    [employeeId, startDate, endDate]
+  );
+
+  return rows;
+};

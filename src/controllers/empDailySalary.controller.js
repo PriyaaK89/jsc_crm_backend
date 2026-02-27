@@ -133,3 +133,40 @@ const formattedWorkingHours = `${hours} hr ${minutes} min`;
     res.status(500).json({ message: "Server error" });
   }
 };
+
+exports.getSalaryByDateRange = async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    if (!employeeId || !startDate || !endDate) {
+      return res.status(400).json({
+        message: "Employee ID, startDate and endDate are required",
+      });
+    }
+
+    const data = await SalaryDaily.getSalaryByDateRange(
+      employeeId,
+      startDate,
+      endDate
+    );
+
+    if (!data.length) {
+      return res.status(404).json({
+        message: "No salary records found for selected date range",
+      });
+    }
+
+    return res.json({
+      success: true,
+      count: data.length,
+      data,
+    });
+
+  } catch (error) {
+    console.error("Get Salary Range Error:", error);
+    return res.status(500).json({
+      message: "Server error",
+    });
+  }
+};

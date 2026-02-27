@@ -9,4 +9,10 @@ router.post(
   dailySalaryController.generateDailySalary
 );
 
+router.get(
+  "/daily-salary-range/:employeeId",
+  auth,
+  dailySalaryController.getSalaryByDateRange
+);
+
 module.exports = router;

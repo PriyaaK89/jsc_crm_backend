@@ -25,14 +25,34 @@ exports.getUserSalaryInfo = async (employeeId) => {
 
 // Get attendance for specific date
 
+// exports.getAttendanceByDate = async (employeeId, date) => {
+//   const [[row]] = await db.query(
+//     `SELECT 
+//       attendance_unit, 
+//       working_minutes,
+//       odometer_reading,
+//       day_over_odometer_reading
+//     FROM emp_attendance
+//     WHERE employee_id = ?
+//     AND attendance_date = ?
+//     `,
+//     [employeeId, date]
+//   );
+//   return row;
+// };
+
+
 exports.getAttendanceByDate = async (employeeId, date) => {
   const [[row]] = await db.query(
     `
-    SELECT 
-      attendance_unit, 
+    SELECT
+      id,
+      status,
+      attendance_unit,
       working_minutes,
       odometer_reading,
-      day_over_odometer_reading
+      day_over_odometer_reading,
+      check_out_time
     FROM emp_attendance
     WHERE employee_id = ?
     AND attendance_date = ?

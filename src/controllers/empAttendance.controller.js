@@ -42,7 +42,41 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   const minutes = totalMinutes % 60;
   const formattedWorkingHours = `${hours} hr ${minutes} min`;
 
-  /* ---------- Travel KM Calculation ---------- */
+  // /* ---------- Travel KM Calculation ---------- */
+  // let travelledKm = 0;
+
+  // if (
+  //   attendance.odometer_reading &&
+  //   attendance.day_over_odometer_reading
+  // ) {
+  //   travelledKm =
+  //     Number(attendance.day_over_odometer_reading) -
+  //     Number(attendance.odometer_reading);
+
+  //   if (travelledKm < 0) travelledKm = 0;
+  // }
+
+  // /* ---------- TA & DA ---------- */
+  // let travelAllowance =
+  //   travelledKm *
+  //   (user.travelling_allowance_per_km || 0) *
+  //   allowanceMultiplier;
+
+  // let dailyAllowance = 0;
+
+  // if (
+  //   travelledKm >= (user.avg_travel_km_per_day || 0)
+  // ) {
+  //   dailyAllowance =
+  //     (user.daily_allowance_with_doc || 0) *
+  //     allowanceMultiplier;
+  // }
+
+  let travelAllowance = 0;
+let dailyAllowance = 0;
+
+if (attendance.check_out_time) {
+
   let travelledKm = 0;
 
   if (
@@ -56,13 +90,10 @@ const generateDailySalaryInternal = async (employeeId, date) => {
     if (travelledKm < 0) travelledKm = 0;
   }
 
-  /* ---------- TA & DA ---------- */
-  let travelAllowance =
+  travelAllowance =
     travelledKm *
     (user.travelling_allowance_per_km || 0) *
     allowanceMultiplier;
-
-  let dailyAllowance = 0;
 
   if (
     travelledKm >= (user.avg_travel_km_per_day || 0)
@@ -71,6 +102,7 @@ const generateDailySalaryInternal = async (employeeId, date) => {
       (user.daily_allowance_with_doc || 0) *
       allowanceMultiplier;
   }
+}
 
   /* ---------- Final Salary ---------- */
   const grossSalary =
@@ -467,3 +499,5 @@ exports.getAttendanceImagesByDate = async (req, res) => {
     });
   }
 };
+
+module.exports.generateDailySalaryInternal = generateDailySalaryInternal;

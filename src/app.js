@@ -20,6 +20,8 @@ const empAttendanceRoute = require("../src/routes/empAttendance.routes");
 const empSalaryRoute = require("../src/routes/empSalary.routes");
 const empDailySalaryRoute = require("../src/routes/empDailySalary.routes");
 const locationRoute = require("../src/routes/location.routes");
+const uploadRoute = require("../src/routes/upload.routes");
+const documentRoute = require("../src/routes/document.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -30,7 +32,7 @@ app.get('/', (req, res) => {
 // Routes
 app.use('/auth', authRoutes);
 app.use('/department', departmentRoute);
-app.use( jobRoleRoute);
+app.use(jobRoleRoute);
 app.use(userDocumentRoute);
 app.use(pincodeRoute);
 app.use(uploadEmpSalaryRoute);
@@ -38,6 +40,8 @@ app.use(empAttendanceRoute);
 app.use(empSalaryRoute);
 app.use(empDailySalaryRoute);
 app.use(locationRoute);
+app.use(uploadRoute);
+app.use(documentRoute)
 
 
 // 404 handler

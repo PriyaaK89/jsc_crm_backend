@@ -74,15 +74,12 @@ const formattedWorkingHours = `${hours} hr ${minutes} min`;
       const leaveCount = leaveCountResult[0].leaveCount;
 
       if (leaveCount < 1) {
-        // First leave → paid
         basicSalary = perDaySalary;
         allowanceMultiplier = 1;
       } else {
-        // After first leave → unpaid
         basicSalary = 0;
       }
     } else {
-      // Absent
       basicSalary = 0;
     }
 

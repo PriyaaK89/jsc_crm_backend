@@ -1,58 +1,5 @@
 const db = require("../config/db");
 
-
-// const createUser = async (user) => {
-//   const [result] = await db.query(
-//     `
-//     INSERT INTO users (
-//       name, email, password, role_id,must_change_password,
-//       gender, contact_no, date_of_birth,
-//       address_line1, address_line2, country, state, city, district, pincode,
-//       father_name, pan_number, aadhar_no, blood_group,
-//       department_id, job_role_id, date_of_joining,
-//       salary, attendance_selfie, travelling_allowance_per_km, avg_travel_km_per_day,
-//       city_allowance_per_km, daily_allowance_with_doc, daily_allowance_without_doc, hotel_allowance,
-//       total_leaves, login_time, logout_time, authentication_amount, headquarter, approver_name, pf, esi)
-//     VALUES (
-//       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-//        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-//     [
-//       user.name, user.email, user.password, user.role_id, user.must_change_password ?? 1,
-//       user.gender, user.contact_no, user.date_of_birth,
-//       user.address_line1, user.address_line2, user.country, user.state, user.city, user.district, user.pincode,
-//       user.father_name, user.pan_number, user.aadhar_no, user.blood_group,
-//       user.department_id, user.job_role_id, user.date_of_joining, user.salary, user.attendance_selfie, user.travelling_allowance_per_km, user.avg_travel_km_per_day,
-//       user.city_allowance_per_km, user.daily_allowance_with_doc, user.daily_allowance_without_doc, user.hotel_allowance,
-//      user.total_leaves, user.login_time, user.logout_time, user.authentication_amount, user.headquarter, user.approver_name, user.pf, user.esi
-//     ]
-//   );
-
-//   return { id: result.insertId };
-// };
-
-
-// const createUser = async (user) => {
-//   const [rows] = await db.query(` SELECT user_id FROM users WHERE user_id IS NOT NULL ORDER BY id DESC LIMIT 1 `);
-//   let nextUserId = 'EMP-1001';
-//   if (rows.length > 0 && rows[0].user_id) {
-//     const lastNumber = parseInt(rows[0].user_id.split('-')[1], 10);
-//     nextUserId = `EMP-${lastNumber + 1}`; }
-
-//   const [result] = await db.query(
-//     ` INSERT INTO users ( user_id, name, email, password, role_id, gender, contact_no, date_of_birth, address_line1, address_line2, country, state, city, district, pincode, father_name, pan_number, aadhar_no, blood_group, department_id, job_role_id, date_of_joining, salary, travelling_allowance, attendance_timing, approver_name )
-//     VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ) `,
-//     [ nextUserId, user.name, user.email, user.password, user.role_id,
-//       user.gender, user.contact_no, user.date_of_birth, user.address_line1, user.address_line2, user.country, user.state, user.city, user.district,
-//       user.pincode, user.father_name, user.pan_number, user.aadhar_no, user.blood_group, user.department_id, user.job_role_id, user.date_of_joining, user.salary, user.travelling_allowance, user.attendance_timing, user.approver_name ]
-//   );
-//   return {
-//     id: result.insertId,
-//     user_id: nextUserId
-//   };
-// };
-
-// FIND USER BY EMAIL
-
 const createUser = async (user) => {
   const [result] = await db.query(
     `

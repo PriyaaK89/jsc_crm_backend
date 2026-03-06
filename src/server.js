@@ -1,4 +1,5 @@
 require('../src/jobs/cleanup.job');
+require("../src/jobs/attendanceAutoClose");
 const app = require('./app');
 const PORT = process.env.PORT || 5000;
 

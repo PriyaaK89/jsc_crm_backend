@@ -14,9 +14,7 @@ router.post('/create-admin', authMiddleware, allowRoles('SUPER_ADMIN'),
 router.post('/create-user', authMiddleware, isAdmin,
   (req, res, next) => { req.body.roleName = 'USER';
     next();
-  },
-  auth.createUserByRole
-);
+  }, auth.createUserByRole );
 
 router.get("/get-ip-requests", authMiddleware, isAdmin, auth.getPendingIpRequests);
 router.post( "/approve-ip/:ipId", authMiddleware, isAdmin, auth.approveIpRequest);
@@ -26,12 +24,7 @@ router.put( "/update-user/:id", authMiddleware, isAdmin, auth.updateUserById);
 router.get("/get-employee-details/:id",authMiddleware,  auth.getUserById);
 
 // router.patch( "/update-user-status/:id", authMiddleware, isAdmin, auth.updateUserStatus);
-router.patch(
-  "/user-status/:action",
-  authMiddleware,
-  isAdmin,
-  auth.updateUserStatusByAction
-);
+router.patch( "/user-status/:action", authMiddleware, isAdmin, auth.updateUserStatusByAction);
 router.delete( "/delete-user/:id", authMiddleware, isAdmin, auth.deleteUserById);
 router.get( "/get-deleted-users", authMiddleware, isAdmin, auth.getDeletedUsers);
 

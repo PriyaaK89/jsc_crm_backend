@@ -23,7 +23,10 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   if (lockedRow && lockedRow.salary_locked === 1) return;
 
   const daysInMonth = new Date(year, month, 0).getDate();
-  const perDaySalary = Number(user.salary) / daysInMonth;
+
+  const yearlySalary = Number(user.salary);
+  const monthlySalary = yearlySalary / 12;
+  const perDaySalary = monthlySalary / daysInMonth;
 
   let basicSalary = 0;
   let allowanceMultiplier = 0;
@@ -41,36 +44,6 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   const formattedWorkingHours = `${hours} hr ${minutes} min`;
-
-  // /* ---------- Travel KM Calculation ---------- */
-  // let travelledKm = 0;
-
-  // if (
-  //   attendance.odometer_reading &&
-  //   attendance.day_over_odometer_reading
-  // ) {
-  //   travelledKm =
-  //     Number(attendance.day_over_odometer_reading) -
-  //     Number(attendance.odometer_reading);
-
-  //   if (travelledKm < 0) travelledKm = 0;
-  // }
-
-  // /* ---------- TA & DA ---------- */
-  // let travelAllowance =
-  //   travelledKm *
-  //   (user.travelling_allowance_per_km || 0) *
-  //   allowanceMultiplier;
-
-  // let dailyAllowance = 0;
-
-  // if (
-  //   travelledKm >= (user.avg_travel_km_per_day || 0)
-  // ) {
-  //   dailyAllowance =
-  //     (user.daily_allowance_with_doc || 0) *
-  //     allowanceMultiplier;
-  // }
 
   let travelAllowance = 0;
 let dailyAllowance = 0;

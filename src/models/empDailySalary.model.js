@@ -23,25 +23,6 @@ exports.getUserSalaryInfo = async (employeeId) => {
   return row;
 };
 
-// Get attendance for specific date
-
-// exports.getAttendanceByDate = async (employeeId, date) => {
-//   const [[row]] = await db.query(
-//     `SELECT 
-//       attendance_unit, 
-//       working_minutes,
-//       odometer_reading,
-//       day_over_odometer_reading
-//     FROM emp_attendance
-//     WHERE employee_id = ?
-//     AND attendance_date = ?
-//     `,
-//     [employeeId, date]
-//   );
-//   return row;
-// };
-
-
 exports.getAttendanceByDate = async (employeeId, date) => {
   const [[row]] = await db.query(
     `
@@ -97,7 +78,25 @@ exports.saveDailySalary = async (data) => {
   return result;
 };
 
-// Get monthly daily salary records
+// Get attendance for specific date
+
+// exports.getAttendanceByDate = async (employeeId, date) => {
+//   const [[row]] = await db.query(
+//     `SELECT 
+//       attendance_unit, 
+//       working_minutes,
+//       odometer_reading,
+//       day_over_odometer_reading
+//     FROM emp_attendance
+//     WHERE employee_id = ?
+//     AND attendance_date = ?
+//     `,
+//     [employeeId, date]
+//   );
+//   return row;
+// };
+
+// Get monthly daily salary records not used anywhere
 exports.getMonthlyDailySalary = async (employeeId, month, year) => {
   const [rows] = await db.query(
     `

@@ -48,7 +48,7 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   let travelAllowance = 0;
 let dailyAllowance = 0;
 
-if (attendance.check_out_time) {
+if (attendance.check_out_time && attendance.work_type !== "wfh") {
 
   let travelledKm = 0;
 
@@ -188,6 +188,11 @@ exports.markAttendance = async (req, res) => {
       if (work_type === "field" && !field_work_type) {
         return res.status(400).json({ message: "Field work type required" });
       }
+      if (!["office", "field", "wfh"].includes(work_type)) {
+  return res.status(400).json({
+    message: "Invalid work type",
+  });
+}
 
       if (
         work_type === "field" &&

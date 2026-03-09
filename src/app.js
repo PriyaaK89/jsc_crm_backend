@@ -9,7 +9,6 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-
 const departmentRoute = require("../src/routes/department.routes");
 const jobRoleRoute = require("../src/routes/jobRole.routes");
 const authRoutes = require('../src/routes/auth.routes');
@@ -22,6 +21,7 @@ const empDailySalaryRoute = require("../src/routes/empDailySalary.routes");
 const locationRoute = require("../src/routes/location.routes");
 const uploadRoute = require("../src/routes/upload.routes");
 const documentRoute = require("../src/routes/document.routes");
+const leegalityRoute = require("../src/routes/esign.routes")
 
 // Health check
 app.get('/', (req, res) => {
@@ -41,7 +41,8 @@ app.use(empSalaryRoute);
 app.use(empDailySalaryRoute);
 app.use(locationRoute);
 app.use(uploadRoute);
-app.use(documentRoute)
+app.use(documentRoute);
+app.use(leegalityRoute);
 
 
 // 404 handler

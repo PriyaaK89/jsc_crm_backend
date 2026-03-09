@@ -9,11 +9,9 @@ const createUser = async (user) => {
       password,
       role_id,
       must_change_password,
-
       gender,
       contact_no,
       date_of_birth,
-
       address_line1,
       address_line2,
       country,
@@ -22,17 +20,15 @@ const createUser = async (user) => {
       district,
       area,
       pincode,
-
       father_name,
       pan_number,
       aadhar_no,
       blood_group,
-
       department_id,
       job_role_id,
+      manager_id,
       date_of_joining,
       salary,
-
       week_off,
       attendance_selfie,
       travelling_allowance_per_km,
@@ -41,26 +37,20 @@ const createUser = async (user) => {
       daily_allowance_with_doc,
       daily_allowance_without_doc,
       hotel_allowance,
-
       total_leaves,
       authentication_amount,
       headquarter,
       approver_name,
-
       login_time,
       logout_time,
       pf,
       esi
     )
     VALUES (
-      ?, ?, ?, ?, ?,
-      ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?,
-      ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?
+      ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?
     )
     `,
     [
@@ -90,6 +80,7 @@ const createUser = async (user) => {
 
       user.department_id || null,
       user.job_role_id || null,
+      user.manager_id || null,
       user.date_of_joining || null,
       user.salary || null,
 

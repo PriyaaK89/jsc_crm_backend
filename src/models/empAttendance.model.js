@@ -2,12 +2,7 @@ const db = require("../config/db");
 
 exports.getTodayAttendance = async (employeeId) => {
   const [rows] = await db.query(
-    `
-    SELECT *
-    FROM emp_attendance
-    WHERE employee_id = ?
-      AND attendance_date = CURDATE()
-    `,
+    `SELECT * FROM emp_attendance WHERE employee_id = ? AND attendance_date = CURDATE() `,
     [employeeId]
   );
   return rows[0];
@@ -17,18 +12,7 @@ exports.createAttendance = async (data) => {
   const [result] = await db.query(
     `
     INSERT INTO emp_attendance (
-      employee_id,
-      attendance_date,
-      status,
-      work_type,
-      field_work_type,
-      travel_mode,
-      vehicle_type,
-      public_transport,
-      odometer_reading,
-      visit_location,
-      check_in_time,
-      leave_reason
+      employee_id, attendance_date, status, work_type, field_work_type, travel_mode, vehicle_type, public_transport, odometer_reading, visit_location, check_in_time, leave_reason
     ) VALUES (?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     data

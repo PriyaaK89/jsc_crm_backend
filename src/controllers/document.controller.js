@@ -3,7 +3,6 @@ const db = require("../config/db");
 
 const BUCKET = "jsc-crm";
 
-
 exports.uploadEmployeeLetter = async (req, res) => {
   try {
     const file = req.file;
@@ -11,13 +10,13 @@ exports.uploadEmployeeLetter = async (req, res) => {
 
     if (!file) {
       return res.status(400).json({
-        message: "PDF file is required"
+        message: "PDF file is required",
       });
     }
 
     if (!document_type) {
       return res.status(400).json({
-        message: "document_type is required"
+        message: "document_type is required",
       });
     }
 
@@ -28,30 +27,65 @@ exports.uploadEmployeeLetter = async (req, res) => {
     const fileName = `employee/letter/${document_type}_${cleanName}_${employee_id}.pdf`;
 
     // upload to minio
-    await minioClient.putObject(
-      BUCKET,
-      fileName,
-      file.buffer,
-      file.size,
-      { "Content-Type": "application/pdf" }
-    );
+    await minioClient.putObject(BUCKET, fileName, file.buffer, file.size, {
+      "Content-Type": "application/pdf",
+    });
 
     // store path in DB
     await db.query(
       `INSERT INTO employee_documents
-       (employee_id, document_type, file_url)
-       VALUES (?, ?, ?)`,
-      [employee_id, document_type, fileName]
+(employee_id, document_type, file_url)
+VALUES (?, ?, ?)
+ON DUPLICATE KEY UPDATE
+file_url = VALUES(file_url);`,
+      [employee_id, document_type, fileName],
     );
 
     res.json({
       message: "Letter uploaded successfully",
-      file_path: fileName
+      file_path: fileName,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message,
+    });
+  }
+};
+
+exports.getEmployeeDocumentsByEmployee = async (req, res) => {
+  try {
+
+    const { employee_id } = req.params;
+
+    const [rows] = await db.query(
+      `
+      SELECT 
+        ed.id,
+        ed.employee_id,
+        u.name AS employee_name,
+        ed.document_type,
+        ed.file_url,
+        ed.signing_status,
+        ed.leegality_document_id,
+        ed.signed_file_url,
+        ed.created_at
+      FROM employee_documents ed
+      LEFT JOIN users u ON u.id = ed.employee_id
+      WHERE ed.employee_id = ?
+      ORDER BY ed.created_at DESC
+      `,
+      [employee_id]
+    );
+
+    res.json({
+      data: rows
     });
 
   } catch (error) {
+
     res.status(500).json({
-      error: error.message
+      message: error.message
     });
+
   }
 };

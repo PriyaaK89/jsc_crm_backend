@@ -5,12 +5,12 @@ exports.leegalityWebhook = async (req, res) => {
   try {
 
     const payload = req.body;
-
     console.log("Leegality Webhook:", payload);
 
     const documentId = payload.documentId;
     const documentStatus = payload.documentStatus;
     const action = payload?.request?.action;
+    const signedFileUrl = payload?.request?.invitationUrl || null;
 
     if (!documentId) {
       return res.status(400).json({ message: "Invalid payload" });
@@ -32,6 +32,7 @@ exports.leegalityWebhook = async (req, res) => {
 
     if (action === "Signed") signingStatus = "signed";
     if (action === "Rejected") signingStatus = "rejected";
+    if (payload?.request?.expired) signingStatus = "expired";
 
     if (documentStatus === "Completed") signingStatus = "signed";
 
@@ -39,9 +40,10 @@ exports.leegalityWebhook = async (req, res) => {
       `UPDATE employee_documents
        SET signing_status = ?,
            webhook_status = ?,
+           signed_file_url = ?,
            signed_at = IF(?='signed', NOW(), signed_at)
        WHERE leegality_document_id = ?`,
-      [signingStatus, documentStatus, signingStatus, documentId]
+      [signingStatus, documentStatus, signedFileUrl, signingStatus, documentId]
     );
 
     console.log("Document updated:", documentId);

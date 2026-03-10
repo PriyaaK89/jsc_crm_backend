@@ -1,3 +1,4 @@
+const db = require("../config/db");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/user.model");
@@ -285,7 +286,19 @@ exports.updateUserById = async (req, res) => {
       role_id
     } = req.body;
     
+ if (job_role_id !== undefined && job_role_id !== null) {
+      const [jobRole] = await db.query(
+        "SELECT id FROM job_roles WHERE id = ?",
+        [job_role_id]
+      );
 
+      if (jobRole.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid job_role_id. Job role does not exist."
+        });
+      }
+    }
     const updated = await User.updateUserById(userId, {
       name,
       gender,
@@ -342,10 +355,18 @@ exports.updateUserById = async (req, res) => {
       message: "User updated successfully"
     });
 
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+  }catch (err) {
+  if (err.code === "ER_NO_REFERENCED_ROW_2") {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid reference ID provided."
+    });
   }
+
+  res.status(500).json({
+    error: err.message
+  });
+}
 };
 
 exports.setUserPassword = async (req, res) => {

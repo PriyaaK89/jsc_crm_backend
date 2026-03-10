@@ -21,7 +21,8 @@ const empDailySalaryRoute = require("../src/routes/empDailySalary.routes");
 const locationRoute = require("../src/routes/location.routes");
 const uploadRoute = require("../src/routes/upload.routes");
 const documentRoute = require("../src/routes/document.routes");
-const leegalityRoute = require("../src/routes/esign.routes")
+const leegalityRoute = require("../src/routes/esign.routes");
+const leegalityWebhookRoute = require("../src/routes/leegalityWebhook.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -43,6 +44,7 @@ app.use(locationRoute);
 app.use(uploadRoute);
 app.use(documentRoute);
 app.use(leegalityRoute);
+app.use(leegalityWebhookRoute)
 
 
 // 404 handler

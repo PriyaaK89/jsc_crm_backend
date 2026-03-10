@@ -3,10 +3,12 @@ const db = require("../config/db");
 const minioClient = require("../config/minio");
 
 const BUCKET = "jsc-crm";
+
 exports.sendForESign = async (req, res) => {
   try {
     const { document_id } = req.body;
 
+    // Fetch document + user info
     const [rows] = await db.query(
       `SELECT ed.*, u.name, u.email, u.contact_no
        FROM employee_documents ed
@@ -17,85 +19,97 @@ exports.sendForESign = async (req, res) => {
 
     if (!rows.length) {
       return res.status(404).json({
-        message: "Document not found",
+        status: 0,
+        messages: [{ code: "NOT_FOUND", message: "Document not found" }],
+        data: null,
       });
     }
 
     const document = rows[0];
 
-    // Get PDF from MinIO
-    const stream = await minioClient.getObject(
-      BUCKET,
-      document.file_url
+    // Validate email and phone for notifications
+    if (!document.email && !document.contact_no) {
+      return res.status(400).json({
+        status: 0,
+        messages: [{ code: "INVALID_INVITEE", message: "Invitee email or phone is required" }],
+        data: null,
+      });
+    }
+
+    // Fetch file from MinIO
+    const stream = await minioClient.getObject(BUCKET, document.file_url);
+    const chunks = [];
+    for await (const chunk of stream) chunks.push(chunk);
+    const buffer = Buffer.concat(chunks);
+    const pdfBase64 = buffer.toString("base64");
+
+    // Prepare payload for Leegality API
+    const payload = {
+  profileId: process.env.LEEGALITY_PROFILE_ID,
+  irn: `emp_doc_${document.id}_${Date.now()}`,
+  file: {
+    name: `${document.document_type}.pdf`,
+    file: pdfBase64,
+  },
+  invitees: [
+    {
+      name: document.name,
+      email: document.email,
+      phone: document.contact_no ? `+91${document.contact_no}` : undefined,
+    },
+  ],
+    };
+
+    // Call Leegality
+    const response = await axios.post(
+      process.env.LEEGALITY_BASE_URL,
+      payload,
+      {
+        headers: {
+          "X-Auth-Token": process.env.LEEGALITY_AUTH_TOKEN,
+          "Content-Type": "application/json",
+        },
+      }
     );
 
-    const chunks = [];
+    const respData = response.data;
 
-    for await (const chunk of stream) {
-      chunks.push(chunk);
+    // Check status returned by Leegality
+    if (respData.status !== 1) {
+      return res.status(400).json({
+        status: 0,
+        messages: respData.messages || [{ code: "API_ERROR", message: "Leegality API failed" }],
+        data: respData.data || null,
+      });
     }
 
-    const buffer = Buffer.concat(chunks);
+    // Save Leegality document details in DB
+    const documentId = respData.data.documentId;
+    const invitee = respData.data.invitees[0];
 
-    const pdfBase64 = buffer.toString("base64");
-    console.log("Calling:", `${process.env.LEEGALITY_BASE_URL}`);
-    // Send to Leegality
-const response = await axios.post(
-  `${process.env.LEEGALITY_BASE_URL}`,
-  {
-    profileId: process.env.LEEGALITY_PROFILE_ID,
-    file: {
-      name: `${document.document_type}.pdf`,
-      file: pdfBase64
-    },
-    invitees: [
-      {
-        name: document.name,
-        email: document.email,
-        phone: document.contact_no
-      }
-    ]
-  },
-  {
-    headers: {
-      "x-api-key": process.env.LEEGALITY_AUTH_TOKEN,
-      "Content-Type": "application/json"
-    }
-    
-  }
-);
+    await db.query(
+      `UPDATE employee_documents
+       SET leegality_document_id = ?,
+           sign_url = ?,
+           signing_status = 'pending',
+           sent_for_sign_at = NOW()
+       WHERE id = ?`,
+      [documentId, invitee.signUrl, document_id]
+    );
 
-if (response.data.status !== 1) {
-  throw new Error(response.data.messages?.[0]?.message || "Leegality API failed");
-}
-
-const documentId = response.data.data.documentId;
-
-const invitee = response.data.data.invitees[0];
-
-await db.query(
-`UPDATE employee_documents
- SET leegality_document_id=?,
-     leegality_invitee_id=?,
-     sign_url=?,
-     signing_status='pending',
-     sent_for_sign_at=NOW()
- WHERE id=?`,
-[
-  documentId,
-  invitee.inviteeId,
-  invitee.signUrl,
-  document_id
-]
-);
-    res.json({
-      message: "Document sent for eSign successfully",
+    // Respond with full Leegality response schema
+    return res.json({
+      status: 1,
+      messages: [{ code: "SUCCESS", message: "Document sent for eSign successfully" }],
+      data: respData.data,
     });
-
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      error: error.message
+    console.error("Leegality error:", error.response?.data || error.message);
+
+    return res.status(500).json({
+      status: 0,
+      messages: [{ code: "SERVER_ERROR", message: error.message }],
+      data: null,
     });
   }
 };

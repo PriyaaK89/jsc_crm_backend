@@ -37,7 +37,7 @@ exports.createUserByRole = async (req, res) => {
       name, gender, contact_no, date_of_birth, email,
       address_line1, address_line2, country, state, city, district, area,
       pincode, father_name, pan_number, aadhar_no, blood_group,
-      department_id, job_role_id, manager_id, date_of_joining, salary,
+      department_id, job_role_id, date_of_joining, salary,
       attendance_selfie, travelling_allowance_per_km, avg_travel_km_per_day, 
       city_allowance_per_km, daily_allowance_with_doc, daily_allowance_without_doc,
       hotel_allowance, total_leaves, authentication_amount, headquarter,
@@ -57,7 +57,7 @@ exports.createUserByRole = async (req, res) => {
     const createdUser = await User.createUser({
       name, email, role_id: roleId, gender, contact_no, date_of_birth,
       address_line1, address_line2, country, state, city, district,
-      area, pincode, father_name, pan_number, aadhar_no, blood_group, department_id, job_role_id,  manager_id,
+      area, pincode, father_name, pan_number, aadhar_no, blood_group, department_id, job_role_id, 
       date_of_joining, salary, attendance_selfie, travelling_allowance_per_km, avg_travel_km_per_day, city_allowance_per_km, daily_allowance_with_doc,
       daily_allowance_without_doc, hotel_allowance, total_leaves, authentication_amount, headquarter, approver_name, login_time, logout_time, pf, esi
     });
@@ -284,6 +284,7 @@ exports.updateUserById = async (req, res) => {
       approver_name,
       role_id
     } = req.body;
+    
 
     const updated = await User.updateUserById(userId, {
       name,

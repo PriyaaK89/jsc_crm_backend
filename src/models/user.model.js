@@ -26,7 +26,6 @@ const createUser = async (user) => {
       blood_group,
       department_id,
       job_role_id,
-      manager_id,
       date_of_joining,
       salary,
       week_off,
@@ -50,7 +49,7 @@ const createUser = async (user) => {
       ?, ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     )
     `,
     [
@@ -80,7 +79,6 @@ const createUser = async (user) => {
 
       user.department_id || null,
       user.job_role_id || null,
-      user.manager_id || null,
       user.date_of_joining || null,
       user.salary || null,
 

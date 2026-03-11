@@ -56,11 +56,7 @@ exports.sendForESign = async (req, res) => {
     {
       name: document.name,
       email: document.email,
-      phone: document.contact_no
-  ? (document.contact_no.startsWith("+")
-      ? document.contact_no
-      : `+91${document.contact_no}`)
-  : undefined
+      phone: document.contact_no ? document.contact_no.replace(/\D/g, "").slice(-10) : undefined
     },
   ],
     };

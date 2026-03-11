@@ -94,11 +94,12 @@ exports.sendForESign = async (req, res) => {
     await db.query(
       `UPDATE employee_documents
        SET leegality_document_id = ?,
+       leegality_invitee_id = ?,
            sign_url = ?,
            signing_status = 'pending',
            sent_for_sign_at = NOW()
        WHERE id = ?`,
-      [documentId, invitee.signUrl, document_id]
+      [documentId, invitee.inviteeId, invitee.signUrl, document_id]
     );
 
     // Respond with full Leegality response schema

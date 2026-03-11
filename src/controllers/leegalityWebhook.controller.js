@@ -4,23 +4,30 @@ const db = require("../config/db");
 exports.leegalityWebhook = async (req, res) => {
   try {
 
+    console.log("Webhook headers:", req.headers);
+    console.log("Webhook body:", req.body);
+
     const payload = req.body;
-    console.log("Leegality Webhook:", payload);
 
     const documentId = payload.documentId;
     const documentStatus = payload.documentStatus;
     const action = payload?.request?.action;
-    const signedFileUrl = payload?.request?.invitationUrl || null;
+
+    console.log("documentId:", documentId);
+    console.log("documentStatus:", documentStatus);
+    console.log("action:", action);
 
     if (!documentId) {
       return res.status(400).json({ message: "Invalid payload" });
     }
 
-    // Verify MAC
     const expectedMac = crypto
       .createHmac("sha1", process.env.LEEGALITY_PRIVATE_SALT)
       .update(documentId)
       .digest("hex");
+
+    console.log("MAC from payload:", payload.mac);
+    console.log("Expected MAC:", expectedMac);
 
     if (payload.mac !== expectedMac) {
       return res.status(401).json({
@@ -30,20 +37,21 @@ exports.leegalityWebhook = async (req, res) => {
 
     let signingStatus = "pending";
 
-    if (action === "Signed") signingStatus = "signed";
-    if (action === "Rejected") signingStatus = "rejected";
-    if (payload?.request?.expired) signingStatus = "expired";
-
-    if (documentStatus === "Completed") signingStatus = "signed";
+    if (documentStatus === "Completed") {
+      signingStatus = "signed";
+    } else if (action === "Rejected") {
+      signingStatus = "rejected";
+    } else if (payload?.request?.expired) {
+      signingStatus = "expired";
+    }
 
     await db.query(
       `UPDATE employee_documents
        SET signing_status = ?,
            webhook_status = ?,
-           signed_file_url = ?,
            signed_at = IF(?='signed', NOW(), signed_at)
        WHERE leegality_document_id = ?`,
-      [signingStatus, documentStatus, signedFileUrl, signingStatus, documentId]
+      [signingStatus, documentStatus, signingStatus, documentId]
     );
 
     console.log("Document updated:", documentId);

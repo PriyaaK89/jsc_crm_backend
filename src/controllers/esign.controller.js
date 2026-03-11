@@ -1,6 +1,7 @@
 const { default: axios } = require("axios");
 const db = require("../config/db");
 const minioClient = require("../config/minio");
+const https = require("https");
 
 const BUCKET = "jsc-crm";
 
@@ -55,7 +56,11 @@ exports.sendForESign = async (req, res) => {
     {
       name: document.name,
       email: document.email,
-      phone: document.contact_no ? `+91${document.contact_no}` : undefined,
+      phone: document.contact_no
+  ? (document.contact_no.startsWith("+")
+      ? document.contact_no
+      : `+91${document.contact_no}`)
+  : undefined
     },
   ],
     };
@@ -69,6 +74,9 @@ exports.sendForESign = async (req, res) => {
           "X-Auth-Token": process.env.LEEGALITY_AUTH_TOKEN,
           "Content-Type": "application/json",
         },
+        httpsAgent: new https.Agent({
+        minVersion: "TLSv1.2",
+        }),
       }
     );
 
@@ -104,7 +112,11 @@ exports.sendForESign = async (req, res) => {
       data: respData.data,
     });
   } catch (error) {
-    console.error("Leegality error:", error.response?.data || error.message);
+    // console.error("Leegality error:", error.response?.data || error.message);
+    console.error("Leegality error:", { message: error.message,
+    response: error.response?.data,
+    status: error.response?.status,
+     });
 
     return res.status(500).json({
       status: 0,

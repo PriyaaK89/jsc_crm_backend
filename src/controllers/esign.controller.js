@@ -58,6 +58,9 @@ exports.sendForESign = async (req, res) => {
       email: document.email,
       phone: document.contact_no ? document.contact_no.replace(/\D/g, "").slice(-10) : undefined
     },
+     {
+      name: "Authorized Signatory"
+    }
   ],
     };
 
@@ -89,7 +92,9 @@ exports.sendForESign = async (req, res) => {
 
     // Save Leegality document details in DB
     const documentId = respData.data.documentId;
-    const invitee = respData.data.invitees[0];
+    // const invitee = respData.data.invitees[0];
+    const invitee1 = respData.data.invitees[0];
+const invitee2 = respData.data.invitees[1];
 
     await db.query(
       `UPDATE employee_documents
@@ -99,7 +104,7 @@ exports.sendForESign = async (req, res) => {
            signing_status = 'pending',
            sent_for_sign_at = NOW()
        WHERE id = ?`,
-      [documentId, invitee.inviteeId, invitee.signUrl, document_id]
+      [documentId, invitee1.inviteeId, invitee1.signUrl, document_id]
     );
 
     // Respond with full Leegality response schema

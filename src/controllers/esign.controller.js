@@ -164,33 +164,39 @@ exports.checkLeegalityStatus = async (req, res) => {
     }
 
     let signedFileUrl = null;
-
     if (signingStatus === "signed" && data.files?.length) {
 
-      const buffer = Buffer.from(data.files[0], "base64");
+  const leegalityFileUrl = data.files[0];
 
-      const objectName = `employee/signed_letters/${documentId}.pdf`;
+  // Download file from Leegality
+  const fileResponse = await axios.get(leegalityFileUrl, {
+    responseType: "arraybuffer"
+  });
 
-      await minioClient.putObject(
-        BUCKET,
-        objectName,
-        buffer,
-        buffer.length,
-        { "Content-Type": "application/pdf" }
-      );
+  const buffer = Buffer.from(fileResponse.data);
 
-      signedFileUrl = objectName;
+  const objectName = `employee/signed_letters/${documentId}.pdf`;
 
-      await db.query(
-        `UPDATE employee_documents
-         SET signing_status = ?, 
-             signed_file_url = ?, 
-             signed_at = NOW()
-         WHERE leegality_document_id = ?`,
-        [signingStatus, signedFileUrl, documentId]
-      );
+  await minioClient.putObject(
+    BUCKET,
+    objectName,
+    buffer,
+    buffer.length,
+    { "Content-Type": "application/pdf" }
+  );
 
-    }
+  signedFileUrl = objectName;
+
+  await db.query(
+    `UPDATE employee_documents
+     SET signing_status = ?, 
+         signed_file_url = ?, 
+         signed_at = NOW()
+     WHERE leegality_document_id = ?`,
+    [signingStatus, signedFileUrl, documentId]
+  );
+
+}
 
     res.json({
       status: 1,

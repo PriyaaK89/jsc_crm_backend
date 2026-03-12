@@ -452,4 +452,21 @@ exports.getDeletedUsers = async (req, res) => {
   }
 };
 
+exports.getUserDropdown = async (req, res) => {
+  try {
+    const users = await User.getUserDropdown();
+
+    res.status(200).json({
+      success: true,
+      data: users
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+};
+
 

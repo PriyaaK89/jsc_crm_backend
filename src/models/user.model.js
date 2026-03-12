@@ -368,9 +368,19 @@ const getDeletedUsers = async () => {
   return rows;
 };
 
+const getUserDropdown = async () => {
+  const [rows] = await db.query(
+    `SELECT id, name 
+     FROM users
+     WHERE is_active = 1
+     ORDER BY name ASC`
+  );
+
+  return rows;
+};
 
 
 
 module.exports = {
-  createUser, findUserByEmail, getAllUsers, getUserById, updateUserById, updatePasswordByAdmin, updateUserStatus, softDeleteUser, getDeletedUsers
+  createUser, findUserByEmail, getAllUsers, getUserById, updateUserById, updatePasswordByAdmin, updateUserStatus, softDeleteUser, getDeletedUsers, getUserDropdown
 };

@@ -22,6 +22,7 @@ router.post('/login', auth.login);
 router.get( '/get-users', authMiddleware, isAdmin, auth.getUsersList);
 router.put( "/update-user/:id", authMiddleware, isAdmin, auth.updateUserById);
 router.get("/get-employee-details/:id",authMiddleware,  auth.getUserById);
+router.get( "/user-dropdown", authMiddleware, auth.getUserDropdown);
 
 // router.patch( "/update-user-status/:id", authMiddleware, isAdmin, auth.updateUserStatus);
 router.patch( "/user-status/:action", authMiddleware, isAdmin, auth.updateUserStatusByAction);

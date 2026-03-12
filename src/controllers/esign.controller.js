@@ -133,3 +133,76 @@ const invitee2 = respData.data.invitees[1];
     });
   }
 };
+
+exports.checkLeegalityStatus = async (req, res) => {
+  try {
+
+    const { documentId } = req.params;
+
+    const response = await axios.get(
+      process.env.LEEGALITY_DETAILS_URL,
+      {
+        headers: {
+          "X-Auth-Token": process.env.LEEGALITY_AUTH_TOKEN
+        },
+        params: {
+          documentId: documentId
+        }
+      }
+    );
+    console.log("Leegality Response:", response.data);
+
+    const data = response.data.data;
+
+    const employeeSigned = data.requests[0]?.signed;
+    const companySigned = data.requests[1]?.signed;
+
+    let signingStatus = "pending";
+
+    if (employeeSigned && companySigned) {
+      signingStatus = "signed";
+    }
+
+    let signedFileUrl = null;
+
+    if (signingStatus === "signed" && data.files?.length) {
+
+      const buffer = Buffer.from(data.files[0], "base64");
+
+      const objectName = `employee/signed_letters/${documentId}.pdf`;
+
+      await minioClient.putObject(
+        BUCKET,
+        objectName,
+        buffer,
+        buffer.length,
+        { "Content-Type": "application/pdf" }
+      );
+
+      signedFileUrl = objectName;
+
+      await db.query(
+        `UPDATE employee_documents
+         SET signing_status = ?, 
+             signed_file_url = ?, 
+             signed_at = NOW()
+         WHERE leegality_document_id = ?`,
+        [signingStatus, signedFileUrl, documentId]
+      );
+
+    }
+
+    res.json({
+      status: 1,
+      signing_status: signingStatus,
+      signed_file_url: signedFileUrl
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      error: error.message
+    });
+
+  }
+};

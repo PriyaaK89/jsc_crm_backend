@@ -28,6 +28,10 @@ exports.leegalityWebhook = async (req, res) => {
     console.log("documentStatus:", documentStatus);
     console.log("action:", action);
 
+    console.log("Signer:", payload?.request?.name);
+    console.log("Sign Type:", payload?.request?.signType);
+    console.log("Expired:", payload?.request?.expired);
+
     // ---------------- MAC VERIFICATION ----------------
     const expectedMac = crypto
       .createHmac("sha1", process.env.LEEGALITY_PRIVATE_SALT)
@@ -113,6 +117,7 @@ exports.leegalityWebhook = async (req, res) => {
     );
 
     console.log("Document updated in database:", documentId);
+    
 
     return res.status(200).json({
       status: 1,

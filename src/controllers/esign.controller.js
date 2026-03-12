@@ -53,16 +53,22 @@ exports.sendForESign = async (req, res) => {
     file: pdfBase64,
   },
   invitees: [
-    {
-      name: document.name,
-      email: document.email,
-      phone: document.contact_no ? document.contact_no.replace(/\D/g, "").slice(-10) : undefined
-    },
-     {
-      name: "Authorized Signatory"
-    }
-  ],
+  {
+    name: document.name,
+    email: document.email,
+    phone: document.contact_no
+      ? document.contact_no.replace(/\D/g, "").slice(-10)
+      : undefined,
+    signOrder: 1
+  },
+  {
+    name: "Authorized Signatory",
+    email: "jamidaraseedscorporation@gmail.com",
+    signOrder: 2
+  }
+],
     };
+    console.log("Leegality Payload:", JSON.stringify(payload, null, 2));
 
     // Call Leegality
     const response = await axios.post(

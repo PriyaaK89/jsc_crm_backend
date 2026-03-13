@@ -135,12 +135,15 @@ const invitee2 = respData.data.invitees[1];
 };
 
 
+
+
+
 exports.checkLeegalityStatus = async (req, res) => {
   try {
 
     const { documentId } = req.params;
 
-    // Get existing record
+    //  Get existing document
     const [rows] = await db.query(
       `SELECT signing_status, signed_file_url
        FROM employee_documents
@@ -157,24 +160,23 @@ exports.checkLeegalityStatus = async (req, res) => {
 
     const existingDoc = rows[0];
 
-    // If already signed and stored → return immediately
-
+    //  If already signed and file stored in MinIO → return directly
     if (existingDoc.signed_file_url) {
 
-  const previewUrl = await minioClient.presignedGetObject(
-    BUCKET,
-    existingDoc.signed_file_url,
-    60 * 5
-  );
+      const previewUrl = await minioClient.presignedGetObject(
+        BUCKET,
+        existingDoc.signed_file_url,
+        60 * 5
+      );
 
-  return res.json({
-    status: 1,
-    signing_status: existingDoc.signing_status,
-    signed_file_url: previewUrl
-  });
-}
+      return res.json({
+        status: 1,
+        signing_status: existingDoc.signing_status,
+        signed_file_url: previewUrl
+      });
+    }
 
-    // Call Leegality API
+    //  Call Leegality API
     const response = await axios.get(
       process.env.LEEGALITY_DETAILS_URL,
       {
@@ -187,35 +189,51 @@ exports.checkLeegalityStatus = async (req, res) => {
       }
     );
 
-    const data = response.data.data;
+    console.log("Leegality API response:", JSON.stringify(response.data, null, 2));
 
-    const employeeSigned = data.requests[0]?.signed;
-const companySigned = data.requests[1]?.signed;
+    const data = response.data?.data || {};
 
-let signingStatus = "pending";
+    // Safe access
+    const employeeSigned = data?.requests?.[0]?.signed || false;
+    const companySigned = data?.requests?.[1]?.signed || false;
 
-if (employeeSigned && !companySigned) {
-  signingStatus = "employee_signed";
-}
-else if (employeeSigned && companySigned) {
-  signingStatus = "signed";
-}
+    let signingStatus = "pending";
+
+    if (employeeSigned && !companySigned) {
+      signingStatus = "employee_signed";
+    } 
+    else if (employeeSigned && companySigned) {
+      signingStatus = "signed";
+    }
 
     let previewUrl = null;
 
-    if (signingStatus === "signed" && data.files?.length) {
+    //  Update DB if employee signed
+    if (signingStatus === "employee_signed") {
+
+      await db.query(
+        `UPDATE employee_documents
+         SET signing_status = ?
+         WHERE leegality_document_id = ?`,
+        ["employee_signed", documentId]
+      );
+    }
+
+    //  If fully signed → download and store PDF
+    if (signingStatus === "signed" && data?.files?.length) {
 
       const objectName = `employee/signed_letters/${documentId}.pdf`;
 
-      // Download signed file from Leegality
       const leegalityFileUrl = data.files[0];
 
+      // Download signed file
       const fileResponse = await axios.get(leegalityFileUrl, {
         responseType: "arraybuffer"
       });
 
       const buffer = Buffer.from(fileResponse.data);
 
+      // Upload to MinIO
       await minioClient.putObject(
         BUCKET,
         objectName,
@@ -224,6 +242,7 @@ else if (employeeSigned && companySigned) {
         { "Content-Type": "application/pdf" }
       );
 
+      // Update DB
       await db.query(
         `UPDATE employee_documents
          SET signing_status = ?, 
@@ -241,6 +260,7 @@ else if (employeeSigned && companySigned) {
       );
     }
 
+    //  Final response
     res.json({
       status: 1,
       signing_status: signingStatus,

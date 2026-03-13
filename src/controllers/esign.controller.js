@@ -163,12 +163,14 @@ exports.checkLeegalityStatus = async (req, res) => {
       signingStatus = "signed";
     }
 
-    let signedFileUrl = null;
-    if (signingStatus === "signed" && data.files?.length) {
+
+
+let signedFileUrl = null;
+
+if (signingStatus === "signed" && data.files?.length) {
 
   const leegalityFileUrl = data.files[0];
 
-  // Download file from Leegality
   const fileResponse = await axios.get(leegalityFileUrl, {
     responseType: "arraybuffer"
   });
@@ -185,7 +187,7 @@ exports.checkLeegalityStatus = async (req, res) => {
     { "Content-Type": "application/pdf" }
   );
 
-  signedFileUrl = objectName;
+  signedFileUrl = `${process.env.MINIO_PUBLIC_URL}/${BUCKET}/${objectName}`;
 
   await db.query(
     `UPDATE employee_documents

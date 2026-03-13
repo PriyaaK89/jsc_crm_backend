@@ -20,31 +20,31 @@ exports.uploadEmployeeLetter = async (req, res) => {
       });
     }
 
-    // clean employee name
     const cleanName = employee_name.replace(/\s+/g, "_").toLowerCase();
 
-    // dynamic filename
     const fileName = `employee/letter/${document_type}_${cleanName}_${employee_id}.pdf`;
 
-    // upload to minio
-    await minioClient.putObject(BUCKET, fileName, file.buffer, file.size, {
-      "Content-Type": "application/pdf",
-    });
+    await minioClient.putObject(
+      BUCKET,
+      fileName,
+      file.buffer,
+      file.size,
+      { "Content-Type": "application/pdf" }
+    );
 
-    // store path in DB
     await db.query(
       `INSERT INTO employee_documents
-(employee_id, document_type, file_url)
-VALUES (?, ?, ?)
-ON DUPLICATE KEY UPDATE
-file_url = VALUES(file_url);`,
-      [employee_id, document_type, fileName],
+      (employee_id, document_type, file_url)
+      VALUES (?, ?, ?)
+      ON DUPLICATE KEY UPDATE file_url = VALUES(file_url)`,
+      [employee_id, document_type, fileName] // only path saved
     );
 
     res.json({
       message: "Letter uploaded successfully",
-      file_path: fileName,
+      file_path: fileName
     });
+
   } catch (error) {
     res.status(500).json({
       error: error.message,
@@ -52,14 +52,40 @@ file_url = VALUES(file_url);`,
   }
 };
 
+// exports.getEmployeeDocumentsByEmployee = async (req, res) => {
+//   try {
+//     const { employee_id } = req.params;
+//     const [rows] = await db.query(
+//       ` SELECT 
+//         ed.id,
+//         ed.employee_id,
+//         u.name AS employee_name,
+//         ed.document_type,
+//         ed.file_url,
+//         ed.signing_status,
+//         ed.leegality_document_id,
+//         ed.signed_file_url,
+//         ed.created_at
+//       FROM employee_documents ed
+//       LEFT JOIN users u ON u.id = ed.employee_id
+//       WHERE ed.employee_id = ?
+//       ORDER BY ed.created_at DESC `,
+//       [employee_id]
+//     );
+//     res.json({ data: rows});
+
+//   } catch (error) {
+//     res.status(500).json({
+//       message: error.message
+//     });
+//   }
+// };
 exports.getEmployeeDocumentsByEmployee = async (req, res) => {
   try {
-
     const { employee_id } = req.params;
 
     const [rows] = await db.query(
-      `
-      SELECT 
+      `SELECT 
         ed.id,
         ed.employee_id,
         u.name AS employee_name,
@@ -72,20 +98,25 @@ exports.getEmployeeDocumentsByEmployee = async (req, res) => {
       FROM employee_documents ed
       LEFT JOIN users u ON u.id = ed.employee_id
       WHERE ed.employee_id = ?
-      ORDER BY ed.created_at DESC
-      `,
+      ORDER BY ed.created_at DESC`,
       [employee_id]
     );
 
-    res.json({
-      data: rows
-    });
+    const baseUrl = "http://102.113.107.210:9000/jsc-crm/";
+
+    const data = rows.map((doc) => ({
+      ...doc,
+      file_url: doc.file_url ? baseUrl + doc.file_url : null,
+      signed_file_url: doc.signed_file_url
+        ? baseUrl + doc.signed_file_url
+        : null
+    }));
+
+    res.json({ data });
 
   } catch (error) {
-
     res.status(500).json({
       message: error.message
     });
-
   }
 };

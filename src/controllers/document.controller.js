@@ -37,7 +37,7 @@ exports.uploadEmployeeLetter = async (req, res) => {
       (employee_id, document_type, file_url)
       VALUES (?, ?, ?)
       ON DUPLICATE KEY UPDATE file_url = VALUES(file_url)`,
-      [employee_id, document_type, fileName] // only path saved
+      [employee_id, document_type, fileName] 
     );
 
     res.json({
@@ -52,36 +52,9 @@ exports.uploadEmployeeLetter = async (req, res) => {
   }
 };
 
-// exports.getEmployeeDocumentsByEmployee = async (req, res) => {
-//   try {
-//     const { employee_id } = req.params;
-//     const [rows] = await db.query(
-//       ` SELECT 
-//         ed.id,
-//         ed.employee_id,
-//         u.name AS employee_name,
-//         ed.document_type,
-//         ed.file_url,
-//         ed.signing_status,
-//         ed.leegality_document_id,
-//         ed.signed_file_url,
-//         ed.created_at
-//       FROM employee_documents ed
-//       LEFT JOIN users u ON u.id = ed.employee_id
-//       WHERE ed.employee_id = ?
-//       ORDER BY ed.created_at DESC `,
-//       [employee_id]
-//     );
-//     res.json({ data: rows});
-
-//   } catch (error) {
-//     res.status(500).json({
-//       message: error.message
-//     });
-//   }
-// };
 exports.getEmployeeDocumentsByEmployee = async (req, res) => {
   try {
+
     const { employee_id } = req.params;
 
     const [rows] = await db.query(
@@ -102,21 +75,44 @@ exports.getEmployeeDocumentsByEmployee = async (req, res) => {
       [employee_id]
     );
 
-    const baseUrl = "http://102.113.107.210:9000/jsc-crm/";
+    const data = await Promise.all(
+      rows.map(async (doc) => {
 
-    const data = rows.map((doc) => ({
-      ...doc,
-      file_url: doc.file_url ? baseUrl + doc.file_url : null,
-      signed_file_url: doc.signed_file_url
-        ? baseUrl + doc.signed_file_url
-        : null
-    }));
+        let filePreview = null;
+        let signedPreview = null;
+
+        if (doc.file_url) {
+          filePreview = await minioClient.presignedGetObject(
+            BUCKET,
+            doc.file_url,
+            60 * 5
+          );
+        }
+
+        if (doc.signed_file_url) {
+          signedPreview = await minioClient.presignedGetObject(
+            BUCKET,
+            doc.signed_file_url,
+            60 * 5
+          );
+        }
+
+        return {
+          ...doc,
+          file_url: filePreview,
+          signed_file_url: signedPreview
+        };
+
+      })
+    );
 
     res.json({ data });
 
   } catch (error) {
+
     res.status(500).json({
       message: error.message
     });
+
   }
 };

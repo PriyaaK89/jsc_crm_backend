@@ -134,11 +134,46 @@ const invitee2 = respData.data.invitees[1];
   }
 };
 
+
 exports.checkLeegalityStatus = async (req, res) => {
   try {
 
     const { documentId } = req.params;
 
+    // Get existing record
+    const [rows] = await db.query(
+      `SELECT signing_status, signed_file_url
+       FROM employee_documents
+       WHERE leegality_document_id = ?`,
+      [documentId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        status: 0,
+        message: "Document not found"
+      });
+    }
+
+    const existingDoc = rows[0];
+
+    // If already signed and stored → return immediately
+    if (existingDoc.signing_status === "signed" && existingDoc.signed_file_url) {
+
+      const previewUrl = await minioClient.presignedGetObject(
+        BUCKET,
+        existingDoc.signed_file_url,
+        60 * 5
+      );
+
+      return res.json({
+        status: 1,
+        signing_status: "signed",
+        signed_file_url: previewUrl
+      });
+    }
+
+    // Call Leegality API
     const response = await axios.get(
       process.env.LEEGALITY_DETAILS_URL,
       {
@@ -150,7 +185,6 @@ exports.checkLeegalityStatus = async (req, res) => {
         }
       }
     );
-    console.log("Leegality Response:", response.data);
 
     const data = response.data.data;
 
@@ -163,53 +197,61 @@ exports.checkLeegalityStatus = async (req, res) => {
       signingStatus = "signed";
     }
 
+    let previewUrl = null;
 
+    if (signingStatus === "signed" && data.files?.length) {
 
-let signedFileUrl = null;
+      const objectName = `employee/signed_letters/${documentId}.pdf`;
 
-if (signingStatus === "signed" && data.files?.length) {
+      // Download signed file from Leegality
+      const leegalityFileUrl = data.files[0];
 
-  const leegalityFileUrl = data.files[0];
+      const fileResponse = await axios.get(leegalityFileUrl, {
+        responseType: "arraybuffer"
+      });
 
-  const fileResponse = await axios.get(leegalityFileUrl, {
-    responseType: "arraybuffer"
-  });
+      const buffer = Buffer.from(fileResponse.data);
 
-  const buffer = Buffer.from(fileResponse.data);
+      // Upload to MinIO
+      await minioClient.putObject(
+        BUCKET,
+        objectName,
+        buffer,
+        buffer.length,
+        { "Content-Type": "application/pdf" }
+      );
 
-  const objectName = `employee/signed_letters/${documentId}.pdf`;
+      // Save only object path in DB
+      await db.query(
+        `UPDATE employee_documents
+         SET signing_status = ?, 
+             signed_file_url = ?, 
+             signed_at = NOW()
+         WHERE leegality_document_id = ?`,
+        ["signed", objectName, documentId]
+      );
 
-  await minioClient.putObject(
-    BUCKET,
-    objectName,
-    buffer,
-    buffer.length,
-    { "Content-Type": "application/pdf" }
-  );
-
-  signedFileUrl = `${process.env.MINIO_PUBLIC_URL}/${BUCKET}/${objectName}`;
-
-  await db.query(
-    `UPDATE employee_documents
-     SET signing_status = ?, 
-         signed_file_url = ?, 
-         signed_at = NOW()
-     WHERE leegality_document_id = ?`,
-    [signingStatus, signedFileUrl, documentId]
-  );
-
-}
+      // Generate preview URL
+      previewUrl = await minioClient.presignedGetObject(
+        BUCKET,
+        objectName,
+        60 * 5
+      );
+    }
 
     res.json({
       status: 1,
       signing_status: signingStatus,
-      signed_file_url: signedFileUrl
+      signed_file_url: previewUrl
     });
 
   } catch (error) {
 
+    console.error("Leegality status error:", error);
+
     res.status(500).json({
-      error: error.message
+      status: 0,
+      message: error.message
     });
 
   }

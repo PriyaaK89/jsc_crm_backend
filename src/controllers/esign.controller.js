@@ -158,20 +158,21 @@ exports.checkLeegalityStatus = async (req, res) => {
     const existingDoc = rows[0];
 
     // If already signed and stored → return immediately
-    if (existingDoc.signing_status === "signed" && existingDoc.signed_file_url) {
 
-      const previewUrl = await minioClient.presignedGetObject(
-        BUCKET,
-        existingDoc.signed_file_url,
-        60 * 5
-      );
+    if (existingDoc.signed_file_url) {
 
-      return res.json({
-        status: 1,
-        signing_status: "signed",
-        signed_file_url: previewUrl
-      });
-    }
+  const previewUrl = await minioClient.presignedGetObject(
+    BUCKET,
+    existingDoc.signed_file_url,
+    60 * 5
+  );
+
+  return res.json({
+    status: 1,
+    signing_status: existingDoc.signing_status,
+    signed_file_url: previewUrl
+  });
+}
 
     // Call Leegality API
     const response = await axios.get(
@@ -189,13 +190,16 @@ exports.checkLeegalityStatus = async (req, res) => {
     const data = response.data.data;
 
     const employeeSigned = data.requests[0]?.signed;
-    const companySigned = data.requests[1]?.signed;
+const companySigned = data.requests[1]?.signed;
 
-    let signingStatus = "pending";
+let signingStatus = "pending";
 
-    if (employeeSigned && companySigned) {
-      signingStatus = "signed";
-    }
+if (employeeSigned && !companySigned) {
+  signingStatus = "employee_signed";
+}
+else if (employeeSigned && companySigned) {
+  signingStatus = "signed";
+}
 
     let previewUrl = null;
 
@@ -212,7 +216,6 @@ exports.checkLeegalityStatus = async (req, res) => {
 
       const buffer = Buffer.from(fileResponse.data);
 
-      // Upload to MinIO
       await minioClient.putObject(
         BUCKET,
         objectName,
@@ -221,7 +224,6 @@ exports.checkLeegalityStatus = async (req, res) => {
         { "Content-Type": "application/pdf" }
       );
 
-      // Save only object path in DB
       await db.query(
         `UPDATE employee_documents
          SET signing_status = ?, 

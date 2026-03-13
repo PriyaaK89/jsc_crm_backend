@@ -134,10 +134,6 @@ const invitee2 = respData.data.invitees[1];
   }
 };
 
-
-
-
-
 exports.checkLeegalityStatus = async (req, res) => {
   try {
 

@@ -43,7 +43,7 @@ exports.imageUpload = async (req, res) => {
       { "Content-Type": file.mimetype }
     );
 
-    const image_url = `http://103.110.127.211:9000/${BUCKET}/${fileName}`;
+    const image_url = `${process.env.MINIO_PUBLIC_URL}/${BUCKET}/${fileName}`;
 
     res.json({
       message: "Image uploaded successfully",

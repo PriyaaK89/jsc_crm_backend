@@ -161,101 +161,149 @@ const getClientDevice = (req) => {
   };
 };
 
-exports.login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
+// exports.login = async (req, res) => {
+//   try {
+//     const { email, password } = req.body;
    
 
 
+//     const user = await User.findUserByEmail(email);
+//     if (!user) {
+//       return res.status(401).json({ message: "Invalid credentials" });
+//     }
+
+//     if (user.is_active === 0) {
+//       return res.status(403).json({
+//         message: "Your account is deactivated. Please contact admin.",
+//       });
+//     }
+
+//     const isMatch = await bcrypt.compare(password, user.password);
+//     if (!isMatch) {
+//       return res.status(401).json({ message: "Invalid credentials" });
+//     }
+
+//     // Admin/Super Admin bypass device approval if you want
+//     if (user.role === "ADMIN" || user.role === "SUPER_ADMIN") {
+//       const token = jwt.sign(
+//         {
+//           id: user.id,
+//           role: user.role,
+//           device_id: deviceId,
+//         },
+//         process.env.JWT_SECRET,
+//         { expiresIn: "1d" }
+//       );
+
+//       return res.json({
+//         token,
+//         user: {
+//           id: user.id,
+//           name: user.name,
+//           role: user.role,
+//           device_id: deviceId,
+//           device_name: deviceName,
+//           platform,
+//         },
+//       });
+//     }
+
+//     let deviceRecord = await UserDevice.getByUserIdAndDeviceId(user.id, deviceId);
+
+//     if (!deviceRecord) {
+//       const anyDeviceExists = await UserDevice.getAnyDeviceForUser(user.id);
+
+//       if (!anyDeviceExists) {
+//         // first device -> auto allow
+//         await UserDevice.createDevice(user.id, deviceId, deviceName, platform, 1);
+//       } else {
+//         // second/new device -> pending approval
+//         await UserDevice.createDevice(user.id, deviceId, deviceName, platform, 0);
+
+//         return res.status(403).json({
+//           message: "This device is not allowed. Request sent to admin for approval.",
+//         });
+//       }
+//     } else if (deviceRecord.is_allowed === 0) {
+//       return res.status(403).json({
+//         message: "This device is pending admin approval.",
+//       });
+//     }
+
+//     const token = jwt.sign(
+//       {
+//         id: user.id,
+//         role: user.role,
+//         device_id: deviceId,
+//       },
+//       process.env.JWT_SECRET,
+//       { expiresIn: "1d" }
+//     );
+
+//     return res.json({
+//       token,
+//       user: {
+//         id: user.id,
+//         name: user.name,
+//         role: user.role,
+//         device_id: deviceId,
+//         device_name: deviceName,
+//         platform,
+//       },
+//     });
+//   } catch (err) {
+//     return res.status(500).json({ error: err.message });
+//   }
+// };
+
+
+exports.login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Check user
     const user = await User.findUserByEmail(email);
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
+    // Check active status
     if (user.is_active === 0) {
       return res.status(403).json({
         message: "Your account is deactivated. Please contact admin.",
       });
     }
 
+    // Compare password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // Admin/Super Admin bypass device approval if you want
-    if (user.role === "ADMIN" || user.role === "SUPER_ADMIN") {
-      const token = jwt.sign(
-        {
-          id: user.id,
-          role: user.role,
-          device_id: deviceId,
-        },
-        process.env.JWT_SECRET,
-        { expiresIn: "1d" }
-      );
-
-      return res.json({
-        token,
-        user: {
-          id: user.id,
-          name: user.name,
-          role: user.role,
-          device_id: deviceId,
-          device_name: deviceName,
-          platform,
-        },
-      });
-    }
-
-    let deviceRecord = await UserDevice.getByUserIdAndDeviceId(user.id, deviceId);
-
-    if (!deviceRecord) {
-      const anyDeviceExists = await UserDevice.getAnyDeviceForUser(user.id);
-
-      if (!anyDeviceExists) {
-        // first device -> auto allow
-        await UserDevice.createDevice(user.id, deviceId, deviceName, platform, 1);
-      } else {
-        // second/new device -> pending approval
-        await UserDevice.createDevice(user.id, deviceId, deviceName, platform, 0);
-
-        return res.status(403).json({
-          message: "This device is not allowed. Request sent to admin for approval.",
-        });
-      }
-    } else if (deviceRecord.is_allowed === 0) {
-      return res.status(403).json({
-        message: "This device is pending admin approval.",
-      });
-    }
-
+    // Generate JWT (NO device_id now)
     const token = jwt.sign(
       {
         id: user.id,
         role: user.role,
-        device_id: deviceId,
       },
       process.env.JWT_SECRET,
       { expiresIn: "1d" }
     );
 
+    // Response
     return res.json({
       token,
       user: {
         id: user.id,
         name: user.name,
         role: user.role,
-        device_id: deviceId,
-        device_name: deviceName,
-        platform,
       },
     });
+
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
 };
-
 exports.getPendingDeviceRequests = async (req, res) => {
   try {
     const requests = await UserDevice.getPendingRequests();

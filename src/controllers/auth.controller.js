@@ -164,13 +164,8 @@ const getClientDevice = (req) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    const { deviceId, deviceName, platform } = getClientDevice(req);
+   
 
-    if (!deviceId) {
-      return res.status(400).json({
-        message: "device_id is required",
-      });
-    }
 
     const user = await User.findUserByEmail(email);
     if (!user) {

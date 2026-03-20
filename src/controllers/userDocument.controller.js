@@ -1,35 +1,43 @@
-const uploadToS3 = require("../utils/S3Upload");
+const { uploadFileToMinio } = require("../utils/fileUpload"); //  ADD THIS
 const UserDoc = require("../models/userDocument.model");
+const minioClient = require("../config/minio");
 
-// exports.uploadUserDocument = async (req, res) => {
-//   try {
-//     const { user_id, document_type } = req.body;
-//     const file = req.file;
+const BUCKET = "jsc-crm";
 
-//     if (!file) {
-//       return res.status(400).json({ message: "File is required" });
-//     }
+exports.uploadUserDocument = async (req, res) => {
+  try {
+    const file = req.file;
+    const { user_id, document_type } = req.body;
 
-//     //  get full upload result
-//     const uploadResult = await uploadToS3(file, user_id);
 
-//     //  pass ONLY the URL string to DB
-//     await UserDoc.updateDocument(
-//       user_id,
-//       document_type,
-//       uploadResult.url
-//     );
+    if (!file) {
+      return res.status(400).json({ message: "File is required" });
+    }
 
-//     res.json({
-//       message: "Document uploaded successfully",
-//       document_type,
-//       url: uploadResult.url
-//     });
+    if (!user_id || !document_type) {
+      return res.status(400).json({ message: "user_id & document_type required" });
+    }
 
-//   } catch (err) {
-//     res.status(500).json({ error: err.message });
-//   }
-// };
+    //  Upload to MinIO (overwrite logic handled inside)
+    const result = await uploadFileToMinio(file, "user_document", {
+      user_id,
+      document_type
+    });
+
+    //  Save in DB (no duplicate row)
+    // await UserDoc.upsertDocument(user_id, document_type, result.file_url);
+    await UserDoc.upsertDocument(user_id, document_type, result.object_path);
+
+    res.status(200).json({
+      message: "Document uploaded successfully",
+      document_type,
+      file_url: result.file_url
+    });
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
 
 exports.getUserDocuments = async (req, res) => {
   try {
@@ -40,30 +48,27 @@ exports.getUserDocuments = async (req, res) => {
       return res.status(404).json({ message: "User documents not found" });
     }
 
-    res.json({ documents });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
+    //  generate presigned URLs
+    const updatedDocs = { ...documents };
 
-exports.updateDocument = async (req, res) => {
-  try {
-    const { user_id, document_type, url } = req.body;
+    for (const key in updatedDocs) {
+      if (
+        updatedDocs[key] &&
+        typeof updatedDocs[key] === "string" &&
+        updatedDocs[key].includes("users/documents")
+      ) {
+        const presignedUrl = await minioClient.presignedGetObject(
+          BUCKET,
+          updatedDocs[key],
+          60 * 60 
+        );
 
-    if (!url ) {
-      return res.status(400).json({ message: "Document URL is required" });
+        updatedDocs[key] = presignedUrl;
+      }
     }
-    if (!user_id ) {
-      return res.status(400).json({ message: "User Id is required" });
-    }
 
-    await UserDoc.updateDocument(user_id, document_type, url);
+    res.json({ documents: updatedDocs });
 
-    res.json({
-      message: "Document updated successfully",
-      document_type,
-      url
-    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

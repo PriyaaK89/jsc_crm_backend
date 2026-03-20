@@ -87,7 +87,6 @@ exports.sendForESign = async (req, res) => {
 
     const respData = response.data;
 
-    // Check status returned by Leegality
     if (respData.status !== 1) {
       return res.status(400).json({
         status: 0,
@@ -205,56 +204,51 @@ exports.checkLeegalityStatus = async (req, res) => {
     let previewUrl = null;
 
     //  Update DB if employee signed
-    if (signingStatus === "employee_signed") {
+    // if (signingStatus === "employee_signed") {
 
       await db.query(
         `UPDATE employee_documents
          SET signing_status = ?
          WHERE leegality_document_id = ?`,
-        ["employee_signed", documentId]
+        [signingStatus, documentId]
       );
-    }
+    // }
 
     //  If fully signed → download and store PDF
-    if (signingStatus === "signed" && data?.files?.length) {
+if (signingStatus === "signed" && data?.files?.length) {
+  const objectName = `employee/signed_letters/${documentId}.pdf`;
 
-      const objectName = `employee/signed_letters/${documentId}.pdf`;
+  const leegalityFileUrl = data.files[0];
 
-      const leegalityFileUrl = data.files[0];
+  const fileResponse = await axios.get(leegalityFileUrl, {
+    responseType: "arraybuffer"
+  });
 
-      // Download signed file
-      const fileResponse = await axios.get(leegalityFileUrl, {
-        responseType: "arraybuffer"
-      });
+  const buffer = Buffer.from(fileResponse.data);
 
-      const buffer = Buffer.from(fileResponse.data);
+  await minioClient.putObject(
+    BUCKET,
+    objectName,
+    buffer,
+    buffer.length,
+    { "Content-Type": "application/pdf" }
+  );
 
-      // Upload to MinIO
-      await minioClient.putObject(
-        BUCKET,
-        objectName,
-        buffer,
-        buffer.length,
-        { "Content-Type": "application/pdf" }
-      );
+  // Update additional fields
+  await db.query(
+    `UPDATE employee_documents
+     SET signed_file_url = ?, 
+         signed_at = NOW()
+     WHERE leegality_document_id = ?`,
+    [objectName, documentId]
+  );
 
-      // Update DB
-      await db.query(
-        `UPDATE employee_documents
-         SET signing_status = ?, 
-             signed_file_url = ?, 
-             signed_at = NOW()
-         WHERE leegality_document_id = ?`,
-        ["signed", objectName, documentId]
-      );
-
-      // Generate preview URL
-      previewUrl = await minioClient.presignedGetObject(
-        BUCKET,
-        objectName,
-        60 * 5
-      );
-    }
+  previewUrl = await minioClient.presignedGetObject(
+    BUCKET,
+    objectName,
+    60 * 5
+  );
+}
 
     //  Final response
     res.json({

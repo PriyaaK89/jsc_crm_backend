@@ -1,6 +1,18 @@
 const db = require("../config/db");
 
-const createEmptyRow = async (userId, userName) => {
+const allowedFields = [
+  "old_salary_slip",
+  "experience_certificate",
+  "education_certificate",
+  "pan_card",
+  "aadhar_card",
+  "voter_card",
+  "driving_licence",
+  "bank_passbook",
+  "address_proof"
+];
+
+const createEmptyRow = async (userId, userName = "") => {
   await db.query(
     `INSERT INTO user_documents (user_id, user_name)
      VALUES (?, ?)`,
@@ -39,5 +51,23 @@ const getUserDocuments = async (userId) => {
   return rows[0]; 
 };
 
+const upsertDocument = async (userId, field, url) => {
+  if (!allowedFields.includes(field)) {
+    throw new Error("Invalid document type");
+  }
 
-module.exports = { createEmptyRow, updateDocument, getUserDocuments };
+  const [rows] = await db.query(
+    `SELECT id FROM user_documents WHERE user_id = ?`,
+    [userId]
+  );
+
+  if (rows.length === 0) { await createEmptyRow(userId); }
+
+  await db.query(
+    `UPDATE user_documents SET ${field} = ? WHERE user_id = ?`,
+    [url, userId]
+  );
+};
+
+
+module.exports = { createEmptyRow, upsertDocument, updateDocument, getUserDocuments };

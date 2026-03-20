@@ -246,7 +246,7 @@ exports.getAllExpensesAdmin = async (req, res) => {
     page = parseInt(page);
     limit = parseInt(limit);
 
-    const result = await expenseModel.getAllExpensesForAdmin({
+    const result = await expenseModel.getAllExpenseAllocationsForAdmin({
       page,
       limit,
       user_id,

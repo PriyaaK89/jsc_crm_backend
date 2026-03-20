@@ -29,8 +29,7 @@ const uploadRoute = require("../src/routes/upload.routes");
 const documentRoute = require("../src/routes/document.routes");
 const leegalityRoute = require("../src/routes/esign.routes");
 const leegalityWebhookRoute = require("../src/routes/leegalityWebhook.routes");
-const panVerificationRoute = require("../src/routes/panVerification.routes");
-const digioPanVerificationRoute = require("../src/routes/digioPan.routes");
+
 const EmpExpensesRoute = require("../src/routes/EmpExpense.route");
 
 // Health check
@@ -54,8 +53,7 @@ app.use(uploadRoute);
 app.use(documentRoute);
 app.use(leegalityRoute);
 app.use(leegalityWebhookRoute);
-app.use(panVerificationRoute);
-app.use(digioPanVerificationRoute);
+
 app.use(EmpExpensesRoute);
 
 

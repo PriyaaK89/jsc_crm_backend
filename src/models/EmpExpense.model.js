@@ -224,7 +224,7 @@ exports.getAllExpensesForAdmin = async ({
     values.push(start_date, end_date);
   }
 
-if (search) {
+if (search && search.trim() !== "") {
   whereConditions.push("(u.name LIKE ? OR u.email LIKE ?)");
   values.push(`%${search}%`, `%${search}%`);
 } else if (user_id) {
@@ -239,28 +239,28 @@ if (search) {
   const offset = (page - 1) * limit;
 
   // main data query
-  const [rows] = await db.execute(
-    `
-    SELECT 
-      e.id,
-      e.user_id,
-      u.name as user_name,
-      u.email,
-      e.expense_type,
-      e.expense_date,
-      e.amount,
-      e.bill_url,
-      e.remarks,
-      e.status,
-      e.created_at
-    FROM employee_expense_entries e
-    LEFT JOIN users u ON u.id = e.user_id
-    ${whereClause}
-    ORDER BY e.expense_date DESC, e.id DESC
-    LIMIT ? OFFSET ?
-    `,
-    [...values, parseInt(limit), parseInt(offset)]
-  );
+ const [rows] = await db.execute(
+  `
+  SELECT 
+    e.id,
+    e.user_id,
+    u.name as user_name,
+    u.email,
+    e.expense_type,
+    e.expense_date,
+    e.amount,
+    e.bill_url,
+    e.remarks,
+    e.status,
+    e.created_at
+  FROM employee_expense_entries e
+  LEFT JOIN users u ON u.id = e.user_id
+  ${whereClause}
+  ORDER BY e.expense_date DESC, e.id DESC
+  LIMIT ${limitNum} OFFSET ${offsetNum}
+  `,
+  values
+);
 
   // total count query
   const [countResult] = await db.execute(

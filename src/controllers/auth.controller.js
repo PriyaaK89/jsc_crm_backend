@@ -3,16 +3,19 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/user.model");
 const Role = require("../models/role.model");
-const UserDocument = require("../models/userDocument.model")
-const UserIp = require("../models/UserIp.model");
-const { sendUserRegisteredMail, sendIpApprovedMail  } = require("../utils/mail.util");
+const UserDocument = require("../models/userDocument.model");
+const UserDevice = require("../models/UserDevice.model");
+const { sendUserRegisteredMail, sendIpApprovedMail } = require("../utils/mail.util");
+
+// better to rename sendIpApprovedMail later to sendDeviceApprovedMail
 
 exports.registerAdmin = async (req, res) => {
   try {
     const { name, email, password } = req.body;
     const hashedPassword = await bcrypt.hash(password, 10);
-    const roleId = await Role.getRoleIdByName("ADMIN");
+    console.log("LOGIN BODY:", req.body);
 
+    const roleId = await Role.getRoleIdByName("ADMIN");
     if (!roleId) {
       return res.status(400).json({ message: "Role not found" });
     }
@@ -21,28 +24,54 @@ exports.registerAdmin = async (req, res) => {
       name,
       email,
       password: hashedPassword,
-      role_id: roleId
+      role_id: roleId,
     });
 
     res.json({ message: "Admin created successfully" });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
-
 exports.createUserByRole = async (req, res) => {
   try {
     const {
-      name, gender, contact_no, date_of_birth, email,
-      address_line1, address_line2, country, state, city, district, area,
-      pincode, father_name, pan_number, aadhar_no, blood_group,
-      department_id, job_role_id, date_of_joining, salary,
-      attendance_selfie, travelling_allowance_per_km, avg_travel_km_per_day, 
-      city_allowance_per_km, daily_allowance_with_doc, daily_allowance_without_doc,
-      hotel_allowance, total_leaves, authentication_amount, headquarter,
-      approver_name, login_time, logout_time, pf, esi
+      name,
+      gender,
+      contact_no,
+      date_of_birth,
+      email,
+      address_line1,
+      address_line2,
+      country,
+      state,
+      city,
+      district,
+      area,
+      pincode,
+      father_name,
+      pan_number,
+      aadhar_no,
+      blood_group,
+      department_id,
+      job_role_id,
+      date_of_joining,
+      salary,
+      attendance_selfie,
+      travelling_allowance_per_km,
+      avg_travel_km_per_day,
+      city_allowance_per_km,
+      daily_allowance_with_doc,
+      daily_allowance_without_doc,
+      hotel_allowance,
+      total_leaves,
+      authentication_amount,
+      headquarter,
+      approver_name,
+      login_time,
+      logout_time,
+      pf,
+      esi,
     } = req.body;
 
     const roleName = req.body.roleName;
@@ -56,22 +85,53 @@ exports.createUserByRole = async (req, res) => {
     }
 
     const createdUser = await User.createUser({
-      name, email, role_id: roleId, gender, contact_no, date_of_birth,
-      address_line1, address_line2, country, state, city, district,
-      area, pincode, father_name, pan_number, aadhar_no, blood_group, department_id, job_role_id, 
-      date_of_joining, salary, attendance_selfie, travelling_allowance_per_km, avg_travel_km_per_day, city_allowance_per_km, daily_allowance_with_doc,
-      daily_allowance_without_doc, hotel_allowance, total_leaves, authentication_amount, headquarter, approver_name, login_time, logout_time, pf, esi
+      name,
+      email,
+      role_id: roleId,
+      gender,
+      contact_no,
+      date_of_birth,
+      address_line1,
+      address_line2,
+      country,
+      state,
+      city,
+      district,
+      area,
+      pincode,
+      father_name,
+      pan_number,
+      aadhar_no,
+      blood_group,
+      department_id,
+      job_role_id,
+      date_of_joining,
+      salary,
+      attendance_selfie,
+      travelling_allowance_per_km,
+      avg_travel_km_per_day,
+      city_allowance_per_km,
+      daily_allowance_with_doc,
+      daily_allowance_without_doc,
+      hotel_allowance,
+      total_leaves,
+      authentication_amount,
+      headquarter,
+      approver_name,
+      login_time,
+      logout_time,
+      pf,
+      esi,
     });
 
     await UserDocument.createEmptyRow(createdUser.id, name);
-
     await sendUserRegisteredMail(email, name);
 
     res.status(201).json({
       message: `${roleName} created. Password must be set by admin.`,
       id: createdUser.id,
       email: email,
-       must_change_password: 1
+      must_change_password: 1,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -81,127 +141,161 @@ exports.createUserByRole = async (req, res) => {
 exports.getUserById = async (req, res) => {
   try {
     const { id } = req.params;
-
     const user = await User.getUserById(id);
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    res.status(200).json({
-      success: true,
-      data: user
-    });
+    res.status(200).json({ success: true, data: user });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
-
-const getClientIp = (req) => {
-  return (
-    req.headers['x-forwarded-for']?.split(',')[0] ||
-    req.connection.remoteAddress ||
-    req.socket.remoteAddress ||
-    req.ip
-  );
+const getClientDevice = (req) => {
+  return {
+    deviceId: req.body.device_id || req.headers["x-device-id"],
+    deviceName: req.body.device_name || req.headers["x-device-name"] || null,
+    platform: req.body.platform || req.headers["x-platform"] || null,
+  };
 };
 
 exports.login = async (req, res) => {
-  const { email, password } = req.body;
-  const user = await User.findUserByEmail(email);
-  if (!user) return res.status(401).json({ message: "Invalid credentials" });
-  if (user.is_active === 0) {
-  return res.status(403).json({
-    message: "Your account is deactivated. Please contact admin."
-  });
-}
+  try {
+    const { email, password } = req.body;
+    const { deviceId, deviceName, platform } = getClientDevice(req);
 
-  const isMatch = await bcrypt.compare(password, user.password);
-  if (!isMatch) return res.status(401).json({ message: "Invalid credentials" });
-
-  const ipAddress = getClientIp(req);
-
-  if (user.role === "ADMIN" || user.role === "SUPER_ADMIN") {
-  const token = jwt.sign(
-    { id: user.id, role: user.role, ip: ipAddress },
-    process.env.JWT_SECRET,
-    { expiresIn: "1d" }
-  );
-
-  return res.json({
-    token,
-    user: { id: user.id, name: user.name, role: user.role, ip: ipAddress }
-  });
-}
-
-  let ipRecord = await UserIp.getByUserIdAndIp(user.id, ipAddress);
-
-  if (!ipRecord) {
-    const anyIpExists = await UserIp.getAnyIpForUser(user.id);
-
-    if (!anyIpExists) {
-      await UserIp.createIp(user.id, ipAddress, 1); // auto allow first login
-    } else {
-      await UserIp.createIp(user.id, ipAddress, 0); // request approval
-      return res.status(403).json({
-        message: "This IP is not allowed. Request sent to admin for approval."
+    if (!deviceId) {
+      return res.status(400).json({
+        message: "device_id is required",
       });
     }
-  } else if (ipRecord.is_allowed === 0) {
-    return res.status(403).json({
-      message: "This IP is pending admin approval."
+
+    const user = await User.findUserByEmail(email);
+    if (!user) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    if (user.is_active === 0) {
+      return res.status(403).json({
+        message: "Your account is deactivated. Please contact admin.",
+      });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    // Admin/Super Admin bypass device approval if you want
+    if (user.role === "ADMIN" || user.role === "SUPER_ADMIN") {
+      const token = jwt.sign(
+        {
+          id: user.id,
+          role: user.role,
+          device_id: deviceId,
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: "1d" }
+      );
+
+      return res.json({
+        token,
+        user: {
+          id: user.id,
+          name: user.name,
+          role: user.role,
+          device_id: deviceId,
+          device_name: deviceName,
+          platform,
+        },
+      });
+    }
+
+    let deviceRecord = await UserDevice.getByUserIdAndDeviceId(user.id, deviceId);
+
+    if (!deviceRecord) {
+      const anyDeviceExists = await UserDevice.getAnyDeviceForUser(user.id);
+
+      if (!anyDeviceExists) {
+        // first device -> auto allow
+        await UserDevice.createDevice(user.id, deviceId, deviceName, platform, 1);
+      } else {
+        // second/new device -> pending approval
+        await UserDevice.createDevice(user.id, deviceId, deviceName, platform, 0);
+
+        return res.status(403).json({
+          message: "This device is not allowed. Request sent to admin for approval.",
+        });
+      }
+    } else if (deviceRecord.is_allowed === 0) {
+      return res.status(403).json({
+        message: "This device is pending admin approval.",
+      });
+    }
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        role: user.role,
+        device_id: deviceId,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" }
+    );
+
+    return res.json({
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        role: user.role,
+        device_id: deviceId,
+        device_name: deviceName,
+        platform,
+      },
     });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
-
-  const token = jwt.sign(
-    { id: user.id, role: user.role, ip: ipAddress },
-    process.env.JWT_SECRET,
-    { expiresIn: "1d" }
-  );
-
-  res.json({
-    token,
-    user: { id: user.id, name: user.name, role: user.role, ip: ipAddress }
-  });
 };
 
-exports.getPendingIpRequests = async (req, res) => {
+exports.getPendingDeviceRequests = async (req, res) => {
   try {
-    const requests = await UserIp.getPendingRequests();
+    const requests = await UserDevice.getPendingRequests();
     res.json(requests);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
-exports.approveIpRequest = async (req, res) => {
-  try {
-    const { ipId } = req.params;
 
+exports.approveDeviceRequest = async (req, res) => {
+  try {
+    const { deviceRequestId } = req.params;
     const adminId = req.user.id;
 
-    const approvedIpData = await UserIp.approveIp(ipId, adminId);
+    const approvedDeviceData = await UserDevice.approveDevice(deviceRequestId, adminId);
 
-    if (!approvedIpData) {
-      return res.status(404).json({ error: "IP request not found" });
+    if (!approvedDeviceData) {
+      return res.status(404).json({ error: "Device request not found" });
     }
 
-    const user = await UserIp.findById(approvedIpData.user_id);
-
+    const user = await UserDevice.findUserById(approvedDeviceData.user_id);
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
 
+    // You can rename this mail util later
     await sendIpApprovedMail(
       user.email,
       user.name,
-      approvedIpData.ip_address
+      approvedDeviceData.device_id
     );
 
     res.json({
-      message: "IP approved successfully and notification email sent"
+      message: "Device approved successfully and notification email sent",
     });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

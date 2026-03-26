@@ -68,3 +68,20 @@ exports.getAreasByPincode = async (req, res) => {
     });
   }
 };
+
+exports.getDistricts = async (req, res) => {
+  try {
+    const { search } = req.query;
+
+    const data = await Pincode.getDistricts(search);
+
+    res.json({
+      success: true,
+      count: data.length,
+      districts: data
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};

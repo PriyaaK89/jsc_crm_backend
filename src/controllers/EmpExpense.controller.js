@@ -231,36 +231,70 @@ exports.getMyUploadedExpenses = async (req, res) => {
   }
 };
 
-
-exports.getAllExpensesAdmin = async (req, res) => {
+exports.getAdminExpenseSummary = async (req, res) => {
   try {
     let {
       page = 1,
       limit = 10,
-      user_id,
+      search,
       expense_type,
       start_date,
-      end_date, search
+      end_date
     } = req.query;
 
     page = parseInt(page);
     limit = parseInt(limit);
+    const offset = (page - 1) * limit;
 
-    const result = await expenseModel.getAllExpenseAllocationsForAdmin({
-      page,
+    const result = await expenseModel.getAdminExpenseSummary({
+      search: search || null,
+      expense_type: expense_type || null,
+      start_date: start_date || null,
+      end_date: end_date || null,
       limit,
-      user_id,
-      expense_type,
-      start_date,
-      end_date, search
+      offset
+    });
+
+    //  Format response
+    const formattedData = result.rows.map((row) => {
+
+      const allocation = {
+        HOTEL: parseFloat(row.hotel_amount || 0),
+        BUS_TRAIN_TOLL: parseFloat(row.bus_train_toll_amount || 0),
+        PETROL_DIESEL: parseFloat(row.petrol_diesel_amount || 0),
+        OTHER: parseFloat(row.other_amount || 0)
+      };
+
+      const usage = {
+        HOTEL: parseFloat(row.hotel_used || 0),
+        BUS_TRAIN_TOLL: parseFloat(row.bus_used || 0),
+        PETROL_DIESEL: parseFloat(row.petrol_used || 0),
+        OTHER: parseFloat(row.other_used || 0)
+      };
+
+      const remaining = {
+        HOTEL: allocation.HOTEL - usage.HOTEL,
+        BUS_TRAIN_TOLL: allocation.BUS_TRAIN_TOLL - usage.BUS_TRAIN_TOLL,
+        PETROL_DIESEL: allocation.PETROL_DIESEL - usage.PETROL_DIESEL,
+        OTHER: allocation.OTHER - usage.OTHER
+      };
+
+      return {
+        user_id: row.user_id,
+        employee_name: row.employee_name,
+        allocation,
+        usage,
+        remaining
+      };
     });
 
     return res.status(200).json({
-      message: "Expenses fetched successfully",
-      current_page: page,
+      message: "Admin expense summary fetched successfully",
+      page,
+      limit,
+      totalItems: result.total,
       total_pages: Math.ceil(result.total / limit),
-      total_records: result.total,
-      data: result.data
+      data: formattedData
     });
 
   } catch (error) {
@@ -269,3 +303,5 @@ exports.getAllExpensesAdmin = async (req, res) => {
     });
   }
 };
+
+

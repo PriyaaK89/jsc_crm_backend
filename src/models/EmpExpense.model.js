@@ -202,98 +202,89 @@ exports.getUserExpenseEntriesByType = async (userId, expenseType) => {
   return rows;
 };
 
-exports.getAllExpensesForAdmin = async ({
-  page,
-  limit,
-  user_id,
+exports.getAdminExpenseSummary = async ({
+  search,
   expense_type,
   start_date,
   end_date,
-  search
+  limit,
+  offset
 }) => {
+
   let whereConditions = [];
   let values = [];
 
-  //  Ensure proper numbers
-  const limitNum = Number(limit) || 10;
-  const pageNum = Number(page) || 1;
-  const offsetNum = (pageNum - 1) * limitNum;
+  //  Search
+  if (search) {
+    whereConditions.push("u.name LIKE ?");
+    values.push(`%${search}%`);
+  }
 
-  // ================== OPTIONAL FILTERS ==================
-
-  //  Expense Type (only if not empty)
-  if (expense_type && expense_type.trim() !== "") {
+  //  Expense Type Filter
+  if (expense_type) {
     whereConditions.push("e.expense_type = ?");
     values.push(expense_type);
   }
 
-  //  Date Filter (handle partial also)
+  //  Date Filter
   if (start_date && end_date) {
     whereConditions.push("e.expense_date BETWEEN ? AND ?");
     values.push(start_date, end_date);
-  } else if (start_date) {
-    whereConditions.push("e.expense_date >= ?");
-    values.push(start_date);
-  } else if (end_date) {
-    whereConditions.push("e.expense_date <= ?");
-    values.push(end_date);
   }
 
-  // ✅ Search (name/email)
-  if (search && search.trim() !== "") {
-    whereConditions.push("(u.name LIKE ? OR u.email LIKE ?)");
-    values.push(`%${search}%`, `%${search}%`);
-  }
-
-  // ✅ User filter (only if search not used)
-  if (!search && user_id) {
-    whereConditions.push("e.user_id = ?");
-    values.push(user_id);
-  }
-
-  // ================== WHERE CLAUSE ==================
   const whereClause =
     whereConditions.length > 0
       ? `WHERE ${whereConditions.join(" AND ")}`
       : "";
 
-  // ================== MAIN QUERY ==================
-  const [rows] = await db.execute(
-    `
+  const sql = `
     SELECT 
-      e.id,
-      e.user_id,
-      u.name as user_name,
-      u.email,
-      e.expense_type,
-      e.expense_date,
-      e.amount,
-      e.bill_url,
-      e.remarks,
-      e.status,
-      e.created_at
-    FROM employee_expense_entries e
-    LEFT JOIN users u ON u.id = e.user_id
-    ${whereClause}
-    ORDER BY e.expense_date DESC, e.id DESC
-    LIMIT ${limitNum} OFFSET ${offsetNum}
-    `,
-    values
-  );
+      u.id AS user_id,
+      u.name AS employee_name,
 
-  // ================== COUNT QUERY ==================
-  const [countResult] = await db.execute(
-    `
-    SELECT COUNT(*) as total
-    FROM employee_expense_entries e
-    LEFT JOIN users u ON u.id = e.user_id
+      a.hotel_amount,
+      a.bus_train_toll_amount,
+      a.petrol_diesel_amount,
+      a.other_amount,
+
+      --  Usage aggregation
+      SUM(CASE WHEN e.expense_type = 'HOTEL' THEN e.amount ELSE 0 END) AS hotel_used,
+      SUM(CASE WHEN e.expense_type = 'BUS_TRAIN_TOLL' THEN e.amount ELSE 0 END) AS bus_used,
+      SUM(CASE WHEN e.expense_type = 'PETROL_DIESEL' THEN e.amount ELSE 0 END) AS petrol_used,
+      SUM(CASE WHEN e.expense_type = 'OTHER' THEN e.amount ELSE 0 END) AS other_used
+
+    FROM employee_expense_allocations a
+    JOIN users u ON u.id = a.user_id
+    LEFT JOIN employee_expense_entries e 
+      ON e.allocation_id = a.id
+
     ${whereClause}
-    `,
-    values
-  );
+
+    GROUP BY u.id
+
+    ORDER BY u.name ASC
+    LIMIT ? OFFSET ?
+  `;
+
+  values.push(limit, offset);
+
+  const [rows] = await db.execute(sql, values);
+
+  //  COUNT QUERY
+  const countSql = `
+    SELECT COUNT(*) as total
+    FROM employee_expense_allocations a
+    JOIN users u ON u.id = a.user_id
+    ${search ? "WHERE u.name LIKE ?" : ""}
+  `;
+
+  const countValues = search ? [`%${search}%`] : [];
+
+  const [countResult] = await db.execute(countSql, countValues);
 
   return {
-    data: rows,
+    rows,
     total: countResult[0].total
   };
 };
+

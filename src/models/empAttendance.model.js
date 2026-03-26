@@ -52,13 +52,13 @@ exports.saveAttendanceImage = async (data) => {
 
 exports.getDayWiseAttendance = async ({
   employeeId,
+  search,
   startDate,
   endDate,
   limit,
-  offset
+  offset,
 }) => {
-  const [rows] = await db.query(
-    `
+  let query = `
     SELECT
       ea.attendance_date,
       ea.status,
@@ -70,40 +70,125 @@ exports.getDayWiseAttendance = async ({
       u.name AS employee_name
     FROM emp_attendance ea
     JOIN users u ON u.id = ea.employee_id
-    WHERE ea.employee_id = ?
-      AND ea.attendance_date BETWEEN ? AND ?
-    ORDER BY ea.attendance_date DESC
-    LIMIT ? OFFSET ?
-    `,
-    [
-      employeeId,
-      startDate,
-      endDate,
-      Number(limit),
-      Number(offset)
-    ]
-  );
+    WHERE 1=1
+  `;
 
+  const params = [];
+
+  //  Filter by employee_id
+  if (employeeId) {
+    query += ` AND ea.employee_id = ?`;
+    params.push(employeeId);
+  }
+
+  //  Search by employee name
+  if (search) {
+    query += ` AND u.name LIKE ?`;
+    params.push(`%${search}%`);
+  }
+
+  //  Date filter
+  if (startDate && endDate) {
+    query += ` AND ea.attendance_date BETWEEN ? AND ?`;
+    params.push(startDate, endDate);
+  }
+
+  //  Sorting + Pagination
+  query += ` ORDER BY ea.attendance_date DESC LIMIT ? OFFSET ?`;
+  params.push(Number(limit), Number(offset));
+
+  const [rows] = await db.query(query, params);
   return rows;
 };
 
-exports.getDayWiseAttendanceCount = async (
+exports.getDayWiseAttendanceCount = async ({
   employeeId,
+  search,
   startDate,
-  endDate
-) => {
-  const [[row]] = await db.query(
-    `
+  endDate,
+}) => {
+  let query = `
     SELECT COUNT(*) AS total
-    FROM emp_attendance
-    WHERE employee_id = ?
-      AND attendance_date BETWEEN ? AND ?
-    `,
-    [employeeId, startDate, endDate]
-  );
+    FROM emp_attendance ea
+    JOIN users u ON u.id = ea.employee_id
+    WHERE 1=1
+  `;
 
+  const params = [];
+
+  if (employeeId) {
+    query += ` AND ea.employee_id = ?`;
+    params.push(employeeId);
+  }
+
+  if (search) {
+    query += ` AND u.name LIKE ?`;
+    params.push(`%${search}%`);
+  }
+
+  if (startDate && endDate) {
+    query += ` AND ea.attendance_date BETWEEN ? AND ?`;
+    params.push(startDate, endDate);
+  }
+
+  const [[row]] = await db.query(query, params);
   return row.total;
 };
+
+// exports.getDayWiseAttendance = async ({
+//   employeeId,
+//   startDate,
+//   endDate,
+//   limit,
+//   offset
+// }) => {
+//   const [rows] = await db.query(
+//     `
+//     SELECT
+//       ea.attendance_date,
+//       ea.status,
+//       ea.attendance_unit,
+//       ea.working_minutes,
+//       TIME(ea.check_in_time) AS check_in_time,
+//       TIME(ea.check_out_time) AS check_out_time,
+//       u.id AS employee_id,
+//       u.name AS employee_name
+//     FROM emp_attendance ea
+//     JOIN users u ON u.id = ea.employee_id
+//     WHERE ea.employee_id = ?
+//       AND ea.attendance_date BETWEEN ? AND ?
+//     ORDER BY ea.attendance_date DESC
+//     LIMIT ? OFFSET ?
+//     `,
+//     [
+//       employeeId,
+//       startDate,
+//       endDate,
+//       Number(limit),
+//       Number(offset)
+//     ]
+//   );
+
+//   return rows;
+// };
+
+// exports.getDayWiseAttendanceCount = async (
+//   employeeId,
+//   startDate,
+//   endDate
+// ) => {
+//   const [[row]] = await db.query(
+//     `
+//     SELECT COUNT(*) AS total
+//     FROM emp_attendance
+//     WHERE employee_id = ?
+//       AND attendance_date BETWEEN ? AND ?
+//     `,
+//     [employeeId, startDate, endDate]
+//   );
+
+//   return row.total;
+// };
 
 exports.getMonthlyAttendanceSummary = async (
   employeeId,

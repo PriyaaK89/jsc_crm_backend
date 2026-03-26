@@ -9,7 +9,8 @@ const folderMap = {
   attendance_photo: "attendance/photos",
   product_image: "products/images",
   employee_letters: "employee/letter",
-  bills: "employee/expenses/bills"
+  bills: "employee/expenses/bills",
+  visits: "employee/visits"
 };
 
 const uploadFileToMinio = async (file, type, options = {}) => {

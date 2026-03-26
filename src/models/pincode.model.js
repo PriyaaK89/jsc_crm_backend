@@ -28,3 +28,23 @@ exports.getAreasByPincode = async (pincode) => {
   );
   return rows;
 };
+
+exports.getDistricts = async (search = "") => {
+  let query = `
+    SELECT DISTINCT district 
+    FROM pincodes
+    WHERE district IS NOT NULL
+  `;
+
+  let params = [];
+
+  if (search) {
+    query += " AND district LIKE ?";
+    params.push(`%${search}%`);
+  }
+
+  query += " ORDER BY district ASC";
+
+  const [rows] = await db.query(query, params);
+  return rows;
+};

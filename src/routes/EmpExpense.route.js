@@ -3,13 +3,15 @@ const router = express.Router();
 
 const expenseController = require("../controllers/EmpExpense.controller");
 const upload = require("../middleware/upload.middleware");
+const auth = require("../middleware/auth.middleware");
 
-router.post("/set-expense-allocation", expenseController.setExpenseAllocation);
+router.post("/set-expense-allocation",auth, expenseController.setExpenseAllocation);
 
 // user side
-router.get("/get-emp-expenses-summary", expenseController.getMyExpenseSummary);
-router.post("/upload-my-expense", upload.single("bill"), expenseController.uploadMyExpense);
-router.get("/my-uploaded-expenses", expenseController.getMyUploadedExpenses);
-router.get("/getUploadedExpenses", expenseController.getAllExpensesAdmin);
+router.get("/get-emp-expenses-summary",auth, expenseController.getMyExpenseSummary);
+router.post("/upload-my-expense",auth, upload.single("bill"), expenseController.uploadMyExpense);
+router.get("/my-uploaded-expenses",auth, expenseController.getMyUploadedExpenses);
+router.get("/admin-expense-summary",auth, expenseController.getAdminExpenseSummary);
+
 
 module.exports = router;

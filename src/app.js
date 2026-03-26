@@ -31,6 +31,8 @@ const leegalityRoute = require("../src/routes/esign.routes");
 const leegalityWebhookRoute = require("../src/routes/leegalityWebhook.routes");
 
 const EmpExpensesRoute = require("../src/routes/EmpExpense.route");
+const customerRoute = require("../src/routes/customer.routes");
+const visitRoute = require("../src/routes/visit.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -55,6 +57,8 @@ app.use(leegalityRoute);
 app.use(leegalityWebhookRoute);
 
 app.use(EmpExpensesRoute);
+app.use(customerRoute);
+app.use(visitRoute)
 
 
 

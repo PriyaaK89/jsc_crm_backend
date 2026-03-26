@@ -26,8 +26,10 @@ exports.setExpenseAllocation = async (req, res) => {
       // insert
       result = await expenseModel.createAllocation({ user_id, hotel_amount, bus_train_toll_amount, petrol_diesel_amount, other_amount });
 
-      return res.json({
-        message: "Expense allocation created successfully"
+      return res.status(200).json({
+        success: true,
+        message: "Expense allocation created successfully",
+        data: result
       });
     }
   } catch (error) {
@@ -120,6 +122,12 @@ exports.uploadMyExpense = async (req, res) => {
         message: "Invalid expense type"
       });
     }
+     if (!req.file) {
+      return res.status(400).json({
+        message: "Please upload bill image"
+      });
+    }
+
 
     const parsedAmount = parseFloat(amount);
 

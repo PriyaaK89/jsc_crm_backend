@@ -12,22 +12,7 @@ const validPurposes = [
 
 exports.createVisit = async (req, res) => {
   try {
-    const {
-      user_id,
-      visit_type,
-      customer_type,
-      customer_id,
-      name,
-      firm_name,
-      firm_address,
-      contact_number,
-      address,
-      area,
-      district,
-      pincode,
-      visit_purpose,
-      comment,
-      reminder_date
+    const { user_id, visit_type,customer_type,  customer_id, name, firm_name, firm_address, contact_number, address, area, district, pincode, visit_purpose, comment, reminder_date
     } = req.body;
 
     // Validate purpose
@@ -76,6 +61,12 @@ exports.createVisit = async (req, res) => {
         });
       }
     }
+    if (!req.file) {
+  return res.status(400).json({
+    success: false,
+    message: "Image is mandatory. Please upload an image."
+  });
+}
 
     // Upload Image
     let imagePath = null;

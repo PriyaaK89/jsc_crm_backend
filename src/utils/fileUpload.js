@@ -49,4 +49,18 @@ const uploadFileToMinio = async (file, type, options = {}) => {
 };
 };
 
-module.exports = { uploadFileToMinio };
+const getPresignedUrl = async (objectPath, expiry = 60 * 60) => {
+  try {
+    const url = await minioClient.presignedGetObject(
+      BUCKET,
+      objectPath,
+      expiry // seconds (1 hour default)
+    );
+
+    return url;
+  } catch (err) {
+    throw err;
+  }
+};
+
+module.exports = { uploadFileToMinio, getPresignedUrl };

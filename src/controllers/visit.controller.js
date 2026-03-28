@@ -1,4 +1,4 @@
-const { uploadFileToMinio } = require("../utils/fileUpload");
+const { uploadFileToMinio,getPresignedUrl } = require("../utils/fileUpload");
 const visitModel = require("../models/visit.model");
 const customerModel = require("../models/customer.model");
 
@@ -97,12 +97,13 @@ exports.createVisit = async (req, res) => {
     
 
   } catch (err) {
-    console.error(err);
+  console.error(" ERROR:", err);
 
-    return res.status(500).json({
-      message: "Something went wrong"
-    });
-  }
+  return res.status(500).json({
+    message: err.message,   //  SHOW REAL ERROR
+    error: err
+  });
+}
 };
 
 const clean = (value) => {
@@ -127,12 +128,12 @@ exports.getVisits = async (req, res) => {
 
     const result = await visitModel.getVisits(filters);
 
-    const data = result.data.map((item) => ({
-      ...item,
-      image_url: item.image_path
-        ? `${process.env.MINIO_PUBLIC_URL}/jsc-crm/${item.image_path}`
-        : null
-    }));
+       const data = await Promise.all(
+  result.data.map(async (item) => ({
+    ...item,
+    image_url: item.image_path  ? await getPresignedUrl(item.image_path) : null
+  }))
+);
 
     res.status(200).json({
       success: true,
@@ -148,3 +149,58 @@ exports.getVisits = async (req, res) => {
   }
 };
 
+exports.getMyVisits = async (req, res) => {
+  try {
+    const userId = req.user.id; //  from token (important)
+
+    const filters = {
+      user_id: userId, //  force employee's own data
+      visit_type: clean(req.query.visit_type),
+      district: clean(req.query.district),
+      from_date: clean(req.query.from_date),
+      to_date: clean(req.query.to_date),
+      search: clean(req.query.search),
+      page: req.query.page || 1,
+      limit: req.query.limit || 10
+    };
+
+    const result = await visitModel.getVisits(filters);
+
+    const data = await Promise.all(
+  result.data.map(async (item) => ({
+    ...item,
+    image_url: item.image_path  ? await getPresignedUrl(item.image_path) : null
+  }))
+);
+
+    return res.status(200).json({
+      success: true,
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
+      data
+    });
+
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+};
+
+exports.getTodayVisit =  async (req, res) => {
+  try {
+    const today = new Date().toISOString().split("T")[0];
+
+    const result = await visitModel.getVisits({
+      user_id: req.user.id,
+      from_date: today,
+      to_date: today,
+      page: 1,
+      limit: 50
+    });
+
+    res.json({ success: true, data: result.data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};

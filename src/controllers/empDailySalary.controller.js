@@ -167,3 +167,34 @@ exports.getSalaryByDateRange = async (req, res) => {
     });
   }
 };
+
+exports.getMySalaryByDateRange = async (req, res) => {
+  try {
+    const employeeId = req.user?.id; // from token
+    const { startDate, endDate } = req.query;
+
+    if (!employeeId || !startDate || !endDate) {
+      return res.status(400).json({
+        message: "startDate and endDate are required",
+      });
+    }
+
+    const data = await SalaryDaily.getSalaryByDateRange(
+      employeeId,
+      startDate,
+      endDate
+    );
+
+    return res.json({
+      success: true,
+      count: data.length,
+      data,
+    });
+
+  } catch (error) {
+    console.error("Get My Salary Error:", error);
+    return res.status(500).json({
+      message: "Server error",
+    });
+  }
+};

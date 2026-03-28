@@ -340,44 +340,6 @@ if (
   }
 };
 
-// exports.getDayWiseAttendance = async (req, res) => {
-//   try {
-//     const { employeeId } = req.params;
-//     let { start_date, end_date, page = 1, limit = 10 } = req.query;
-//     if (!start_date || !end_date) {
-//       return res.status(400).json({
-//         message: "start_date and end_date are required",
-//       });
-//     }
-//     page = Number(page);
-//     limit = Number(limit);
-//     const offset = (page - 1) * limit;
-
-//     const attendance = await Attendance.getDayWiseAttendance({ employeeId, startDate: start_date, endDate: end_date, limit, offset, });
-
-//     const totalRecords = await Attendance.getDayWiseAttendanceCount( employeeId, start_date, end_date, );
-
-//     return res.json({
-//       employee_id: employeeId,
-//       start_date,
-//       end_date,
-//       pagination: {
-//         page,
-//         limit,
-//         total_records: totalRecords,
-//         total_pages: Math.ceil(totalRecords / limit),
-//       },
-//       attendance,
-//     });
-//   } catch (error) {
-//     console.error("Day-wise Attendance Error:", error);
-//     return res.status(500).json({
-//       message: "Server error",
-//     });
-//   }
-// };
-
-
 exports.getDayWiseAttendance = async (req, res) => {
   try {
     let {
@@ -426,6 +388,47 @@ exports.getDayWiseAttendance = async (req, res) => {
     });
   } catch (error) {
     console.error("Day-wise Attendance Error:", error);
+    return res.status(500).json({
+      message: "Server error",
+    });
+  }
+};
+
+exports.getMyAttendance = async (req, res) => {
+  try {
+    const employeeId = req.user?.id; // from token
+    let { start_date, end_date, page = 1, limit = 10 } = req.query;
+
+    page = Number(page);
+    limit = Number(limit);
+    const offset = (page - 1) * limit;
+
+    const attendance = await Attendance.getDayWiseAttendance({
+      employeeId, // force from token
+      startDate: start_date,
+      endDate: end_date,
+      limit,
+      offset,
+    });
+
+    const totalRecords = await Attendance.getDayWiseAttendanceCount({
+      employeeId,
+      startDate: start_date,
+      endDate: end_date,
+    });
+
+    return res.json({
+      pagination: {
+        page,
+        limit,
+        total_records: totalRecords,
+        total_pages: Math.ceil(totalRecords / limit),
+      },
+      attendance,
+    });
+
+  } catch (error) {
+    console.error("My Attendance Error:", error);
     return res.status(500).json({
       message: "Server error",
     });

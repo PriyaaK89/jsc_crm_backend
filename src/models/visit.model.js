@@ -4,8 +4,7 @@ exports.createVisit = async (data) => {
   const query = `
     INSERT INTO visits 
     (user_id, customer_id, visit_type, customer_type, visit_purpose, comment, reminder_date, image_path)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ? )
-  `;
+    VALUES (?, ?, ?, ?, ?, ?, ?, ? )`;
 
   const [result] = await db.query(query, data);
   return result.insertId;
@@ -13,24 +12,19 @@ exports.createVisit = async (data) => {
 
 
 exports.getVisits = async (filters) => {
-  let baseQuery = `
-    FROM visits v
-    LEFT JOIN customers c ON v.customer_id = c.id
-    WHERE 1=1
-  `;
+  let baseQuery = ` FROM visits v LEFT JOIN customers c ON v.customer_id = c.id LEFT JOIN users u ON v.user_id = u.id
+    WHERE 1=1`;
 
   const params = [];
 
-  // 🔹 Filters
+  //  Filters
   if (filters.user_id) {
     baseQuery += " AND v.user_id = ?";
-    params.push(filters.user_id);
-  }
+    params.push(filters.user_id);}
 
   if (filters.visit_type) {
     baseQuery += " AND v.visit_type = ?";
-    params.push(filters.visit_type);
-  }
+    params.push(filters.visit_type);}
 
   if (filters.district) {
     baseQuery += " AND c.district = ?";
@@ -47,13 +41,14 @@ exports.getVisits = async (filters) => {
     baseQuery += `
       AND (
         c.name LIKE ?
+        OR u.name LIKE ?
         OR c.contact_number LIKE ?
         OR c.district LIKE ?
         OR v.comment LIKE ?
       )
     `;
     const searchValue = `%${filters.search}%`;
-    params.push(searchValue, searchValue, searchValue, searchValue);
+    params.push(searchValue, searchValue, searchValue, searchValue, searchValue);
   }
 
   //  Total count
@@ -74,6 +69,7 @@ exports.getVisits = async (filters) => {
     SELECT 
       v.id,
       v.user_id,
+      u.name as emp_name,
       v.visit_type,
       v.customer_type,
       v.visit_purpose,

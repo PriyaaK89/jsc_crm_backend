@@ -26,5 +26,6 @@ router.post("/mark-emp-attendance", auth, (req, res) => {
 router.get( "/get-emp-attendance", auth, attendanceController.getDayWiseAttendance);
 router.get( "/attendance/monthly-summary/:employeeId", auth, attendanceController.getMonthlyAttendanceSummary);
 router.get( "/get-attendance-images/:employeeId", auth, attendanceController.getAttendanceImagesByDate);
+router.get( "/my-attendance", auth, attendanceController.getMyAttendance);
 
 module.exports = router;

@@ -137,7 +137,24 @@ exports.getMonthlyTotals = async (employeeId, month, year) => {
   return row;
 };
 
-exports.getSalaryByDateRange = async (employeeId, startDate, endDate) => {
+// exports.getSalaryByDateRange = async (employeeId, startDate, endDate) => {
+//   const [rows] = await db.query(
+//     `
+//     SELECT * FROM emp_salary_daily WHERE employee_id = ? AND salary_date BETWEEN ? AND ? ORDER BY salary_date ASC
+//     `,
+//     [employeeId, startDate, endDate]
+//   );
+//   return rows;
+// };
+
+exports.getSalaryByDateRange = async (
+  employeeId,
+  startDate,
+  endDate,
+  limit,
+  offset
+) => {
+  // Get paginated data
   const [rows] = await db.query(
     `
     SELECT *
@@ -145,9 +162,76 @@ exports.getSalaryByDateRange = async (employeeId, startDate, endDate) => {
     WHERE employee_id = ?
     AND salary_date BETWEEN ? AND ?
     ORDER BY salary_date ASC
+    LIMIT ? OFFSET ?
+    `,
+    [employeeId, startDate, endDate, limit, offset]
+  );
+
+  // Get total count (important for frontend pagination)
+  const [countResult] = await db.query(
+    `
+    SELECT COUNT(*) as total
+    FROM emp_salary_daily
+    WHERE employee_id = ?
+    AND salary_date BETWEEN ? AND ?
     `,
     [employeeId, startDate, endDate]
   );
 
-  return rows;
+  return {
+    rows,
+    total: countResult[0].total,
+  };
+};
+
+exports.getMySalaryByDateRange = async (
+  employeeId,
+  startDate,
+  endDate,
+  limit,
+  offset
+) => {
+  let query = `
+    SELECT *
+    FROM emp_salary_daily
+    WHERE employee_id = ?
+  `;
+
+  let countQuery = `
+    SELECT COUNT(*) as total
+    FROM emp_salary_daily
+    WHERE employee_id = ?
+  `;
+
+  const params = [employeeId];
+  const countParams = [employeeId];
+
+  //  Apply filters only if provided
+  if (startDate && endDate) {
+    query += ` AND salary_date BETWEEN ? AND ?`;
+    countQuery += ` AND salary_date BETWEEN ? AND ?`;
+    params.push(startDate, endDate);
+    countParams.push(startDate, endDate);
+  } else if (startDate) {
+    query += ` AND salary_date >= ?`;
+    countQuery += ` AND salary_date >= ?`;
+    params.push(startDate);
+    countParams.push(startDate);
+  } else if (endDate) {
+    query += ` AND salary_date <= ?`;
+    countQuery += ` AND salary_date <= ?`;
+    params.push(endDate);
+    countParams.push(endDate);
+  }
+
+  query += ` ORDER BY salary_date ASC LIMIT ? OFFSET ?`;
+  params.push(limit, offset);
+
+  const [rows] = await db.query(query, params);
+  const [countResult] = await db.query(countQuery, countParams);
+
+  return {
+    rows,
+    total: countResult[0].total,
+  };
 };

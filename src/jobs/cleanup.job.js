@@ -7,7 +7,7 @@ cron.schedule('0 2 * * *', async () => {
 
     await db.query(`
       DELETE FROM employee_locations
-      WHERE recorded_at < NOW() - INTERVAL 30 DAY
+      WHERE recorded_at < NOW() - INTERVAL 40 DAY
     `);
 
     console.log("Old location data deleted");

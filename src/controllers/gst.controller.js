@@ -69,6 +69,7 @@ exports.verifyGST = async (req, res) => {
       },
 
       business_type: gstDetails.ctb,
+      reg_date: gstDetails.rgdt,
       activities: gstDetails.nba,
       last_updated: gstDetails.lstupdt,
     });

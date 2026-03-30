@@ -523,4 +523,40 @@ exports.getAttendanceImagesByDate = async (req, res) => {
   }
 };
 
+exports.getDailyAttendanceSummary = async (req, res) => {
+  try {
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({
+        message: "Date is required",
+      });
+    }
+
+    const summary = await Attendance.getDailyAttendanceSummary(date);
+
+    return res.json({
+      date,
+      summary: {
+        total_employees: Number(summary.total_employees),
+        active_employees: Number(summary.active_employees),
+        inactive_employees: Number(summary.inactive_employees),
+
+        //  Updated fields
+        checked_in: Number(summary.checked_in),
+        completed_day: Number(summary.completed_day),
+        half_day: Number(summary.half_day),
+        leave_count: Number(summary.leave_count),
+        absent_count: Number(summary.absent_count),
+        present_total: Number(summary.checked_in) + Number(summary.completed_day)
+      },
+    });
+
+  } catch (error) {
+    console.error("Daily Summary Error:", error);
+    return res.status(500).json({
+      message: "Server error",
+    });
+  }
+};
 module.exports.generateDailySalaryInternal = generateDailySalaryInternal;

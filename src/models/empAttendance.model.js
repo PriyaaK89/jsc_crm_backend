@@ -217,3 +217,67 @@ exports.getAttendanceImagesByDate = async (employeeId, date) => {
 
   return rows;
 };
+
+exports.getDailyAttendanceSummary = async (date) => {
+  const [rows] = await db.query(
+    `
+    SELECT 
+      COUNT(DISTINCT u.id) AS total_employees,
+
+      -- Active / Inactive
+      SUM(CASE WHEN u.is_active = 1 THEN 1 ELSE 0 END) AS active_employees,
+      SUM(CASE WHEN u.is_active = 0 THEN 1 ELSE 0 END) AS inactive_employees,
+
+      -- Checked-in (login done but not day_over yet)
+      SUM(
+        CASE 
+          WHEN ea.status = 'present' AND u.is_active = 1
+          THEN 1 ELSE 0 
+        END
+      ) AS checked_in,
+
+      -- Completed day (checkout done)
+      SUM(
+        CASE 
+          WHEN ea.status = 'day_over' AND u.is_active = 1
+          THEN 1 ELSE 0 
+        END
+      ) AS completed_day,
+
+      -- Half day
+      SUM(
+        CASE 
+          WHEN ea.attendance_unit = 'half' AND u.is_active = 1
+          THEN 1 ELSE 0 
+        END
+      ) AS half_day,
+
+      -- Leave
+      SUM(
+        CASE 
+          WHEN ea.status = 'leave' AND u.is_active = 1
+          THEN 1 ELSE 0 
+        END
+      ) AS leave_count,
+
+      -- Absent (ONLY active employees with no record OR marked absent)
+      SUM(
+        CASE 
+          WHEN u.is_active = 1 AND (
+            ea.id IS NULL 
+            OR ea.attendance_unit = 'absent'
+          )
+          THEN 1 ELSE 0 
+        END
+      ) AS absent_count
+
+    FROM users u
+    LEFT JOIN emp_attendance ea 
+      ON u.id = ea.employee_id
+      AND ea.attendance_date = ?
+    `,
+    [date]
+  );
+
+  return rows[0];
+};

@@ -6,9 +6,21 @@ exports.saveLocation = async (req, res) => {
     const { attendance_id, latitude, longitude, accuracy, speed } = req.body;
 
     if (!latitude || !longitude) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid coordinates" });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid coordinates",
+      });
+    }
+
+    //  TIME CHECK (10 PM LIMIT)
+    const now = new Date();
+    const currentHour = now.getHours();
+
+    if (currentHour >= 22) {  // 22 = 10 PM
+      return res.status(200).json({
+        success: false,
+        message: "Tracking stopped after 10 PM",
+      });
     }
 
     await Location.saveLocation({
@@ -20,7 +32,10 @@ exports.saveLocation = async (req, res) => {
       speed,
     });
 
-    return res.status(200).json({ success: true, message: "Location saved" });
+    return res.status(200).json({
+      success: true,
+      message: "Location saved",
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

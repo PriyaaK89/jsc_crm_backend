@@ -131,10 +131,47 @@ const formattedWorkingHours = `${hours} hr ${minutes} min`;
   }
 };
 
+// exports.getSalaryByDateRange = async (req, res) => {
+//   try {
+//     const { employeeId } = req.params;
+//     const { startDate, endDate } = req.query;
+
+//     if (!employeeId || !startDate || !endDate) {
+//       return res.status(400).json({
+//         message: "Employee ID, startDate and endDate are required",
+//       });
+//     }
+
+//     const data = await SalaryDaily.getSalaryByDateRange(
+//       employeeId,
+//       startDate,
+//       endDate
+//     );
+
+//     if (!data.length) {
+//       return res.status(404).json({
+//         message: "No salary records found for selected date range",
+//       });
+//     }
+
+//     return res.json({
+//       success: true,
+//       count: data.length,
+//       data,
+//     });
+
+//   } catch (error) {
+//     console.error("Get Salary Range Error:", error);
+//     return res.status(500).json({
+//       message: "Server error",
+//     });
+//   }
+// };
+
 exports.getSalaryByDateRange = async (req, res) => {
   try {
     const { employeeId } = req.params;
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate, page = 1, limit = 10 } = req.query;
 
     if (!employeeId || !startDate || !endDate) {
       return res.status(400).json({
@@ -142,13 +179,18 @@ exports.getSalaryByDateRange = async (req, res) => {
       });
     }
 
-    const data = await SalaryDaily.getSalaryByDateRange(
+    const pageNumber = parseInt(page);
+    const pageSize = parseInt(limit);
+    const offset = (pageNumber - 1) * pageSize;
+
+    const result = await SalaryDaily.getSalaryByDateRange(
       employeeId,
       startDate,
-      endDate
+      endDate,
+      pageSize,
+      offset
     );
-
-    if (!data.length) {
+    if (!result.length) {
       return res.status(404).json({
         message: "No salary records found for selected date range",
       });
@@ -156,8 +198,11 @@ exports.getSalaryByDateRange = async (req, res) => {
 
     return res.json({
       success: true,
-      count: data.length,
-      data,
+      count: result.rows.length,
+      total: result.total,
+      currentPage: pageNumber,
+      totalPages: Math.ceil(result.total / pageSize),
+      data: result.rows,
     });
 
   } catch (error) {
@@ -170,25 +215,34 @@ exports.getSalaryByDateRange = async (req, res) => {
 
 exports.getMySalaryByDateRange = async (req, res) => {
   try {
-    const employeeId = req.user?.id; // from token
-    const { startDate, endDate } = req.query;
+    const employeeId = req.user?.id;
+    const { startDate, endDate, page = 1, limit = 10 } = req.query;
 
-    if (!employeeId || !startDate || !endDate) {
+    if (!employeeId) {
       return res.status(400).json({
-        message: "startDate and endDate are required",
+        message: "Unauthorized, please enter a valid token!",
       });
     }
 
-    const data = await SalaryDaily.getSalaryByDateRange(
+    const pageNumber = parseInt(page);
+    const pageSize = Math.min(parseInt(limit) || 10, 100);
+    const offset = (pageNumber - 1) * pageSize;
+
+    const result = await SalaryDaily.getMySalaryByDateRange(
       employeeId,
       startDate,
-      endDate
+      endDate,
+      pageSize,
+      offset
     );
 
     return res.json({
       success: true,
-      count: data.length,
-      data,
+      count: result.rows.length,
+      total: result.total,
+      currentPage: pageNumber,
+      totalPages: Math.ceil(result.total / pageSize),
+      data: result.rows,
     });
 
   } catch (error) {
@@ -198,3 +252,34 @@ exports.getMySalaryByDateRange = async (req, res) => {
     });
   }
 };
+
+// exports.getMySalaryByDateRange = async (req, res) => {
+//   try {
+//     const employeeId = req.user?.id; // from token
+//     const { startDate, endDate } = req.query;
+
+//     if (!employeeId || !startDate || !endDate) {
+//       return res.status(400).json({
+//         message: "startDate and endDate are required",
+//       });
+//     }
+
+//     const data = await SalaryDaily.getSalaryByDateRange(
+//       employeeId,
+//       startDate,
+//       endDate
+//     );
+
+//     return res.json({
+//       success: true,
+//       count: data.length,
+//       data,
+//     });
+
+//   } catch (error) {
+//     console.error("Get My Salary Error:", error);
+//     return res.status(500).json({
+//       message: "Server error",
+//     });
+//   }
+// };

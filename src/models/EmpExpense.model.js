@@ -251,7 +251,9 @@ exports.getAdminExpenseSummary = async ({
       SUM(CASE WHEN e.expense_type = 'HOTEL' THEN e.amount ELSE 0 END) AS hotel_used,
       SUM(CASE WHEN e.expense_type = 'BUS_TRAIN_TOLL' THEN e.amount ELSE 0 END) AS bus_used,
       SUM(CASE WHEN e.expense_type = 'PETROL_DIESEL' THEN e.amount ELSE 0 END) AS petrol_used,
-      SUM(CASE WHEN e.expense_type = 'OTHER' THEN e.amount ELSE 0 END) AS other_used
+      SUM(CASE WHEN e.expense_type = 'OTHER' THEN e.amount ELSE 0 END) AS other_used,
+
+ GROUP_CONCAT(e.bill_url) AS bill_urls
 
     FROM employee_expense_allocations a
     JOIN users u ON u.id = a.user_id

@@ -30,7 +30,7 @@ exports.createVisit = async (req, res) => {
 
       const existing = await customerModel.findCustomer(
         contact_number,
-        visit_type
+        // visit_type
       );
 
       if (existing) {

@@ -292,7 +292,8 @@ exports.getAdminExpenseSummary = async (req, res) => {
         employee_name: row.employee_name,
         allocation,
         usage,
-        remaining
+        remaining,
+        bill_urls: row.bill_urls ? row.bill_urls.split(",") : []
       };
     });
 
@@ -302,7 +303,8 @@ exports.getAdminExpenseSummary = async (req, res) => {
       limit,
       totalItems: result.total,
       total_pages: Math.ceil(result.total / limit),
-      data: formattedData
+      data: formattedData,
+
     });
 
   } catch (error) {

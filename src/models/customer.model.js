@@ -28,7 +28,7 @@ exports.getCustomerById = async (id) => {
 exports.findCustomer = async (contact_number, type) => {
   const [rows] = await db.query(
     `SELECT * FROM customers 
-     WHERE contact_number = ? AND type = ?`,
+     WHERE contact_number = ?`,
     [contact_number, type]
   );
 

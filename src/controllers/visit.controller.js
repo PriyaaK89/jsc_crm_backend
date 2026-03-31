@@ -67,7 +67,7 @@ exports.createVisit = async (req, res) => {
     message: "Image is mandatory. Please upload an image."
   });
 }
-
+const cleanedReminderDate = clean(reminder_date);
     // Upload Image
     let imagePath = null;
     if (req.file) {
@@ -83,7 +83,7 @@ exports.createVisit = async (req, res) => {
       customer_type,
       visit_purpose,
       comment,
-      reminder_date,
+      cleanedReminderDate,
       imagePath
     ]);
 

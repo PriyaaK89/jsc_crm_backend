@@ -257,12 +257,64 @@ const getClientDevice = (req) => {
 // };
 
 
+// exports.login = async (req, res) => {
+//   try {
+//     const { email, password } = req.body;
+
+//     // Check user
+//     const user = await User.findUserByEmail(email);
+//     if (!user) {
+//       return res.status(401).json({ message: "Invalid credentials" });
+//     }
+
+//     // Check active status
+//     if (user.is_active === 0) {
+//       return res.status(403).json({
+//         message: "Your account is deactivated. Please contact admin.",
+//       });
+//     }
+
+//     // Compare password
+//     const isMatch = await bcrypt.compare(password, user.password);
+//     if (!isMatch) {
+//       return res.status(401).json({ message: "Invalid credentials" });
+//     }
+
+//     // Generate JWT (NO device_id now)
+//     const token = jwt.sign(
+//       {
+//         id: user.id,
+//         role: user.role,
+//       },
+//       process.env.JWT_SECRET,
+//       { expiresIn: "1d" }
+//     );
+
+//     // Response
+//     return res.json({
+//       token,
+//       user: {
+//         id: user.id,
+//         name: user.name,
+//         role: user.role,
+//       },
+//     });
+
+//   } catch (err) {
+//     return res.status(500).json({ error: err.message });
+//   }
+// };
+
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Check user
-    const user = await User.findUserByEmail(email);
+    // Get user
+    const userResult = await User.findUserByEmail(email);
+
+    //  FIX: handle array response
+    const user = Array.isArray(userResult) ? userResult[0] : userResult;
+
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
@@ -274,13 +326,22 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Compare password
-    const isMatch = await bcrypt.compare(password, user.password);
+    //  IMPORTANT DEBUG (remove later)
+    console.log("Password from request:", password);
+    console.log("Password from DB:", user.password);
+    console.log("Type:", typeof user.password);
+
+    //  FIX: ensure string
+    const isMatch = await bcrypt.compare(
+      password,
+      user.password?.toString()
+    );
+
     if (!isMatch) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // Generate JWT (NO device_id now)
+    // Generate JWT
     const token = jwt.sign(
       {
         id: user.id,
@@ -290,7 +351,6 @@ exports.login = async (req, res) => {
       { expiresIn: "1d" }
     );
 
-    // Response
     return res.json({
       token,
       user: {
@@ -304,6 +364,7 @@ exports.login = async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 };
+
 exports.getPendingDeviceRequests = async (req, res) => {
   try {
     const requests = await UserDevice.getPendingRequests();

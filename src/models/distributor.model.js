@@ -52,8 +52,8 @@ const insertDocuments = async (conn, distributorId, docs) => {
     pesticide_license: docs.pesticide_license || null,
     bank_diary: docs.bank_diary || null,
     letter_head: docs.letter_head || null,
-     authority_letter: docs.authority_letter || null,    
-  partnership_deed: docs.partnership_deed || null,    
+    authority_letter: docs.authority_letter || null,    
+    partnership_deed: docs.partnership_deed || null,    
   });
 };
 

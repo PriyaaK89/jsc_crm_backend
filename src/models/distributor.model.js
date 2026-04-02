@@ -42,18 +42,27 @@ const insertCompanies = async (conn, distributorId, companies) => {
 const insertDocuments = async (conn, distributorId, docs) => {
   await conn.query("INSERT INTO distributor_documents SET ?", {
     distributor_id: distributorId,
-    shop_image: docs.shop_image || null,
-    cheque_photo: docs.cheque_photo || null,
+
+    shop_image_1: docs.shop_image_1 || null,
+    shop_image_2: docs.shop_image_2 || null,
+    shop_image_3: docs.shop_image_3 || null,
+    shop_image_4: docs.shop_image_4 || null,
+
+    cheque_photo_1: docs.cheque_photo_1 || null,
+    cheque_photo_2: docs.cheque_photo_2 || null,
+
+    aadhar_front: docs.aadhar_front || null,
+    aadhar_back: docs.aadhar_back || null,
+
     pan_photo: docs.pan_photo || null,
-    aadhar_photo: docs.aadhar_photo || null,
     gst_file: docs.gst_file || null,
     seed_license: docs.seed_license || null,
     fertilizer_license: docs.fertilizer_license || null,
     pesticide_license: docs.pesticide_license || null,
     bank_diary: docs.bank_diary || null,
     letter_head: docs.letter_head || null,
-    authority_letter: docs.authority_letter || null,    
-    partnership_deed: docs.partnership_deed || null,    
+    authority_letter: docs.authority_letter || null,
+    partnership_deed: docs.partnership_deed || null,
   });
 };
 

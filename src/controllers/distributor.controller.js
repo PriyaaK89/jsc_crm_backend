@@ -1,11 +1,5 @@
 const db = require("../config/db");
-const {
-  createDistributor,
-  insertPartners,
-  insertCompanies,
-  insertDocuments,
-} = require("../models/distributor.model");
-
+const { createDistributor, insertPartners, insertCompanies, insertDocuments,} = require("../models/distributor.model");
 const { uploadFileToMinio } = require("../utils/fileUpload");
 
 exports.createDistributor = async (req, res) => {
@@ -42,6 +36,7 @@ exports.createDistributor = async (req, res) => {
       }
     }
 
+
     const gstTypes = ["regular", "consumer", "unregistered", "composition"];
     const firmTypes = ["proprietorship", "partnership", "private_limited"];
     const fundTypes = ["own_funds", "loan", "investment"];
@@ -70,8 +65,10 @@ exports.createDistributor = async (req, res) => {
     // normalize enums
     if (distributorData.gst_type)
       distributorData.gst_type = distributorData.gst_type.toLowerCase();
+
     if (distributorData.firm_type)
       distributorData.firm_type = distributorData.firm_type.toLowerCase();
+
     if (distributorData.source_of_funds)
       distributorData.source_of_funds =
         distributorData.source_of_funds.toLowerCase();
@@ -92,43 +89,68 @@ exports.createDistributor = async (req, res) => {
       distributorData.approving_date
     );
 
+
     const toNumber = (val) => (val ? Number(val) : null);
 
-    distributorData.security_amount = toNumber(
-      distributorData.security_amount
-    );
-    distributorData.annual_turnover = toNumber(
-      distributorData.annual_turnover
-    );
-    distributorData.expected_sale = toNumber(
-      distributorData.expected_sale
-    );
-    distributorData.credit_duration = toNumber(
-      distributorData.credit_duration
-    );
+    distributorData.security_amount = toNumber(distributorData.security_amount);
+    distributorData.annual_turnover = toNumber(distributorData.annual_turnover);
+    distributorData.expected_sale = toNumber(distributorData.expected_sale);
+    distributorData.credit_duration = toNumber(distributorData.credit_duration);
+
 
     const uploadedDocs = {};
 
-    const uploadSingle = async (field) => {
-      if (files[field]?.[0]) {
-        const result = await uploadFileToMinio(
-          files[field][0],
-          "distributor_documents"
-        );
-        uploadedDocs[field] = result.object_path;
+    // MULTIPLE FILES (shop, cheque)
+    const uploadIndexed = async (field, maxCount) => {
+      if (files[field] && Array.isArray(files[field])) {
+        for (let i = 0; i < Math.min(files[field].length, maxCount); i++) {
+          const uploaded = await uploadFileToMinio(
+            files[field][i],
+            "distributor_documents"
+          );
+          uploadedDocs[`${field}_${i + 1}`] = uploaded.object_path;
+        }
       }
     };
 
-    const docFields = [
-      "shop_image","cheque_photo","pan_photo","aadhar_photo",
-      "gst_file","seed_license","fertilizer_license","pesticide_license",
+
+
+    await uploadIndexed("shop_image", 4);
+    await uploadIndexed("cheque_photo", 2);
+
+    // AADHAR FRONT/BACK
+    if (files?.aadhar_front?.[0]) {
+      const uploaded = await uploadFileToMinio(
+        files.aadhar_front[0],
+        "distributor_documents"
+      );
+      uploadedDocs.aadhar_front = uploaded.object_path;
+    }
+
+    if (files?.aadhar_back?.[0]) {
+      const uploaded = await uploadFileToMinio(
+        files.aadhar_back[0],
+        "distributor_documents"
+      );
+      uploadedDocs.aadhar_back = uploaded.object_path;
+    }
+
+    // SINGLE FILES
+    const singleDocs = [
+      "pan_photo","gst_file","seed_license",
+      "fertilizer_license","pesticide_license",
       "bank_diary","letter_head","authority_letter","partnership_deed"
     ];
 
-    for (let field of docFields) {
-      await uploadSingle(field);
+    for (let field of singleDocs) {
+      if (files[field]?.[0]) {
+        const uploaded = await uploadFileToMinio(
+          files[field][0], "distributor_documents");
+        uploadedDocs[field] = uploaded.object_path;
+      }
     }
 
+    // APPROVER IMAGE
     let approverImagePath = null;
 
     if (files?.approver_image?.[0]) {
@@ -140,14 +162,48 @@ exports.createDistributor = async (req, res) => {
     }
 
     distributorData.approver_image = approverImagePath;
-
     const distributorId = await createDistributor(conn, distributorData);
+    // HANDLE PROPRIETORSHIP (OWNER)
+if (distributorData.firm_type === "proprietorship") {
+  const owner = {
+    name: body.owner_name,
+    father_name: body.owner_father_name,
+    pan_no: body.owner_pan,
+    aadhar_no: body.owner_aadhar,
+    address: body.owner_address,
+    state: body.owner_state,
+    district: body.owner_district,
+    tehsil: body.owner_tehsil,
+    pincode: body.owner_pincode,
+    mobile_no: body.owner_mobile,
+    alt_mobile_no: body.owner_alt_mobile,
+    role: "owner"
+  };
+
+  // Upload owner photo
+  if (files?.owner_photo?.[0]) {
+    const uploaded = await uploadFileToMinio(
+      files.owner_photo[0],
+      "distributor_documents"
+    );
+    owner.photo = uploaded.object_path;
+  }
+
+  await insertPartners(conn, distributorId, [owner]);
+}
+
 
     if (
       distributorData.firm_type === "partnership" &&
       body.partners
     ) {
-      const partners = JSON.parse(body.partners);
+      let partners = [];
+
+      try {
+        partners = JSON.parse(body.partners);
+      } catch {
+        throw new Error("Invalid partners JSON");
+      }
 
       for (let i = 0; i < partners.length; i++) {
         const fileKey = `partner_photo_${i}`;
@@ -164,12 +220,18 @@ exports.createDistributor = async (req, res) => {
     }
 
     if (body.other_companies) {
-      const companies = JSON.parse(body.other_companies);
+      let companies = [];
+
+      try {
+        companies = JSON.parse(body.other_companies);
+      } catch {
+        throw new Error("Invalid companies JSON");
+      }
+
       await insertCompanies(conn, distributorId, companies);
     }
 
     await insertDocuments(conn, distributorId, uploadedDocs);
-
 
     await conn.commit();
 
@@ -181,12 +243,10 @@ exports.createDistributor = async (req, res) => {
 
   } catch (error) {
     await conn.rollback();
-
     res.status(400).json({
       success: false,
       message: error.message,
     });
-
   } finally {
     conn.release();
   }

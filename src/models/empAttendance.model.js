@@ -66,6 +66,10 @@ exports.getDayWiseAttendance = async ({
       ea.working_minutes,
       TIME(ea.check_in_time) AS check_in_time,
       TIME(ea.check_out_time) AS check_out_time,
+      ea.odometer_reading,
+      ea.day_over_odometer_reading,
+      ea.visit_location,
+      ea.travel_mode, ea.work_type, ea.field_work_type, ea.vehicle_type, ea.leave_reason,
       u.id AS employee_id,
       u.name AS employee_name
     FROM emp_attendance ea

@@ -50,8 +50,8 @@ const getKycStatus = async (req, res) => {
   try {
     const { requestId } = req.params;
 
-    const response = await axios.get(
-      `${process.env.DIGIO_BASE_URL}/client/kyc/v2/${requestId}`,
+    const response = await axios.post(
+      `${process.env.DIGIO_BASE_URL}/client/kyc/v2/${requestId}/response`,{},
       {
         auth: {
           username: process.env.DIGIO_CLIENT_ID,

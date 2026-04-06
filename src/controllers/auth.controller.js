@@ -6,6 +6,7 @@ const Role = require("../models/role.model");
 const UserDocument = require("../models/userDocument.model");
 const UserDevice = require("../models/UserDevice.model");
 const { sendUserRegisteredMail, sendIpApprovedMail } = require("../utils/mail.util");
+const { uploadFileToMinio, getPresignedUrl  } = require("../utils/fileUpload");
 
 // better to rename sendIpApprovedMail later to sendDeviceApprovedMail
 
@@ -35,108 +36,150 @@ exports.registerAdmin = async (req, res) => {
 
 exports.createUserByRole = async (req, res) => {
   try {
-    const {
-      name,
-      gender,
-      contact_no,
-      date_of_birth,
-      email,
-      address_line1,
-      address_line2,
-      country,
-      state,
-      city,
-      district,
-      area,
-      pincode,
-      father_name,
-      pan_number,
-      aadhar_no,
-      blood_group,
-      department_id,
-      job_role_id,
-      date_of_joining,
-      salary,
-      attendance_selfie,
-      travelling_allowance_per_km,
-      avg_travel_km_per_day,
-      city_allowance_per_km,
-      daily_allowance_with_doc,
-      daily_allowance_without_doc,
-      hotel_allowance,
-      total_leaves,
-      authentication_amount,
-      headquarter,
-      approver_name,
-      login_time,
-      logout_time,
-      pf,
-      esi,
-    } = req.body;
+    const data = req.body;
 
-    const roleName = req.body.roleName;
+    const roleName = data.roleName;
     if (!roleName) {
       return res.status(400).json({ message: "Role not assigned" });
     }
 
     const roleId = await Role.getRoleIdByName(roleName);
-    if (!roleId) {
-      return res.status(400).json({ message: "Role not found" });
+
+    //  PROFILE IMAGE UPLOAD
+    let profileImagePath = null;
+
+    if (req.files && req.files.profile_image) {
+      const uploaded = await uploadFileToMinio(
+        req.files.profile_image[0],
+        "profile_image"
+      );
+      profileImagePath = uploaded.object_path;
     }
 
     const createdUser = await User.createUser({
-      name,
-      email,
+      ...data,
       role_id: roleId,
-      gender,
-      contact_no,
-      date_of_birth,
-      address_line1,
-      address_line2,
-      country,
-      state,
-      city,
-      district,
-      area,
-      pincode,
-      father_name,
-      pan_number,
-      aadhar_no,
-      blood_group,
-      department_id,
-      job_role_id,
-      date_of_joining,
-      salary,
-      attendance_selfie,
-      travelling_allowance_per_km,
-      avg_travel_km_per_day,
-      city_allowance_per_km,
-      daily_allowance_with_doc,
-      daily_allowance_without_doc,
-      hotel_allowance,
-      total_leaves,
-      authentication_amount,
-      headquarter,
-      approver_name,
-      login_time,
-      logout_time,
-      pf,
-      esi,
+      profile_image: profileImagePath,
+      reporting_under: data.reporting_under || null
     });
 
-    await UserDocument.createEmptyRow(createdUser.id, name);
-    await sendUserRegisteredMail(email, name);
+    await UserDocument.createEmptyRow(createdUser.id, data.name);
+    await sendUserRegisteredMail(data.email, data.name);
 
     res.status(201).json({
-      message: `${roleName} created. Password must be set by admin.`,
-      id: createdUser.id,
-      email: email,
-      must_change_password: 1,
+      message: `${roleName} created successfully`,
+      id: createdUser.id
     });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+
+// exports.createUserByRole = async (req, res) => {
+//   try {
+//     const {
+//       name,
+//       gender,
+//       contact_no,
+//       date_of_birth,
+//       email,
+//       address_line1,
+//       address_line2,
+//       country,
+//       state,
+//       city,
+//       district,
+//       area,
+//       pincode,
+//       father_name,
+//       pan_number,
+//       aadhar_no,
+//       blood_group,
+//       department_id,
+//       job_role_id,
+//       date_of_joining,
+//       salary,
+//       attendance_selfie,
+//       travelling_allowance_per_km,
+//       avg_travel_km_per_day,
+//       city_allowance_per_km,
+//       daily_allowance_with_doc,
+//       daily_allowance_without_doc,
+//       hotel_allowance,
+//       total_leaves,
+//       authentication_amount,
+//       headquarter,
+//       approver_name,
+//       login_time,
+//       logout_time,
+//       pf,
+//       esi,
+//     } = req.body;
+
+//     const roleName = req.body.roleName;
+//     if (!roleName) {
+//       return res.status(400).json({ message: "Role not assigned" });
+//     }
+
+//     const roleId = await Role.getRoleIdByName(roleName);
+//     if (!roleId) {
+//       return res.status(400).json({ message: "Role not found" });
+//     }
+
+//     const createdUser = await User.createUser({
+//       name,
+//       email,
+//       role_id: roleId,
+//       gender,
+//       contact_no,
+//       date_of_birth,
+//       address_line1,
+//       address_line2,
+//       country,
+//       state,
+//       city,
+//       district,
+//       area,
+//       pincode,
+//       father_name,
+//       pan_number,
+//       aadhar_no,
+//       blood_group,
+//       department_id,
+//       job_role_id,
+//       date_of_joining,
+//       salary,
+//       attendance_selfie,
+//       travelling_allowance_per_km,
+//       avg_travel_km_per_day,
+//       city_allowance_per_km,
+//       daily_allowance_with_doc,
+//       daily_allowance_without_doc,
+//       hotel_allowance,
+//       total_leaves,
+//       authentication_amount,
+//       headquarter,
+//       approver_name,
+//       login_time,
+//       logout_time,
+//       pf,
+//       esi,
+//     });
+
+//     await UserDocument.createEmptyRow(createdUser.id, name);
+//     await sendUserRegisteredMail(email, name);
+
+//     res.status(201).json({
+//       message: `${roleName} created. Password must be set by admin.`,
+//       id: createdUser.id,
+//       email: email,
+//       must_change_password: 1,
+//     });
+//   } catch (err) {
+//     res.status(500).json({ error: err.message });
+//   }
+// };
 
 exports.getUserById = async (req, res) => {
   try {
@@ -407,11 +450,7 @@ exports.approveDeviceRequest = async (req, res) => {
 
 exports.getUsersList = async (req, res) => {
   try {
-    const {
-      search = "",
-      page = 1,
-      limit = 10
-    } = req.query;
+    const { search = "", page = 1, limit = 10 } = req.query;
 
     const result = await User.getAllUsers({
       search,
@@ -419,9 +458,25 @@ exports.getUsersList = async (req, res) => {
       limit: Number(limit)
     });
 
+    //  Convert image path → presigned URL
+    const usersWithImages = await Promise.all(
+      result.users.map(async (user) => {
+        let profileImageUrl = null;
+
+        if (user.profile_image) {
+          profileImageUrl = await getPresignedUrl(user.profile_image);
+        }
+
+        return {
+          ...user,
+          profile_image_url: profileImageUrl
+        };
+      })
+    );
+
     res.status(200).json({
       success: true,
-      data: result.users,
+      data: usersWithImages,
       pagination: {
         total: result.total,
         page: Number(page),
@@ -438,6 +493,15 @@ exports.getUsersList = async (req, res) => {
 exports.updateUserById = async (req, res) => {
   try {
     const userId = req.params.id;
+    let profileImagePath;
+
+if (req.files && req.files.profile_image) {
+  const uploaded = await uploadFileToMinio(
+    req.files.profile_image[0],
+    "profile_image"
+  );
+  profileImagePath = uploaded.object_path;
+}
 
     const { name, gender, contact_no,
       date_of_birth, email, address_line1, address_line2, country, state, city, district, area, pincode,
@@ -469,7 +533,9 @@ exports.updateUserById = async (req, res) => {
       esi,
 
       approver_name,
-      role_id
+      role_id,
+      profile_image,
+reporting_under
     } = req.body;
     
  if (job_role_id !== undefined && job_role_id !== null) {
@@ -527,7 +593,9 @@ exports.updateUserById = async (req, res) => {
       esi,
 
       approver_name,
-      role_id
+      role_id,
+      profile_image: profileImagePath,
+reporting_under
     });
 
     if (!updated) {

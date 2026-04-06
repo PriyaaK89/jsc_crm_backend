@@ -43,11 +43,11 @@ const createUser = async (user) => {
       login_time,
       logout_time,
       pf,
-      esi
+      esi, profile_image, reporting_under
     )
     VALUES (
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
     [
       user.name || null,
       user.email || null,
@@ -95,7 +95,9 @@ const createUser = async (user) => {
       user.login_time || null,
       user.logout_time || null,
       user.pf || null,
-      user.esi || null
+      user.esi || null,
+      user.profile_image || null,
+user.reporting_under || null
     ]
   );
 
@@ -190,11 +192,16 @@ const getAllUsers = async ({ search = "", page = 1, limit = 10 }) => {
       u.is_active,
 
       u.approver_name,
-      r.name AS role
+      r.name AS role,
+       u.profile_image,
+    u.reporting_under,
+    manager.name AS reporting_officer_name
     FROM users u
      JOIN roles r ON r.id = u.role_id
     LEFT JOIN department d ON d.id = u.department_id AND d.is_active = 1
     LEFT JOIN job_roles jr ON jr.id = u.job_role_id AND jr.is_active = 1
+
+     LEFT JOIN users manager ON manager.id = u.reporting_under
     ${whereClause}
     ORDER BY u.id DESC
     LIMIT ? OFFSET ?
@@ -272,11 +279,15 @@ const getUserById = async (id) => {
       u.esi,
 
       u.role_id,
-      r.name AS role
+      r.name AS role,
+       u.profile_image,
+    u.reporting_under,
+    manager.name AS reporting_officer_name
     FROM users u
     JOIN roles r ON r.id = u.role_id
     LEFT JOIN department d ON d.id = u.department_id AND d.is_active = 1
     LEFT JOIN job_roles jr ON jr.id = u.job_role_id AND jr.is_active = 1
+    LEFT JOIN users manager ON manager.id = u.reporting_under
     WHERE u.id = ?
     `,
     [id]

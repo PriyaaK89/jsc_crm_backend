@@ -8,8 +8,6 @@ const app = express();
 
 app.use(cors());
 
-const digioWebhookRoute = require("../src/routes/digiowebhook.routes");
-app.use(digioWebhookRoute);
 // app.use(express.json());
 // app.use(express.urlencoded({ extended: true }));
 app.use(express.json({ limit: "50mb" }));

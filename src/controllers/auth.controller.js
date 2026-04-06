@@ -39,11 +39,13 @@ exports.createUserByRole = async (req, res) => {
     const data = req.body;
 
     const roleName = data.roleName;
+    const roleId = await Role.getRoleIdByName(roleName);
     if (!roleName) {
       return res.status(400).json({ message: "Role not assigned" });
     }
-
-    const roleId = await Role.getRoleIdByName(roleName);
+    if (!roleId) {
+      return res.status(400).json({ message: "Role not found" });
+    }
 
     //  PROFILE IMAGE UPLOAD
     let profileImagePath = null;
@@ -495,50 +497,37 @@ exports.updateUserById = async (req, res) => {
     const userId = req.params.id;
     let profileImagePath;
 
-if (req.files && req.files.profile_image) {
-  const uploaded = await uploadFileToMinio(
-    req.files.profile_image[0],
-    "profile_image"
-  );
-  profileImagePath = uploaded.object_path;
-}
+    //  Upload only if file exists
+    if (req.files && req.files.profile_image) {
+      const uploaded = await uploadFileToMinio(
+        req.files.profile_image[0],
+        "profile_image"
+      );
+      profileImagePath = uploaded.object_path;
+    }
 
-    const { name, gender, contact_no,
-      date_of_birth, email, address_line1, address_line2, country, state, city, district, area, pincode,
+    const {
+      name, gender, contact_no, date_of_birth, email,
+      address_line1, address_line2, country, state, city, district, area, pincode,
 
-      father_name,
-      pan_number,
-      aadhar_no,
-      blood_group,
+      father_name, pan_number, aadhar_no, blood_group,
 
-      department_id,
-      job_role_id,
-      date_of_joining,
-      salary,
-      
-      week_off,
-      attendance_selfie,
-      travelling_allowance_per_km,
-      avg_travel_km_per_day,
-      city_allowance_per_km,
-      daily_allowance_with_doc,
-      daily_allowance_without_doc,
-      hotel_allowance,
-      total_leaves,
-      authentication_amount,
-      headquarter,
-      login_time,
-      logout_time,
-      pf,
-      esi,
+      department_id, job_role_id, date_of_joining, salary,
 
-      approver_name,
-      role_id,
-      profile_image,
-reporting_under
+      week_off, attendance_selfie,
+      travelling_allowance_per_km, avg_travel_km_per_day,
+      city_allowance_per_km, daily_allowance_with_doc,
+      daily_allowance_without_doc, hotel_allowance,
+      total_leaves, authentication_amount,
+      headquarter, login_time, logout_time,
+      pf, esi,
+
+      approver_name, role_id,
+      reporting_under
     } = req.body;
-    
- if (job_role_id !== undefined && job_role_id !== null) {
+
+    //  Validate job role
+    if (job_role_id !== undefined && job_role_id !== null) {
       const [jobRole] = await db.query(
         "SELECT id FROM job_roles WHERE id = ?",
         [job_role_id]
@@ -551,7 +540,9 @@ reporting_under
         });
       }
     }
-    const updated = await User.updateUserById(userId, {
+
+    //  Build dynamic update object
+    const updateData = {
       name,
       gender,
       contact_no,
@@ -594,9 +585,15 @@ reporting_under
 
       approver_name,
       role_id,
-      profile_image: profileImagePath,
-reporting_under
-    });
+      reporting_under
+    };
+
+    //  ONLY add image if uploaded
+    if (profileImagePath) {
+      updateData.profile_image = profileImagePath;
+    }
+
+    const updated = await User.updateUserById(userId, updateData);
 
     if (!updated) {
       return res.status(404).json({
@@ -609,19 +606,152 @@ reporting_under
       message: "User updated successfully"
     });
 
-  }catch (err) {
-  if (err.code === "ER_NO_REFERENCED_ROW_2") {
-    return res.status(400).json({
-      success: false,
-      message: "Invalid reference ID provided."
+  } catch (err) {
+    if (err.code === "ER_NO_REFERENCED_ROW_2") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid reference ID provided."
+      });
+    }
+
+    res.status(500).json({
+      error: err.message
     });
   }
-
-  res.status(500).json({
-    error: err.message
-  });
-}
 };
+
+// exports.updateUserById = async (req, res) => {
+//   try {
+//     const userId = req.params.id;
+//     let profileImagePath;
+
+// if (req.files && req.files.profile_image) {
+//   const uploaded = await uploadFileToMinio(
+//     req.files.profile_image[0],
+//     "profile_image"
+//   );
+//   profileImagePath = uploaded.object_path;
+// }
+
+//     const { name, gender, contact_no,
+//       date_of_birth, email, address_line1, address_line2, country, state, city, district, area, pincode,
+
+//       father_name,
+//       pan_number,
+//       aadhar_no,
+//       blood_group,
+
+//       department_id,
+//       job_role_id,
+//       date_of_joining,
+//       salary,
+      
+//       week_off,
+//       attendance_selfie,
+//       travelling_allowance_per_km,
+//       avg_travel_km_per_day,
+//       city_allowance_per_km,
+//       daily_allowance_with_doc,
+//       daily_allowance_without_doc,
+//       hotel_allowance,
+//       total_leaves,
+//       authentication_amount,
+//       headquarter,
+//       login_time,
+//       logout_time,
+//       pf,
+//       esi,
+
+//       approver_name,
+//       role_id,
+//       profile_image,
+// reporting_under
+//     } = req.body;
+    
+//  if (job_role_id !== undefined && job_role_id !== null) {
+//       const [jobRole] = await db.query(
+//         "SELECT id FROM job_roles WHERE id = ?",
+//         [job_role_id]
+//       );
+
+//       if (jobRole.length === 0) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Invalid job_role_id. Job role does not exist."
+//         });
+//       }
+//     }
+//     const updated = await User.updateUserById(userId, {
+//       name,
+//       gender,
+//       contact_no,
+//       date_of_birth,
+//       email,
+//       address_line1,
+//       address_line2,
+//       country,
+//       state,
+//       city,
+//       district,
+//       area,
+//       pincode,
+
+//       father_name,
+//       pan_number,
+//       aadhar_no,
+//       blood_group,
+
+//       department_id,
+//       job_role_id,
+//       date_of_joining,
+//       salary,
+
+//       week_off,
+//       attendance_selfie,
+//       travelling_allowance_per_km,
+//       avg_travel_km_per_day,
+//       city_allowance_per_km,
+//       daily_allowance_with_doc,
+//       daily_allowance_without_doc,
+//       hotel_allowance,
+//       total_leaves,
+//       authentication_amount,
+//       headquarter,
+//       login_time,
+//       logout_time,
+//       pf,
+//       esi,
+
+//       approver_name,
+//       role_id,
+//       profile_image: profileImagePath,
+// reporting_under
+//     });
+
+//     if (!updated) {
+//       return res.status(404).json({
+//         message: "User not found or no data to update"
+//       });
+//     }
+
+//     res.status(200).json({
+//       success: true,
+//       message: "User updated successfully"
+//     });
+
+//   }catch (err) {
+//   if (err.code === "ER_NO_REFERENCED_ROW_2") {
+//     return res.status(400).json({
+//       success: false,
+//       message: "Invalid reference ID provided."
+//     });
+//   }
+
+//   res.status(500).json({
+//     error: err.message
+//   });
+// }
+// };
 
 exports.setUserPassword = async (req, res) => {
   const { password } = req.body;

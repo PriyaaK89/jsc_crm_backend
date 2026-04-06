@@ -2,6 +2,7 @@ const Attendance = require("../models/empAttendance.model");
 const uploadToS3 = require("../utils/S3Upload");
 const { calculateAttendanceUnit } = require("../utils/attendanceCalculator");
 const SalaryDaily = require("../models/empDailySalary.model");
+const db = require("../config/db");
 
 const generateDailySalaryInternal = async (employeeId, date) => {
   const user = await SalaryDaily.getUserSalaryInfo(employeeId);
@@ -17,7 +18,7 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   const [[lockedRow]] = await require("../config/db").query(
     `SELECT salary_locked FROM emp_salary 
      WHERE employee_id = ? AND month = ? AND year = ?`,
-    [employeeId, month, year]
+    [employeeId, month, year],
   );
 
   if (lockedRow && lockedRow.salary_locked === 1) return;
@@ -46,42 +47,32 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   const formattedWorkingHours = `${hours} hr ${minutes} min`;
 
   let travelAllowance = 0;
-let dailyAllowance = 0;
+  let dailyAllowance = 0;
 
-if (attendance.check_out_time && attendance.work_type !== "wfh") {
+  if (attendance.check_out_time && attendance.work_type !== "wfh") {
+    let travelledKm = 0;
 
-  let travelledKm = 0;
+    if (attendance.odometer_reading && attendance.day_over_odometer_reading) {
+      travelledKm =
+        Number(attendance.day_over_odometer_reading) -
+        Number(attendance.odometer_reading);
 
-  if (
-    attendance.odometer_reading &&
-    attendance.day_over_odometer_reading
-  ) {
-    travelledKm =
-      Number(attendance.day_over_odometer_reading) -
-      Number(attendance.odometer_reading);
+      if (travelledKm < 0) travelledKm = 0;
+    }
 
-    if (travelledKm < 0) travelledKm = 0;
-  }
-
-  travelAllowance =
-    travelledKm *
-    (user.travelling_allowance_per_km || 0) *
-    allowanceMultiplier;
-
-  if (
-    travelledKm >= (user.avg_travel_km_per_day || 0)
-  ) {
-    dailyAllowance =
-      (user.daily_allowance_with_doc || 0) *
+    travelAllowance =
+      travelledKm *
+      (user.travelling_allowance_per_km || 0) *
       allowanceMultiplier;
+
+    if (travelledKm >= (user.avg_travel_km_per_day || 0)) {
+      dailyAllowance =
+        (user.daily_allowance_with_doc || 0) * allowanceMultiplier;
+    }
   }
-}
 
   /* ---------- Final Salary ---------- */
-  const grossSalary =
-    basicSalary +
-    travelAllowance +
-    dailyAllowance;
+  const grossSalary = basicSalary + travelAllowance + dailyAllowance;
 
   const netSalary = grossSalary;
 
@@ -114,9 +105,9 @@ const autoClosePreviousDay = async (employeeId) => {
   ) {
     // Mark as half day
     await Attendance.updateDayOver([
-      0,            // working minutes
-      "half",       // attendance unit
-      0,            // late
+      0, // working minutes
+      "half", // attendance unit
+      0, // late
       null,
       null,
       attendance.id,
@@ -134,8 +125,7 @@ exports.markAttendance = async (req, res) => {
       return res.status(400).json({ message: "Required fields missing" });
     }
 
-     await autoClosePreviousDay(employee_id);
-
+    await autoClosePreviousDay(employee_id);
     const todayAttendance = await Attendance.getTodayAttendance(employee_id);
 
     /* ======================= LEAVE ======================= */
@@ -189,10 +179,10 @@ exports.markAttendance = async (req, res) => {
         return res.status(400).json({ message: "Field work type required" });
       }
       if (!["office", "field", "wfh"].includes(work_type)) {
-  return res.status(400).json({
-    message: "Invalid work type",
-  });
-}
+        return res.status(400).json({
+          message: "Invalid work type",
+        });
+      }
 
       if (
         work_type === "field" &&
@@ -216,7 +206,6 @@ exports.markAttendance = async (req, res) => {
         null,
       ]);
 
-      // Upload images to S3
       if (req.files) {
         for (const field in req.files) {
           const file = req.files[field][0];
@@ -253,41 +242,32 @@ exports.markAttendance = async (req, res) => {
       const { day_over_odometer_reading, day_over_location } = req.body;
 
       if (
-  todayAttendance.work_type === "field" &&
-  todayAttendance.travel_mode === "private" &&
-  !day_over_odometer_reading
-) {
-  return res.status(400).json({ message: "Odometer reading required" });
-}
+        todayAttendance.work_type === "field" &&
+        todayAttendance.travel_mode === "private" &&
+        !day_over_odometer_reading
+      ) {
+        return res.status(400).json({ message: "Odometer reading required" });
+      }
 
-      // if (!req.files?.day_over_selfie || !req.files?.day_over_odometer) {
-      //   return res.status(400).json({
-      //     message: "Day over selfie and odometer image required",
-      //   });
-      // }
       if (!req.files?.day_over_selfie) {
-  return res.status(400).json({
-    message: "Day over selfie required",
-  });
-}
+        return res.status(400).json({
+          message: "Day over selfie required",
+        });
+      }
 
-if (
-  todayAttendance.work_type === "field" &&
-  todayAttendance.travel_mode === "private" &&
-  !req.files?.day_over_odometer
-) {
-  return res.status(400).json({
-    message: "Day over odometer image required",
-  });
-}
+      if (
+        todayAttendance.work_type === "field" &&
+        todayAttendance.travel_mode === "private" &&
+        !req.files?.day_over_odometer
+      ) {
+        return res.status(400).json({
+          message: "Day over odometer image required",
+        });
+      }
 
       const checkIn = new Date(todayAttendance.check_in_time);
       const checkOut = new Date();
       const workingMinutes = Math.floor((checkOut - checkIn) / (1000 * 60));
-      const { unit, late } = calculateAttendanceUnit({
-        checkInTime: todayAttendance.check_in_time,
-        workingMinutes,
-      });
 
       if (workingMinutes <= 0) {
         return res.status(400).json({
@@ -295,22 +275,41 @@ if (
         });
       }
 
-      await Attendance.updateDayOver([
+      // ================== NEW LOGIC START ==================
+
+      let totalVisits = 0;
+
+      if (todayAttendance.work_type === "field") {
+        const [visitRows] = await db.query(
+          `SELECT COUNT(*) as total  FROM visits  WHERE user_id = ?  AND DATE(created_at) = CURDATE()`,
+          [employee_id],
+        );
+
+        totalVisits = visitRows[0].total;
+      }
+
+      // Default calculation
+      let { unit, late } = calculateAttendanceUnit({
+        checkInTime: todayAttendance.check_in_time,
         workingMinutes,
-        unit, // full / half / absent
-        late, // 1 or 0
-        day_over_odometer_reading,
-        day_over_location,
-        todayAttendance.id,
-       
-      ]);
+      });
+
+      let message = "Day over marked successfully";
+      //  FORCE HALF DAY IF VISITS < 4
+      if (todayAttendance.work_type === "field" && totalVisits < 4) {
+        unit = "half";
+        message = `Only ${totalVisits} visits completed. Minimum 4 required. Half day counted.`;
+      }
+
+      // ================== NEW LOGIC END ==================
+
+      await Attendance.updateDayOver([ workingMinutes, unit, late, day_over_odometer_reading, day_over_location, todayAttendance.id,]);
       await generateDailySalaryInternal(
-  employee_id,
-  new Date().toISOString().split("T")[0]
-);
+        employee_id,
+        new Date().toISOString().split("T")[0],
+      );
 
-
-      // Upload day-over images
+      // Upload images
       for (const field in req.files) {
         const file = req.files[field][0];
 
@@ -328,8 +327,10 @@ if (
       }
 
       return res.json({
-        message: "Day over marked successfully",
+        message: message,
         working_minutes: workingMinutes,
+        visits: todayAttendance.work_type === "field" ? totalVisits : null,
+        attendance_unit: unit,
       });
     }
 
@@ -342,34 +343,15 @@ if (
 
 exports.getDayWiseAttendance = async (req, res) => {
   try {
-    let {
-      employee_id,
-      search,
-      start_date,
-      end_date,
-      page = 1,
-      limit = 10,
-    } = req.query;
+    let { employee_id, search, start_date, end_date, page = 1, limit = 10, } = req.query;
 
     page = Number(page);
     limit = Number(limit);
     const offset = (page - 1) * limit;
 
-    const attendance = await Attendance.getDayWiseAttendance({
-      employeeId: employee_id,
-      search,
-      startDate: start_date,
-      endDate: end_date,
-      limit,
-      offset,
-    });
+    const attendance = await Attendance.getDayWiseAttendance({ employeeId: employee_id, search, startDate: start_date, endDate: end_date, limit, offset, });
 
-    const totalRecords = await Attendance.getDayWiseAttendanceCount({
-      employeeId: employee_id,
-      search,
-      startDate: start_date,
-      endDate: end_date,
-    });
+    const totalRecords = await Attendance.getDayWiseAttendanceCount({ employeeId: employee_id, search, startDate: start_date, endDate: end_date, });
 
     return res.json({
       filters: {
@@ -426,7 +408,6 @@ exports.getMyAttendance = async (req, res) => {
       },
       attendance,
     });
-
   } catch (error) {
     console.error("My Attendance Error:", error);
     return res.status(500).json({
@@ -485,18 +466,15 @@ exports.getAttendanceImagesByDate = async (req, res) => {
 
     if (!date) {
       return res.status(400).json({
-        message: "Date is required (YYYY-MM-DD)"
+        message: "Date is required (YYYY-MM-DD)",
       });
     }
 
-    const rows = await Attendance.getAttendanceImagesByDate(
-      employeeId,
-      date
-    );
+    const rows = await Attendance.getAttendanceImagesByDate(employeeId, date);
 
     if (!rows.length) {
       return res.status(404).json({
-        message: "No attendance found for this date"
+        message: "No attendance found for this date",
       });
     }
 
@@ -504,21 +482,20 @@ exports.getAttendanceImagesByDate = async (req, res) => {
     const response = {
       employee_id: employeeId,
       attendance_date: date,
-      images: {}
+      images: {},
     };
 
-    rows.forEach(row => {
+    rows.forEach((row) => {
       if (row.image_type && row.s3_url) {
         response.images[row.image_type] = row.s3_url;
       }
     });
 
     return res.json(response);
-
   } catch (error) {
     console.error("Get Attendance Images Error:", error);
     return res.status(500).json({
-      message: "Server error"
+      message: "Server error",
     });
   }
 };
@@ -548,10 +525,10 @@ exports.getDailyAttendanceSummary = async (req, res) => {
         half_day: Number(summary.half_day),
         leave_count: Number(summary.leave_count),
         absent_count: Number(summary.absent_count),
-        present_total: Number(summary.checked_in) + Number(summary.completed_day)
+        present_total:
+          Number(summary.checked_in) + Number(summary.completed_day),
       },
     });
-
   } catch (error) {
     console.error("Daily Summary Error:", error);
     return res.status(500).json({

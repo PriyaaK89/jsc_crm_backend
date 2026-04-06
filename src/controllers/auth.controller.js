@@ -439,20 +439,8 @@ exports.updateUserById = async (req, res) => {
   try {
     const userId = req.params.id;
 
-    const {
-      name,
-      gender,
-      contact_no,
-      date_of_birth,
-      email,
-      address_line1,
-      address_line2,
-      country,
-      state,
-      city,
-      district,
-      area,
-      pincode,
+    const { name, gender, contact_no,
+      date_of_birth, email, address_line1, address_line2, country, state, city, district, area, pincode,
 
       father_name,
       pan_number,

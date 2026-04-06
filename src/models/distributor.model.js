@@ -23,6 +23,7 @@ const insertPartners = async (conn, distributorId, partners) => {
       mobile_no: p.mobile_no,
       alt_mobile_no: p.alt_mobile_no,
       photo: p.photo || null,
+      role: p.role || "partner",
     });
   }
 };
@@ -66,9 +67,155 @@ const insertDocuments = async (conn, distributorId, docs) => {
   });
 };
 
+// Get Distributor
+const getDistributorById = async (conn, id) => {
+  const [rows] = await conn.query(
+    "SELECT * FROM distributors WHERE id = ?",
+    [id]
+  );
+  return rows[0];
+};
+
+// Get Partners
+const getPartners = async (conn, distributorId) => {
+  const [rows] = await conn.query(
+    "SELECT * FROM distributor_partner_details WHERE distributor_id = ?",
+    [distributorId]
+  );
+  return rows;
+};
+
+// Get Companies
+const getCompanies = async (conn, distributorId) => {
+  const [rows] = await conn.query(
+    "SELECT * FROM distributor_other_companies WHERE distributor_id = ?",
+    [distributorId]
+  );
+  return rows;
+};
+
+// Get Documents
+const getDocuments = async (conn, distributorId) => {
+  const [rows] = await conn.query(
+    "SELECT * FROM distributor_documents WHERE distributor_id = ?",
+    [distributorId]
+  );
+  return rows[0];
+};
+
+// Update Distributor
+const updateDistributor = async (conn, id, data) => {
+  await conn.query("UPDATE distributors SET ? WHERE id = ?", [data, id]);
+};
+
+// Delete old partners
+const deletePartners = async (conn, distributorId) => {
+  await conn.query(
+    "DELETE FROM distributor_partner_details WHERE distributor_id = ?",
+    [distributorId]
+  );
+};
+
+// Delete companies
+const deleteCompanies = async (conn, distributorId) => {
+  await conn.query(
+    "DELETE FROM distributor_other_companies WHERE distributor_id = ?",
+    [distributorId]
+  );
+};
+
+const getDistributors = async (conn, filters) => {
+  let query = `SELECT * FROM distributors WHERE 1=1`;
+  let countQuery = `SELECT COUNT(*) as total FROM distributors WHERE 1=1`;
+
+  const params = [];
+
+  //  SEARCH
+  if (filters.search) {
+    query += ` AND (
+      customer_name LIKE ? OR
+      firm_name LIKE ? OR
+      gst_number LIKE ? OR
+      contact_number LIKE ?
+    )`;
+    countQuery += ` AND (
+      customer_name LIKE ? OR
+      firm_name LIKE ? OR
+      gst_number LIKE ? OR
+      contact_number LIKE ?
+    )`;
+
+    const searchValue = `%${filters.search}%`;
+    params.push(searchValue, searchValue, searchValue, searchValue);
+  }
+
+  //  FILTERS
+  if (filters.state) {
+    query += ` AND state = ?`;
+    countQuery += ` AND state = ?`;
+    params.push(filters.state);
+  }
+
+  if (filters.district) {
+    query += ` AND district = ?`;
+    countQuery += ` AND district = ?`;
+    params.push(filters.district);
+  }
+
+  if (filters.firm_type) {
+    query += ` AND firm_type = ?`;
+    countQuery += ` AND firm_type = ?`;
+    params.push(filters.firm_type);
+  }
+
+  //  DATE FILTER
+  if (filters.from_date && filters.to_date) {
+    query += ` AND DATE(created_at) BETWEEN ? AND ?`;
+    countQuery += ` AND DATE(created_at) BETWEEN ? AND ?`;
+    params.push(filters.from_date, filters.to_date);
+  }
+
+  //  PAGINATION
+  const limit = Number(filters.limit) || 10;
+  const page = Number(filters.page) || 1;
+  const offset = (page - 1) * limit;
+
+  query += ` ORDER BY id DESC LIMIT ? OFFSET ?`;
+
+  const dataParams = [...params, limit, offset];
+
+  const [rows] = await conn.query(query, dataParams);
+  const [[{ total }]] = await conn.query(countQuery, params);
+
+  return { rows, total };
+};
+
+
+//  Fetch related data
+const getRelatedData = async (conn, ids) => {
+  if (!ids.length) return {};
+
+  const [partners] = await conn.query(
+    `SELECT * FROM distributor_partner_details WHERE distributor_id IN (?)`,
+    [ids]
+  );
+
+  const [companies] = await conn.query(
+    `SELECT * FROM distributor_other_companies WHERE distributor_id IN (?)`,
+    [ids]
+  );
+
+  const [documents] = await conn.query(
+    `SELECT * FROM distributor_documents WHERE distributor_id IN (?)`,
+    [ids]
+  );
+
+  return { partners, companies, documents };
+};
+
 module.exports = {
   createDistributor,
   insertPartners,
   insertCompanies,
-  insertDocuments,
+  insertDocuments, getDistributorById, getCompanies, getDocuments, getPartners, updateDistributor, deletePartners, deleteCompanies, getDistributors, getRelatedData
 };

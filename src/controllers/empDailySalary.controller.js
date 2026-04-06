@@ -131,6 +131,60 @@ const formattedWorkingHours = `${hours} hr ${minutes} min`;
   }
 };
 
+exports.getSalaryByDateRange = async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+    let { startDate, endDate, page = 1, limit = 10 } = req.query;
+
+    if (!employeeId || !startDate || !endDate) {
+      return res.status(400).json({
+        message: "Employee ID, startDate and endDate are required",
+      });
+    }
+
+    //  Format dates
+    const formatDate = (date) =>
+      new Date(date).toISOString().split("T")[0];
+
+    startDate = formatDate(startDate);
+    endDate = formatDate(endDate);
+
+    const pageNumber = parseInt(page);
+    const pageSize = parseInt(limit);
+    const offset = (pageNumber - 1) * pageSize;
+
+    const result = await SalaryDaily.getSalaryByDateRange(
+      parseInt(employeeId),
+      startDate,
+      endDate,
+      pageSize,
+      offset
+    );
+
+    //  Correct check
+    if (!result.rows.length) {
+      return res.status(404).json({
+        message: "No salary records found for selected date range",
+      });
+    }
+
+    return res.json({
+      success: true,
+      count: result.rows.length,
+      total: result.total,
+      currentPage: pageNumber,
+      totalPages: Math.ceil(result.total / pageSize),
+      data: result.rows,
+    });
+
+  } catch (error) {
+    console.error("Get Salary Range Error:", error);
+    return res.status(500).json({
+      message: "Server error",
+    });
+  }
+};
+
 // exports.getSalaryByDateRange = async (req, res) => {
 //   try {
 //     const { employeeId } = req.params;
@@ -168,50 +222,50 @@ const formattedWorkingHours = `${hours} hr ${minutes} min`;
 //   }
 // };
 
-exports.getSalaryByDateRange = async (req, res) => {
-  try {
-    const { employeeId } = req.params;
-    const { startDate, endDate, page = 1, limit = 10 } = req.query;
+// exports.getSalaryByDateRange = async (req, res) => {
+//   try {
+//     const { employeeId } = req.params;
+//     const { startDate, endDate, page = 1, limit = 10 } = req.query;
 
-    if (!employeeId || !startDate || !endDate) {
-      return res.status(400).json({
-        message: "Employee ID, startDate and endDate are required",
-      });
-    }
+//     if (!employeeId || !startDate || !endDate) {
+//       return res.status(400).json({
+//         message: "Employee ID, startDate and endDate are required",
+//       });
+//     }
 
-    const pageNumber = parseInt(page);
-    const pageSize = parseInt(limit);
-    const offset = (pageNumber - 1) * pageSize;
+//     const pageNumber = parseInt(page);
+//     const pageSize = parseInt(limit);
+//     const offset = (pageNumber - 1) * pageSize;
 
-    const result = await SalaryDaily.getSalaryByDateRange(
-      employeeId,
-      startDate,
-      endDate,
-      pageSize,
-      offset
-    );
-    if (!result.length) {
-      return res.status(404).json({
-        message: "No salary records found for selected date range",
-      });
-    }
+//     const result = await SalaryDaily.getSalaryByDateRange(
+//       employeeId,
+//       startDate,
+//       endDate,
+//       pageSize,
+//       offset
+//     );
+//     if (!result.length) {
+//       return res.status(404).json({
+//         message: "No salary records found for selected date range",
+//       });
+//     }
 
-    return res.json({
-      success: true,
-      count: result.rows.length,
-      total: result.total,
-      currentPage: pageNumber,
-      totalPages: Math.ceil(result.total / pageSize),
-      data: result.rows,
-    });
+//     return res.json({
+//       success: true,
+//       count: result.rows.length,
+//       total: result.total,
+//       currentPage: pageNumber,
+//       totalPages: Math.ceil(result.total / pageSize),
+//       data: result.rows,
+//     });
 
-  } catch (error) {
-    console.error("Get Salary Range Error:", error);
-    return res.status(500).json({
-      message: "Server error",
-    });
-  }
-};
+//   } catch (error) {
+//     console.error("Get Salary Range Error:", error);
+//     return res.status(500).json({
+//       message: "Server error",
+//     });
+//   }
+// };
 
 exports.getMySalaryByDateRange = async (req, res) => {
   try {

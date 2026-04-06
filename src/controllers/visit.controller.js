@@ -1,6 +1,7 @@
 const { uploadFileToMinio,getPresignedUrl } = require("../utils/fileUpload");
 const visitModel = require("../models/visit.model");
 const customerModel = require("../models/customer.model");
+const db = require("../config/db");
 
 const validPurposes = [
   "new_dist_planning",
@@ -202,5 +203,26 @@ exports.getTodayVisit =  async (req, res) => {
     res.json({ success: true, data: result.data });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+};
+
+exports.getTodayVisitCount = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const [rows] = await db.query(
+      `SELECT COUNT(*) as total 
+       FROM visits 
+       WHERE user_id = ? 
+       AND DATE(created_at) = CURDATE()`,
+      [userId]
+    );
+
+    return res.json({
+      success: true,
+      totalVisits: rows[0].total
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
   }
 };

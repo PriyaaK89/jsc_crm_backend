@@ -35,6 +35,8 @@ const customerRoute = require("../src/routes/customer.routes");
 const visitRoute = require("../src/routes/visit.routes");
 const gstVerificationRoute = require("../src/routes/gst.routes");
 const distributorOnBoardingRoute = require("../src/routes/distributor.routes");
+const panVerificationRoute = require("../src/routes/panVerification.route");
+const digioVerificationRoute = require("../src/routes/digioKyc.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -60,10 +62,11 @@ app.use(leegalityWebhookRoute);
 
 app.use(EmpExpensesRoute);
 app.use(customerRoute);
-app.use(visitRoute)
-app.use(gstVerificationRoute)
-app.use(distributorOnBoardingRoute)
-
+app.use(visitRoute);
+app.use(gstVerificationRoute);
+app.use(distributorOnBoardingRoute);
+app.use(panVerificationRoute);
+app.use(digioVerificationRoute);
 
 
 // 404 handler

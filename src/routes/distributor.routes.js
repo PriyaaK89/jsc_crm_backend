@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const controller = require("../controllers/distributor.controller");
 const upload = require("../middleware/upload.middleware");
+const auth = require("../middleware/auth.middleware");
 
 // UPDATED FILE FIELDS (IMPORTANT )
 const uploadFields = [
@@ -32,10 +33,9 @@ const uploadFields = [
   { name: "partner_photo_4", maxCount: 1 },
 ];
 
-router.post(
-  "/create-distributor",
-  upload.fields(uploadFields),
-  controller.createDistributor
-);
+router.post( "/create-distributor", auth, upload.fields(uploadFields), controller.createDistributor);
+router.get("/get-distributor/:id", auth, controller.getDistributor);
+router.put("/update-distributor/:id", auth, controller.updateDistributor);
+router.get("/get-distributorsList", auth, controller.getAllDistributors);
 
 module.exports = router;

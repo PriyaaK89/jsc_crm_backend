@@ -1,6 +1,20 @@
 const db = require("../config/db");
-const { createDistributor, insertPartners, insertCompanies, insertDocuments,} = require("../models/distributor.model");
-const { uploadFileToMinio } = require("../utils/fileUpload");
+const {
+  createDistributor,
+  insertPartners,
+  insertCompanies,
+  insertDocuments,
+  getDistributors,
+  getDistributorById,
+  getPartners,
+  getCompanies,
+  getDocuments,
+  updateDistributor,
+  deletePartners,
+  deleteCompanies,
+  getRelatedData,
+} = require("../models/distributor.model");
+const { uploadFileToMinio, getPresignedUrl } = require("../utils/fileUpload");
 
 exports.createDistributor = async (req, res) => {
   const conn = await db.getConnection();
@@ -9,23 +23,56 @@ exports.createDistributor = async (req, res) => {
   try {
     const body = req.body;
     const files = req.files || {};
+    const userId = req.user?.id;
+    const userName = req.user?.name;
 
     const allowedFields = [
-      "customer_name","customer_dob","firm_name","gst_number","gst_type","firm_type",
-      "business_address","business_territory","state","district","tehsil","landmark",
-      "firm_landmark","pincode","contact_number","alt_contact_number",
-      "responsible_person_name","responsible_person_contact",
-      "responsible_person_address","responsible_person_alt_contact",
-      "firm_email","firm_pan","firm_aadhar","jurisdiction_area","branch",
-      "firm_since","seed_license_no","seed_license_expiry",
-      "fertilizer_license_no","pesticide_license_no",
-      "transport_name_a","transport_name_b",
-      "source_of_funds","own_funds_details",
-      "bank_name","bank_account_no","ifsc_code","bank_branch",
-      "security_cheque_no","security_cheque_no_2",
-      "security_amount","credit_duration",
-      "annual_turnover","expected_sale",
-      "approver_name","approving_date"
+      "customer_name",
+      "customer_dob",
+      "firm_name",
+      "gst_number",
+      "gst_type",
+      "firm_type",
+      "business_address",
+      "business_territory",
+      "state",
+      "district",
+      "tehsil",
+      "landmark",
+      "firm_landmark",
+      "pincode",
+      "contact_number",
+      "alt_contact_number",
+      "responsible_person_name",
+      "responsible_person_contact",
+      "responsible_person_address",
+      "responsible_person_alt_contact",
+      "firm_email",
+      "firm_pan",
+      "firm_aadhar",
+      "jurisdiction_area",
+      "branch",
+      "firm_since",
+      "seed_license_no",
+      "seed_license_expiry",
+      "fertilizer_license_no",
+      "pesticide_license_no",
+      "transport_name_a",
+      "transport_name_b",
+      "source_of_funds",
+      "own_funds_details",
+      "bank_name",
+      "bank_account_no",
+      "ifsc_code",
+      "bank_branch",
+      "security_cheque_no",
+      "security_cheque_no_2",
+      "security_amount",
+      "credit_duration",
+      "annual_turnover",
+      "expected_sale",
+      "approver_name",
+      "approving_date",
     ];
 
     const distributorData = {};
@@ -35,11 +82,11 @@ exports.createDistributor = async (req, res) => {
         distributorData[key] = body[key];
       }
     }
-
-
     const gstTypes = ["regular", "consumer", "unregistered", "composition"];
     const firmTypes = ["proprietorship", "partnership", "private_limited"];
     const fundTypes = ["own_funds", "loan", "investment"];
+    distributorData.created_by = userId;
+    distributorData.created_by_name = userName;
 
     if (
       distributorData.gst_type &&
@@ -83,20 +130,15 @@ exports.createDistributor = async (req, res) => {
     distributorData.customer_dob = formatDate(distributorData.customer_dob);
     distributorData.firm_since = formatDate(distributorData.firm_since);
     distributorData.seed_license_expiry = formatDate(
-      distributorData.seed_license_expiry
+      distributorData.seed_license_expiry,
     );
-    distributorData.approving_date = formatDate(
-      distributorData.approving_date
-    );
-
+    distributorData.approving_date = formatDate(distributorData.approving_date);
 
     const toNumber = (val) => (val ? Number(val) : null);
-
     distributorData.security_amount = toNumber(distributorData.security_amount);
     distributorData.annual_turnover = toNumber(distributorData.annual_turnover);
     distributorData.expected_sale = toNumber(distributorData.expected_sale);
     distributorData.credit_duration = toNumber(distributorData.credit_duration);
-
 
     const uploadedDocs = {};
 
@@ -106,14 +148,12 @@ exports.createDistributor = async (req, res) => {
         for (let i = 0; i < Math.min(files[field].length, maxCount); i++) {
           const uploaded = await uploadFileToMinio(
             files[field][i],
-            "distributor_documents"
+            "distributor_documents",
           );
           uploadedDocs[`${field}_${i + 1}`] = uploaded.object_path;
         }
       }
     };
-
-
 
     await uploadIndexed("shop_image", 4);
     await uploadIndexed("cheque_photo", 2);
@@ -122,7 +162,7 @@ exports.createDistributor = async (req, res) => {
     if (files?.aadhar_front?.[0]) {
       const uploaded = await uploadFileToMinio(
         files.aadhar_front[0],
-        "distributor_documents"
+        "distributor_documents",
       );
       uploadedDocs.aadhar_front = uploaded.object_path;
     }
@@ -130,22 +170,30 @@ exports.createDistributor = async (req, res) => {
     if (files?.aadhar_back?.[0]) {
       const uploaded = await uploadFileToMinio(
         files.aadhar_back[0],
-        "distributor_documents"
+        "distributor_documents",
       );
       uploadedDocs.aadhar_back = uploaded.object_path;
     }
 
     // SINGLE FILES
     const singleDocs = [
-      "pan_photo","gst_file","seed_license",
-      "fertilizer_license","pesticide_license",
-      "bank_diary","letter_head","authority_letter","partnership_deed"
+      "pan_photo",
+      "gst_file",
+      "seed_license",
+      "fertilizer_license",
+      "pesticide_license",
+      "bank_diary",
+      "letter_head",
+      "authority_letter",
+      "partnership_deed",
     ];
 
     for (let field of singleDocs) {
       if (files[field]?.[0]) {
         const uploaded = await uploadFileToMinio(
-          files[field][0], "distributor_documents");
+          files[field][0],
+          "distributor_documents",
+        );
         uploadedDocs[field] = uploaded.object_path;
       }
     }
@@ -156,7 +204,7 @@ exports.createDistributor = async (req, res) => {
     if (files?.approver_image?.[0]) {
       const uploaded = await uploadFileToMinio(
         files.approver_image[0],
-        "distributor_documents"
+        "distributor_documents",
       );
       approverImagePath = uploaded.object_path;
     }
@@ -164,59 +212,63 @@ exports.createDistributor = async (req, res) => {
     distributorData.approver_image = approverImagePath;
     const distributorId = await createDistributor(conn, distributorData);
     // HANDLE PROPRIETORSHIP (OWNER)
-if (distributorData.firm_type === "proprietorship") {
-  const owner = {
-    name: body.owner_name,
-    father_name: body.owner_father_name,
-    pan_no: body.owner_pan,
-    aadhar_no: body.owner_aadhar,
-    address: body.owner_address,
-    state: body.owner_state,
-    district: body.owner_district,
-    tehsil: body.owner_tehsil,
-    pincode: body.owner_pincode,
-    mobile_no: body.owner_mobile,
-    alt_mobile_no: body.owner_alt_mobile,
-    role: "owner"
-  };
+    if (distributorData.firm_type === "proprietorship") {
+      const owner = {
+        name: body.owner_name,
+        father_name: body.owner_father_name,
+        pan_no: body.owner_pan,
+        aadhar_no: body.owner_aadhar,
+        address: body.owner_address,
+        state: body.owner_state,
+        district: body.owner_district,
+        tehsil: body.owner_tehsil,
+        pincode: body.owner_pincode,
+        mobile_no: body.owner_mobile,
+        alt_mobile_no: body.owner_alt_mobile,
+        role: "owner",
+      };
 
-  // Upload owner photo
-  if (files?.owner_photo?.[0]) {
-    const uploaded = await uploadFileToMinio(
-      files.owner_photo[0],
-      "distributor_documents"
-    );
-    owner.photo = uploaded.object_path;
-  }
-
-  await insertPartners(conn, distributorId, [owner]);
-}
-
-
-    if (
-      distributorData.firm_type === "partnership" &&
-      body.partners
-    ) {
-      let partners = [];
-
-      try {
-        partners = JSON.parse(body.partners);
-      } catch {
-        throw new Error("Invalid partners JSON");
+      // Upload owner photo
+      if (files?.owner_photo?.[0]) {
+        const uploaded = await uploadFileToMinio(
+          files.owner_photo[0],
+          "distributor_documents",
+        );
+        owner.photo = uploaded.object_path;
       }
 
-      for (let i = 0; i < partners.length; i++) {
-        const fileKey = `partner_photo_${i}`;
-        if (files[fileKey]?.[0]) {
-          const uploaded = await uploadFileToMinio(
-            files[fileKey][0],
-            "distributor_documents"
-          );
-          partners[i].photo = uploaded.object_path;
+      await insertPartners(conn, distributorId, [owner]);
+    }
+
+    if (distributorData.firm_type === "partnership") {
+      let partners = [];
+
+      if (distributorData.firm_type === "partnership" && body.partners) {
+        try {
+          partners = JSON.parse(body.partners);
+        } catch {
+          throw new Error("Invalid partners JSON");
         }
       }
 
-      await insertPartners(conn, distributorId, partners);
+      //  IMPORTANT CHECK
+      if (Array.isArray(partners) && partners.length > 0) {
+        for (let i = 0; i < partners.length; i++) {
+          const fileKey = `partner_photo_${i}`;
+
+          if (files[fileKey]?.[0]) {
+            const uploaded = await uploadFileToMinio(
+              files[fileKey][0],
+              "distributor_documents",
+            );
+            partners[i].photo = uploaded.object_path;
+          }
+
+          //  Ensure role is always partner
+          partners[i].role = "partner";
+        }
+        await insertPartners(conn, distributorId, partners);
+      }
     }
 
     if (body.other_companies) {
@@ -239,11 +291,208 @@ if (distributorData.firm_type === "proprietorship") {
       success: true,
       message: "Distributor created successfully",
       distributorId,
+      created_by: userId,
+      created_by_name: userName,
     });
-
   } catch (error) {
     await conn.rollback();
     res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  } finally {
+    conn.release();
+  }
+};
+
+const generateDocumentUrls = async (documents) => {
+  if (!documents) return null;
+
+  const result = { ...documents };
+
+  for (let key in result) {
+    if (result[key] && typeof result[key] === "string") {
+      try {
+        result[key] = await getPresignedUrl(result[key]);
+      } catch (err) {
+        console.error(`Error generating URL for ${key}`, err.message);
+        result[key] = null;
+      }
+    }
+  }
+
+  return result;
+};
+
+exports.getDistributor = async (req, res) => {
+  const conn = await db.getConnection();
+
+  try {
+    const { id } = req.params;
+
+    const distributor = await getDistributorById(conn, id);
+    if (!distributor) {
+      return res.status(404).json({
+        success: false,
+        message: "Distributor not found",
+      });
+    }
+
+    const partners = await getPartners(conn, id);
+    const companies = await getCompanies(conn, id);
+    // const documents = await getDocuments(conn, id);
+    const documentsRaw = await getDocuments(conn, id);
+    const documents = await generateDocumentUrls(documentsRaw);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        distributor,
+        partners,
+        companies,
+        documents,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  } finally {
+    conn.release();
+  }
+};
+
+exports.updateDistributor = async (req, res) => {
+  const conn = await db.getConnection();
+  await conn.beginTransaction();
+
+  try {
+    const { id } = req.params;
+    const body = req.body;
+    const files = req.files || {};
+
+    // STEP 1: Prepare distributor data (reuse your create logic)
+    const distributorData = {};
+
+    const allowedFields = [
+      /* SAME ARRAY AS CREATE */
+    ];
+
+    for (let key of allowedFields) {
+      if (body[key] !== undefined) {
+        distributorData[key] = body[key];
+      }
+    }
+
+    // STEP 2: Update main table
+    await updateDistributor(conn, id, distributorData);
+
+    // STEP 3: Partners (DELETE + INSERT)
+    await deletePartners(conn, id);
+
+    if (body.partners) {
+      let partners = JSON.parse(body.partners);
+
+      for (let i = 0; i < partners.length; i++) {
+        const fileKey = `partner_photo_${i}`;
+
+        if (files[fileKey]?.[0]) {
+          const uploaded = await uploadFileToMinio(
+            files[fileKey][0],
+            "distributor_documents",
+          );
+          partners[i].photo = uploaded.object_path;
+        }
+      }
+
+      await insertPartners(conn, id, partners);
+    }
+
+    // STEP 4: Companies
+    await deleteCompanies(conn, id);
+
+    if (body.other_companies) {
+      const companies = JSON.parse(body.other_companies);
+      await insertCompanies(conn, id, companies);
+    }
+
+    // STEP 5: Documents (UPDATE instead of insert)
+    const updatedDocs = {};
+
+    if (files?.pan_photo?.[0]) {
+      const uploaded = await uploadFileToMinio(
+        files.pan_photo[0],
+        "distributor_documents",
+      );
+      updatedDocs.pan_photo = uploaded.object_path;
+    }
+
+    if (Object.keys(updatedDocs).length > 0) {
+      await conn.query(
+        "UPDATE distributor_documents SET ? WHERE distributor_id = ?",
+        [updatedDocs, id],
+      );
+    }
+
+    await conn.commit();
+
+    res.json({
+      success: true,
+      message: "Distributor updated successfully",
+    });
+  } catch (error) {
+    await conn.rollback();
+
+    res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  } finally {
+    conn.release();
+  }
+};
+
+exports.getAllDistributors = async (req, res) => {
+  const conn = await db.getConnection();
+
+  try {
+    const filters = req.query;
+
+    // STEP 1: Get distributors
+    const { rows, total } = await getDistributors(conn, filters);
+
+    const distributorIds = rows.map((d) => d.id);
+
+    // STEP 2: Get related data
+    const { partners, companies, documents } = await getRelatedData(
+      conn,
+      distributorIds,
+    );
+
+    const result = await Promise.all(
+      rows.map(async (d) => {
+        const doc = documents.find((doc) => doc.distributor_id === d.id);
+        return {
+          ...d,
+          partners: partners.filter((p) => p.distributor_id === d.id),
+          companies: companies.filter((c) => c.distributor_id === d.id),
+          documents: await generateDocumentUrls(doc),
+        };
+      }),
+    );
+
+    // STEP 4: Pagination response
+    res.status(200).json({
+      success: true,
+      total,
+      page: Number(filters.page) || 1,
+      limit: Number(filters.limit) || 10,
+      totalPages: Math.ceil(total / (filters.limit || 10)),
+      data: result,
+    });
+  } catch (error) {
+    res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -260,7 +509,6 @@ if (distributorData.firm_type === "proprietorship") {
 //     const body = req.body;
 //     const files = req.files || {};
 
-    
 //     const uploadedDocs = {};
 
 //     const uploadSingle = async (field) => {
@@ -294,7 +542,7 @@ if (distributorData.firm_type === "proprietorship") {
 //       "pesticide_license",
 //       "bank_diary",
 //       "letter_head",
-//       "authority_letter",  
+//       "authority_letter",
 //   "partnership_deed",
 //     ];
 
@@ -349,7 +597,6 @@ if (distributorData.firm_type === "proprietorship") {
 //       await insertCompanies(conn, distributorId, companies);
 //     }
 
- 
 //     await insertDocuments(conn, distributorId, uploadedDocs);
 
 //     await conn.commit();

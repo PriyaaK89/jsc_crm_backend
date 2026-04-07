@@ -4,13 +4,18 @@ const axios = require("axios");
 
 const createDigilockerKYC = async (req, res) => {
   try {
-    const { mobile, name } = req.body;
+    const { mobile } = req.body;
+    if (!mobile) {
+  return res.status(400).json({
+    success: false,
+    message: "Mobile number is required"
+  });
+}
 
     const response = await axios.post(
       `${process.env.DIGIO_BASE_URL}/client/kyc/v2/request/with_template`,
       {
         customer_identifier: mobile, // mobile or email
-        customer_name: name,
         template_name: "DIGILOCKER_AADHAAR_PAN",
         notify_customer: true,
         generate_access_token: true,

@@ -853,4 +853,27 @@ exports.getUserDropdown = async (req, res) => {
   }
 };
 
+exports.updateUserStatus = async (req, res) => {
+  try {
+    const userId = req.user.id; // from token middleware
+    const { internet_status, location_status } = req.body;
+
+    await db.query(
+      `
+      UPDATE users 
+      SET 
+        internet_status = ?, 
+        location_status = ?, 
+        last_seen = NOW()
+      WHERE id = ?
+      `,
+      [internet_status, location_status, userId]
+    );
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ success: false });
+  }
+};
 

@@ -195,7 +195,13 @@ const getAllUsers = async ({ search = "", page = 1, limit = 10 }) => {
       r.name AS role,
        u.profile_image,
     u.reporting_under,
-    manager.name AS reporting_officer_name
+    manager.name AS reporting_officer_name,
+
+  u.internet_status,
+  u.location_status,
+  u.last_seen,
+
+  TIMESTAMPDIFF(MINUTE, u.last_seen, NOW()) AS minutes_offline
     FROM users u
      JOIN roles r ON r.id = u.role_id
     LEFT JOIN department d ON d.id = u.department_id AND d.is_active = 1
@@ -282,7 +288,12 @@ const getUserById = async (id) => {
       r.name AS role,
        u.profile_image,
     u.reporting_under,
-    manager.name AS reporting_officer_name
+    manager.name AS reporting_officer_name,
+      u.internet_status,
+  u.location_status,
+  u.last_seen,
+
+  TIMESTAMPDIFF(MINUTE, u.last_seen, NOW()) AS minutes_offline
     FROM users u
     JOIN roles r ON r.id = u.role_id
     LEFT JOIN department d ON d.id = u.department_id AND d.is_active = 1

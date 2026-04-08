@@ -35,7 +35,12 @@ const uploadFields = [
 
 router.post( "/create-distributor", auth, upload.fields(uploadFields), controller.createDistributor);
 router.get("/get-distributor/:id", auth, controller.getDistributor);
-router.put("/update-distributor/:id", auth, controller.updateDistributor);
+router.put(
+  "/update-distributor/:id",
+  auth,
+  upload.fields(uploadFields),
+  controller.updateDistributor
+);
 router.get("/get-distributorsList", auth, controller.getAllDistributors);
 
 module.exports = router;

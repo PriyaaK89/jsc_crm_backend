@@ -372,11 +372,27 @@ exports.updateDistributor = async (req, res) => {
     const body = req.body;
     const files = req.files || {};
 
-    // STEP 1: Prepare distributor data (reuse your create logic)
+    //  Check if exists
+    const [existing] = await conn.query(
+      "SELECT id FROM distributors WHERE id = ?",
+      [id]
+    );
+
+    if (!existing.length) {
+      throw new Error("Distributor not found");
+    }
+
+    //  STEP 1: Prepare distributor data
     const distributorData = {};
 
     const allowedFields = [
-      /* SAME ARRAY AS CREATE */
+      "customer_name",
+      "firm_name",
+      "gst_number",
+      "contact_number",
+      "state",
+      "district",
+      "firm_type"
     ];
 
     for (let key of allowedFields) {
@@ -385,14 +401,23 @@ exports.updateDistributor = async (req, res) => {
       }
     }
 
-    // STEP 2: Update main table
-    await updateDistributor(conn, id, distributorData);
+    //  STEP 2: Update distributor
+    if (Object.keys(distributorData).length > 0) {
+      await updateDistributor(conn, id, distributorData);
+    }
 
-    // STEP 3: Partners (DELETE + INSERT)
+    //  STEP 3: Partners (DELETE + INSERT)
     await deletePartners(conn, id);
 
     if (body.partners) {
-      let partners = JSON.parse(body.partners);
+
+      let partners;
+
+      try {
+        partners = JSON.parse(body.partners);
+      } catch {
+        throw new Error("Invalid partners JSON");
+      }
 
       for (let i = 0; i < partners.length; i++) {
         const fileKey = `partner_photo_${i}`;
@@ -400,7 +425,7 @@ exports.updateDistributor = async (req, res) => {
         if (files[fileKey]?.[0]) {
           const uploaded = await uploadFileToMinio(
             files[fileKey][0],
-            "distributor_documents",
+            "distributor_documents"
           );
           partners[i].photo = uploaded.object_path;
         }
@@ -409,29 +434,67 @@ exports.updateDistributor = async (req, res) => {
       await insertPartners(conn, id, partners);
     }
 
-    // STEP 4: Companies
+    //  STEP 4: Companies
     await deleteCompanies(conn, id);
 
     if (body.other_companies) {
-      const companies = JSON.parse(body.other_companies);
+      let companies;
+
+      try {
+        companies = JSON.parse(body.other_companies);
+      } catch {
+        throw new Error("Invalid companies JSON");
+      }
+
       await insertCompanies(conn, id, companies);
     }
 
-    // STEP 5: Documents (UPDATE instead of insert)
+    //  STEP 5: Documents
     const updatedDocs = {};
 
-    if (files?.pan_photo?.[0]) {
-      const uploaded = await uploadFileToMinio(
-        files.pan_photo[0],
-        "distributor_documents",
-      );
-      updatedDocs.pan_photo = uploaded.object_path;
+    const docFields = [
+      "pan_photo",
+      "gst_file",
+      "seed_license",
+      "fertilizer_license",
+      "pesticide_license",
+      "bank_diary",
+      "letter_head",
+      "authority_letter",
+      "partnership_deed",
+      "aadhar_front",
+      "aadhar_back"
+    ];
+
+    for (let field of docFields) {
+      if (files[field]?.[0]) {
+        const uploaded = await uploadFileToMinio(
+          files[field][0],
+          "distributor_documents"
+        );
+        updatedDocs[field] = uploaded.object_path;
+      }
+    }
+
+    //  Multiple images handling
+    if (files.shop_image) {
+      files.shop_image.forEach(async (file, index) => {
+        const uploaded = await uploadFileToMinio(file, "distributor_documents");
+        updatedDocs[`shop_image_${index + 1}`] = uploaded.object_path;
+      });
+    }
+
+    if (files.cheque_photo) {
+      files.cheque_photo.forEach(async (file, index) => {
+        const uploaded = await uploadFileToMinio(file, "distributor_documents");
+        updatedDocs[`cheque_photo_${index + 1}`] = uploaded.object_path;
+      });
     }
 
     if (Object.keys(updatedDocs).length > 0) {
       await conn.query(
         "UPDATE distributor_documents SET ? WHERE distributor_id = ?",
-        [updatedDocs, id],
+        [updatedDocs, id]
       );
     }
 
@@ -441,6 +504,7 @@ exports.updateDistributor = async (req, res) => {
       success: true,
       message: "Distributor updated successfully",
     });
+
   } catch (error) {
     await conn.rollback();
 

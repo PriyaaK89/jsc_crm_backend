@@ -1,7 +1,8 @@
 {
   "dependencies": {
     "@aws-sdk/client-s3": "^3.982.0",
-    "axios": "^1.13.6",
+    "@mapbox/polyline": "^1.2.1",
+    "axios": "^1.15.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",

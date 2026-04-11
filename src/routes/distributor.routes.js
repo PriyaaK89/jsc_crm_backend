@@ -42,5 +42,6 @@ router.put(
   controller.updateDistributor
 );
 router.get("/get-distributorsList", auth, controller.getAllDistributors);
+router.delete( "/delete-distributor/:id", auth, controller.deleteDistributor);
 
 module.exports = router;

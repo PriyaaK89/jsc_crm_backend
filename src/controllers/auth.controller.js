@@ -62,7 +62,8 @@ exports.createUserByRole = async (req, res) => {
       ...data,
       role_id: roleId,
       profile_image: profileImagePath,
-      reporting_under: data.reporting_under || null
+      reporting_under: data.reporting_under || null,
+    
     });
 
     await UserDocument.createEmptyRow(createdUser.id, data.name);
@@ -70,9 +71,10 @@ exports.createUserByRole = async (req, res) => {
 
     res.status(201).json({
       message: `${roleName} created successfully`,
-      id: createdUser.id
+      id: createdUser.id,
+      email: data.email,
+      must_change_password: 1,
     });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

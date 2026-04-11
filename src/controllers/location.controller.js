@@ -1,8 +1,4 @@
 const Location = require("../models/location.model");
-const axios = require("axios");
-const polyline = require("@mapbox/polyline");
-
-const MAPPLS_API_KEY = process.env.MAPPLS_API_KEY;
 
 exports.saveLocation = async (req, res) => {
   try {

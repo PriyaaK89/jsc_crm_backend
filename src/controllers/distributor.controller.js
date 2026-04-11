@@ -12,7 +12,7 @@ const {
   updateDistributor,
   deletePartners,
   deleteCompanies,
-  getRelatedData,
+  getRelatedData, deleteDistributor
 } = require("../models/distributor.model");
 const { uploadFileToMinio, getPresignedUrl } = require("../utils/fileUpload");
 
@@ -559,6 +559,46 @@ exports.getAllDistributors = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message,
+    });
+  } finally {
+    conn.release();
+  }
+};
+
+exports.deleteDistributor = async (req, res) => {
+  const conn = await db.getConnection();
+
+  try {
+    const { id } = req.params;
+
+    await conn.beginTransaction();
+
+    // 1. Delete child tables first
+    await deletePartners(conn, id);
+    await deleteCompanies(conn, id);
+
+    // delete documents
+    await conn.query(
+      "DELETE FROM distributor_documents WHERE distributor_id = ?",
+      [id]
+    );
+
+    // 2. Delete main distributor
+    await deleteDistributor(conn, id);
+
+    await conn.commit();
+
+    res.status(200).json({
+      success: true,
+      message: "Distributor deleted successfully",
+    });
+  } catch (error) {
+    await conn.rollback();
+
+    res.status(500).json({
+      success: false,
+      message: "Delete failed",
+      error: error.message,
     });
   } finally {
     conn.release();

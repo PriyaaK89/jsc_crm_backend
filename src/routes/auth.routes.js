@@ -82,4 +82,17 @@ router.post(
   auth.updateUserStatus
 );
 
+router.put(
+  "/upload-profile-image",
+  authMiddleware,
+  upload.fields([{ name: "profile_image", maxCount: 1 }]),
+  auth.uploadOwnProfileImage
+);
+
+router.get(
+  "/my-profile",
+  authMiddleware,
+  auth.getMyProfile
+);
+
 module.exports = router;

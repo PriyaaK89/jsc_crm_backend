@@ -43,5 +43,8 @@ router.put(
 );
 router.get("/get-distributorsList", auth, controller.getAllDistributors);
 router.delete( "/delete-distributor/:id", auth, controller.deleteDistributor);
+router.post("/upload-agreement",auth, upload.single("file"), controller.uploadAgreement);
+
+router.get("/get-distributor-agreement/:distributor_id", auth, controller.getDistributorDocument)
 
 module.exports = router;

@@ -16,6 +16,7 @@ const {
 } = require("../models/distributor.model");
 const { uploadFileToMinio, getPresignedUrl } = require("../utils/fileUpload");
 
+
 exports.createDistributor = async (req, res) => {
   const conn = await db.getConnection();
   await conn.beginTransaction();
@@ -69,6 +70,7 @@ exports.createDistributor = async (req, res) => {
       "security_cheque_no_2",
       "security_amount",
       "credit_duration",
+      "credit_amount",
       "annual_turnover",
       "expected_sale",
       "approver_name",
@@ -139,6 +141,7 @@ exports.createDistributor = async (req, res) => {
     distributorData.annual_turnover = toNumber(distributorData.annual_turnover);
     distributorData.expected_sale = toNumber(distributorData.expected_sale);
     distributorData.credit_duration = toNumber(distributorData.credit_duration);
+    distributorData.credit_amount = toNumber(distributorData.credit_amount);
 
     const uploadedDocs = {};
 
@@ -602,6 +605,107 @@ exports.deleteDistributor = async (req, res) => {
     });
   } finally {
     conn.release();
+  }
+};
+
+exports.uploadAgreement = async (req, res) => {
+  try {
+    const { distributor_id } = req.body;
+
+    if (!req.file) {
+      return res.status(400).json({ message: "PDF file required" });
+    }
+
+    // Upload to MinIO
+    const uploadRes = await uploadFileToMinio(
+      req.file,
+      "distributor_agreement",
+      {
+        distributor_id, // optional (if you want structured path)
+      }
+    );
+
+    // Save in DB
+    await db.query(
+      `
+      INSERT INTO distributor_documents_master 
+      (distributor_id, document_type, file_path, file_url)
+      VALUES (?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE 
+      file_path = VALUES(file_path),
+      file_url = VALUES(file_url)
+      `,
+      [
+        distributor_id,
+        "agreement",
+        uploadRes.object_path,
+        uploadRes.file_url,
+      ]
+    );
+
+    return res.json({
+      success: true,
+      message: "Agreement uploaded successfully",
+      data: uploadRes,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Upload failed" });
+  }
+};
+
+exports.getDistributorDocument = async (req, res) => {
+  try {
+    const { distributor_id } = req.params;
+
+    if (!distributor_id) {
+      return res.status(400).json({ message: "Distributor ID is required" });
+    }
+
+    // Fetch document from DB
+    const [[doc]] = await db.query(
+      `SELECT * FROM distributor_documents_master 
+       WHERE distributor_id = ? AND document_type = 'agreement'`,
+      [distributor_id]
+    );
+
+    if (!doc) {
+      return res.status(404).json({ message: "Document not found" });
+    }
+
+    // Generate presigned URL
+    let presignedUrl = null;
+    if (doc.file_path) {
+      presignedUrl = await getPresignedUrl(doc.file_path);
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        id: doc.id,
+        distributor_id: doc.distributor_id,
+        document_type: doc.document_type,
+
+        file_path: doc.file_path,
+        file_url: doc.file_url, // optional
+        presigned_url: presignedUrl, //  THIS YOU SEND TO DIGIO
+
+        signing_status: doc.signing_status,
+        sign_url: doc.sign_url,
+
+        digio_document_id: doc.digio_document_id,
+        digio_invitee_id: doc.digio_invitee_id,
+
+        signed_file_url: doc.signed_file_url,
+
+        sent_for_sign_at: doc.sent_for_sign_at,
+        signed_at: doc.signed_at,
+      },
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch document" });
   }
 };
 

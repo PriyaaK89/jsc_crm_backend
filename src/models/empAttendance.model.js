@@ -41,8 +41,7 @@ exports.updateDayOver = async (data) => {
 
 exports.saveAttendanceImage = async (data) => {
   return db.query(
-    `
-    INSERT INTO emp_attendance_images
+    `INSERT INTO emp_attendance_images
     (attendance_id, image_type, s3_bucket, s3_key, s3_url, mime_type, file_size_kb)
     VALUES (?, ?, ?, ?, ?, ?, ?)
     `,
@@ -140,11 +139,7 @@ exports.getDayWiseAttendanceCount = async ({
 };
 
 
-exports.getMonthlyAttendanceSummary = async (
-  employeeId,
-  month,
-  year
-) => {
+exports.getMonthlyAttendanceSummary = async (employeeId, month, year) => {
   const [[row]] = await db.query(
     `
     SELECT
@@ -157,23 +152,10 @@ exports.getMonthlyAttendanceSummary = async (
         END
       ) AS leave_days,
 
-      -- Absent (login but no checkout OR no working minutes)
-      SUM(
-        CASE 
-          WHEN status IN ('present','day_over')
-               AND (check_out_time IS NULL 
-                    OR working_minutes IS NULL)
-          THEN 1
-          ELSE 0
-        END
-      ) AS absent_days,
-
       -- Full Days
       SUM(
         CASE 
-          WHEN status IN ('present','day_over')
-               AND working_minutes >= 360
-          THEN 1
+          WHEN attendance_unit = 'full' THEN 1
           ELSE 0
         END
       ) AS full_days,
@@ -181,13 +163,20 @@ exports.getMonthlyAttendanceSummary = async (
       -- Half Days
       SUM(
         CASE 
-          WHEN status IN ('present','day_over')
-               AND working_minutes > 0
-               AND working_minutes < 360
-          THEN 1
+          WHEN attendance_unit = 'half' THEN 1
           ELSE 0
         END
       ) AS half_days,
+
+      -- Absent Days
+      SUM(
+        CASE 
+          WHEN attendance_unit = 'absent'
+               OR status = 'present' -- login but no checkout
+          THEN 1
+          ELSE 0
+        END
+      ) AS absent_days,
 
       COUNT(*) AS total_days
 
@@ -199,7 +188,13 @@ exports.getMonthlyAttendanceSummary = async (
     [employeeId, month, year]
   );
 
-  return row;
+  return {
+    leave_days: row.leave_days || 0,
+    full_days: row.full_days || 0,
+    half_days: row.half_days || 0,
+    absent_days: row.absent_days || 0,
+    total_days: row.total_days || 0,
+  };
 };
 
 exports.getAttendanceImagesByDate = async (employeeId, date) => {
@@ -248,13 +243,17 @@ exports.getDailyAttendanceSummary = async (date) => {
         END
       ) AS completed_day,
 
-      -- Half day
-      SUM(
-        CASE 
-          WHEN ea.attendance_unit = 'half' AND u.is_active = 1
-          THEN 1 ELSE 0 
-        END
-      ) AS half_day,
+SUM(
+  CASE 
+    WHEN ea.status = 'day_over'
+         AND working_minutes IS NOT NULL
+         AND working_minutes > 0
+         AND working_minutes < 360
+    THEN 1
+    ELSE 0
+  END
+) AS half_days,
+      
 
       -- Leave
       SUM(

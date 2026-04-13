@@ -2,6 +2,7 @@ const axios = require("axios");
 const db = require("../config/db");
 const minioClient = require("../config/minio");
 const { PDFDocument } = require("pdf-lib");
+const { normalizePhone, getFileBufferFromMinio, getPdfPageCount, buildSignCoordinates, getDigioAuthHeader } = require("../utils/digio.helper");
 
 const BUCKET = "jsc-crm";
 
@@ -13,23 +14,9 @@ function pretty(data) {
   }
 }
 
-function normalizePhone(phone) {
-  if (!phone) return null;
-  const digits = String(phone).replace(/\D/g, "");
-  if (!digits) return null;
-  return digits.length > 10 ? digits.slice(-10) : digits;
-}
 
-function getDigioAuthHeader() {
-  const clientId = process.env.DIGIO_CLIENT_ID;
-  const clientSecret = process.env.DIGIO_CLIENT_SECRET;
 
-  if (!clientId || !clientSecret) {
-    throw new Error("DIGIO_CLIENT_ID or DIGIO_CLIENT_SECRET missing in env");
-  }
 
-  return "Basic " + Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-}
 
 async function getDocumentRow(documentId) {
   const [rows] = await db.query(
@@ -42,50 +29,6 @@ async function getDocumentRow(documentId) {
   );
 
   return rows[0] || null;
-}
-
-async function getFileBufferFromMinio(objectKey) {
-  const stream = await minioClient.getObject(BUCKET, objectKey);
-  const chunks = [];
-
-  for await (const chunk of stream) {
-    chunks.push(chunk);
-  }
-
-  return Buffer.concat(chunks);
-}
-
-async function getPdfPageCount(buffer) {
-  // ignoreEncryption helps in some PDFs that otherwise fail to parse
-  const pdfDoc = await PDFDocument.load(buffer, { ignoreEncryption: true });
-  return pdfDoc.getPageCount();
-}
-
-function buildSignCoordinates(totalPages) {
-  const companyCoordinates = [];
-  const employeeCoordinates = [];
-
-  for (let i = 1; i <= totalPages; i++) {
-    // LEFT SIDE - company
-    companyCoordinates.push({
-      page_num: i,
-      x: 100,
-      y: 690,
-      width: 150,
-      height: 50,
-    });
-
-    // RIGHT SIDE - employee
-    employeeCoordinates.push({
-      page_num: i,
-      x: 450,
-      y: 690,
-      width: 150,
-      height: 50,
-    });
-  }
-
-  return { companyCoordinates, employeeCoordinates };
 }
 
 exports.sendForESign = async (req, res) => {

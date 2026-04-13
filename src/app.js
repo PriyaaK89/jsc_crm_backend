@@ -35,6 +35,7 @@ const gstVerificationRoute = require("../src/routes/gst.routes");
 const distributorOnBoardingRoute = require("../src/routes/distributor.routes");
 const panVerificationRoute = require("../src/routes/panVerification.route");
 const digioVerificationRoute = require("../src/routes/digioKyc.routes");
+const distributorDigioRoute = require("../src/routes/distributorDigio.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -65,6 +66,7 @@ app.use(gstVerificationRoute);
 app.use(distributorOnBoardingRoute);
 app.use(panVerificationRoute);
 app.use(digioVerificationRoute);
+app.use(distributorDigioRoute);
 
 
 // 404 handler

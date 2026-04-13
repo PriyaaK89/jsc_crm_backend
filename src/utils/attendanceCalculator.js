@@ -22,19 +22,19 @@ exports.calculateAttendanceUnit = ({
   workingMinutes
 }) => {
   const checkInHour = new Date(checkInTime).getHours();
-
   const isLate = checkInHour >= 11;
 
-  // FULL DAY (6+ hours)
+  if (!workingMinutes || workingMinutes <= 0) {
+    return { unit: "absent", late: isLate };
+  }
+
   if (workingMinutes >= 360) {
     return { unit: "full", late: isLate };
   }
 
-  // HALF DAY (4 to <6 hours)
   if (workingMinutes >= 240) {
     return { unit: "half", late: isLate };
   }
 
-  // LESS THAN 4 HOURS → ABSENT
   return { unit: "absent", late: isLate };
 };

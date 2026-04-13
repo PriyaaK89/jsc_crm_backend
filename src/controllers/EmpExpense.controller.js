@@ -1,5 +1,6 @@
 const expenseModel = require("../models/EmpExpense.model");
 const { uploadFileToMinio } = require("../utils/fileUpload");
+const { getPresignedUrl } = require("../utils/fileUpload");
 
 exports.setExpenseAllocation = async (req, res) => {
   try {
@@ -264,38 +265,64 @@ exports.getAdminExpenseSummary = async (req, res) => {
     });
 
     //  Format response
-    const formattedData = result.rows.map((row) => {
+ const formattedData = await Promise.all(
+  result.rows.map(async (row) => {
 
-      const allocation = {
-        HOTEL: parseFloat(row.hotel_amount || 0),
-        BUS_TRAIN_TOLL: parseFloat(row.bus_train_toll_amount || 0),
-        PETROL_DIESEL: parseFloat(row.petrol_diesel_amount || 0),
-        OTHER: parseFloat(row.other_amount || 0)
-      };
-
-      const usage = {
-        HOTEL: parseFloat(row.hotel_used || 0),
-        BUS_TRAIN_TOLL: parseFloat(row.bus_used || 0),
-        PETROL_DIESEL: parseFloat(row.petrol_used || 0),
-        OTHER: parseFloat(row.other_used || 0)
-      };
-
-      const remaining = {
-        HOTEL: allocation.HOTEL - usage.HOTEL,
-        BUS_TRAIN_TOLL: allocation.BUS_TRAIN_TOLL - usage.BUS_TRAIN_TOLL,
-        PETROL_DIESEL: allocation.PETROL_DIESEL - usage.PETROL_DIESEL,
-        OTHER: allocation.OTHER - usage.OTHER
-      };
-
-      return {
-        user_id: row.user_id,
-        employee_name: row.employee_name,
-        allocation,
-        usage,
-        remaining,
-        bill_urls: row.bill_urls ? row.bill_urls.split(",") : []
-      };
+    const entries = await expenseModel.getExpenseEntriesForAdmin(row.user_id, {
+      expense_type,
+      start_date,
+      end_date
     });
+
+    const entriesWithUrls = await Promise.all(
+      entries.map(async (entry) => {
+        let bill_url = null;
+
+        if (entry.bill_object_path) {
+          bill_url = await getPresignedUrl(entry.bill_object_path);
+        }
+
+        return {
+          id: entry.id,
+          expense_type: entry.expense_type,
+          expense_date: entry.expense_date,
+          amount: entry.amount,
+          remarks: entry.remarks,
+          status: entry.status,
+          bill_url
+        };
+      })
+    );
+
+    return {
+      user_id: row.user_id,
+      employee_name: row.employee_name,
+
+      allocation: {
+        HOTEL: Number(row.hotel_amount || 0),
+        BUS_TRAIN_TOLL: Number(row.bus_train_toll_amount || 0),
+        PETROL_DIESEL: Number(row.petrol_diesel_amount || 0),
+        OTHER: Number(row.other_amount || 0)
+      },
+
+      usage: {
+        HOTEL: Number(row.hotel_used || 0),
+        BUS_TRAIN_TOLL: Number(row.bus_used || 0),
+        PETROL_DIESEL: Number(row.petrol_used || 0),
+        OTHER: Number(row.other_used || 0)
+      },
+
+      remaining: {
+        HOTEL: Number(row.hotel_amount || 0) - Number(row.hotel_used || 0),
+        BUS_TRAIN_TOLL: Number(row.bus_train_toll_amount || 0) - Number(row.bus_used || 0),
+        PETROL_DIESEL: Number(row.petrol_diesel_amount || 0) - Number(row.petrol_used || 0),
+        OTHER: Number(row.other_amount || 0) - Number(row.other_used || 0)
+      },
+
+      entries: entriesWithUrls  
+    };
+  })
+);
 
     return res.status(200).json({
       message: "Admin expense summary fetched successfully",
@@ -314,4 +341,73 @@ exports.getAdminExpenseSummary = async (req, res) => {
   }
 };
 
+exports.updateExpenseAllocation = async (req, res) => {
+  try {
+    const { user_id } = req.params;
 
+    const {
+      hotel_amount = 0,
+      bus_train_toll_amount = 0,
+      petrol_diesel_amount = 0,
+      other_amount = 0
+    } = req.body;
+
+    //  check allocation exists
+    const existing = await expenseModel.getAllocationByUserId(user_id);
+
+    if (!existing) {
+      return res.status(404).json({
+        message: "Allocation not found"
+      });
+    }
+
+    // Get already used amounts
+    const usedHotel = await expenseModel.getUsedAmountByType(user_id, "HOTEL");
+    const usedBus = await expenseModel.getUsedAmountByType(user_id, "BUS_TRAIN_TOLL");
+    const usedPetrol = await expenseModel.getUsedAmountByType(user_id, "PETROL_DIESEL");
+    const usedOther = await expenseModel.getUsedAmountByType(user_id, "OTHER");
+
+    // VALIDATION (VERY IMPORTANT)
+    if (hotel_amount < usedHotel) {
+      return res.status(400).json({
+        message: `Hotel allocation cannot be less than already used amount (${usedHotel})`
+      });
+    }
+
+    if (bus_train_toll_amount < usedBus) {
+      return res.status(400).json({
+        message: `Bus/Train allocation cannot be less than already used amount (${usedBus})`
+      });
+    }
+
+    if (petrol_diesel_amount < usedPetrol) {
+      return res.status(400).json({
+        message: `Petrol/Diesel allocation cannot be less than already used amount (${usedPetrol})`
+      });
+    }
+
+    if (other_amount < usedOther) {
+      return res.status(400).json({
+        message: `Other allocation cannot be less than already used amount (${usedOther})`
+      });
+    }
+
+    //  Update allocation
+    await expenseModel.updateAllocation({
+      user_id,
+      hotel_amount,
+      bus_train_toll_amount,
+      petrol_diesel_amount,
+      other_amount
+    });
+
+    return res.json({
+      message: "Expense allocation updated successfully"
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      error: error.message
+    });
+  }
+};

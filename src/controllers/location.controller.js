@@ -11,7 +11,6 @@ exports.saveLocation = async (req, res) => {
         message: "Invalid coordinates",
       });
     }
-
     //  TIME CHECK (10 PM LIMIT)
     const now = new Date();
     const currentHour = now.getHours();

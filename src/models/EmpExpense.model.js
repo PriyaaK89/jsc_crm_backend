@@ -288,5 +288,37 @@ exports.getAdminExpenseSummary = async ({
     rows,
     total: countResult[0].total
   };
+}
+
+exports.getExpenseEntriesForAdmin = async (userId, filters = {}) => {
+  let where = ["e.user_id = ?"];
+  let values = [userId];
+
+  if (filters.expense_type) {
+    where.push("e.expense_type = ?");
+    values.push(filters.expense_type);
+  }
+
+  if (filters.start_date && filters.end_date) {
+    where.push("e.expense_date BETWEEN ? AND ?");
+    values.push(filters.start_date, filters.end_date);
+  }
+
+  const sql = `
+    SELECT 
+      e.id,
+      e.expense_type,
+      e.expense_date,
+      e.amount,
+      e.bill_object_path,
+      e.remarks,
+      e.status
+    FROM employee_expense_entries e
+    WHERE ${where.join(" AND ")}
+    ORDER BY e.expense_date DESC
+  `;
+
+  const [rows] = await db.execute(sql, values);
+  return rows;
 };
 

@@ -194,7 +194,22 @@ exports.getUserById = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    res.status(200).json({ success: true, data: user });
+    let profileImageUrl = null;
+
+    if (user.profile_image) {
+      profileImageUrl = await getPresignedUrl(user.profile_image);
+    }
+
+    const userWithImage = {
+      ...user,
+      profile_image_url: profileImageUrl
+    };
+
+    res.status(200).json({
+      success: true,
+      data: userWithImage
+    });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -517,7 +532,8 @@ exports.updateUserById = async (req, res) => {
       department_id, job_role_id, date_of_joining, salary,
 
       week_off, attendance_selfie,
-      travelling_allowance_per_km, avg_travel_km_per_day,
+       two_wheeler_allowance_per_km,
+      four_wheeler_allowance_per_km, avg_travel_km_per_day,
       city_allowance_per_km, daily_allowance_with_doc,
       daily_allowance_without_doc, hotel_allowance,
       total_leaves, authentication_amount,
@@ -571,7 +587,8 @@ exports.updateUserById = async (req, res) => {
 
       week_off,
       attendance_selfie,
-      travelling_allowance_per_km,
+       two_wheeler_allowance_per_km,
+      four_wheeler_allowance_per_km,
       avg_travel_km_per_day,
       city_allowance_per_km,
       daily_allowance_with_doc,
@@ -876,6 +893,96 @@ exports.updateUserStatus = async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ success: false });
+  }
+};
+
+exports.uploadOwnProfileImage = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // check file exists
+    if (!req.files || !req.files.profile_image) {
+      return res.status(400).json({
+        success: false,
+        message: "Profile image is required",
+      });
+    }
+
+    const file = req.files.profile_image[0];
+
+    // optional validation
+    if (!file.mimetype.startsWith("image/")) {
+      return res.status(400).json({
+        success: false,
+        message: "Only image files are allowed",
+      });
+    }
+
+    // upload to MinIO
+    const uploaded = await uploadFileToMinio(file, "profile_image");
+
+    const imagePath = uploaded.object_path;
+
+    // call model function
+    await User.updateProfileImage(userId, imagePath);
+
+    // optional: generate presigned URL
+    const imageUrl = await getPresignedUrl(imagePath);
+
+    return res.json({
+      success: true,
+      message: "Profile image updated successfully",
+      profile_image: imageUrl,
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.getMyProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // fetch user basic data
+  const [rows] = await db.query( ` SELECT  u.id, u.name, u.email, u.profile_image, d.name AS department_name, jr.name AS job_role_name
+  FROM users u
+  LEFT JOIN department d ON d.id = u.department_id
+  LEFT JOIN job_roles jr ON jr.id = u.job_role_id
+  WHERE u.id = ?`,
+  [userId]
+);
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const user = rows[0];
+
+    let profileImageUrl = null;
+
+    // generate presigned URL if image exists
+    if (user.profile_image) {
+      profileImageUrl = await getPresignedUrl(user.profile_image);
+    }
+
+    return res.json({
+      success: true,
+      data: {
+     id: user.id,
+    name: user.name,
+    email: user.email,
+    department_name: user.department_name,
+    job_role_name: user.job_role_name,
+    profile_image_url: profileImageUrl,
+      },
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 };
 

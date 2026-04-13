@@ -46,30 +46,36 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   const minutes = totalMinutes % 60;
   const formattedWorkingHours = `${hours} hr ${minutes} min`;
 
-  let travelAllowance = 0;
-  let dailyAllowance = 0;
+let travelAllowance = 0;
+let dailyAllowance = 0;
 
-  if (attendance.check_out_time && attendance.work_type !== "wfh") {
-    let travelledKm = 0;
+if (
+  attendance.check_out_time &&
+  attendance.work_type !== "wfh" &&
+  attendance.travel_mode === "private"
+) {
+  const startKm = Number(attendance.odometer_reading) || 0;
+  const endKm = Number(attendance.day_over_odometer_reading) || 0;
 
-    if (attendance.odometer_reading && attendance.day_over_odometer_reading) {
-      travelledKm =
-        Number(attendance.day_over_odometer_reading) -
-        Number(attendance.odometer_reading);
+  let travelledKm = endKm - startKm;
+  if (travelledKm < 0) travelledKm = 0;
 
-      if (travelledKm < 0) travelledKm = 0;
-    }
+  // Vehicle-based rate
+  const rateMap = {
+    two_wheeler: user.two_wheeler_allowance_per_km || 0,
+    four_wheeler: user.four_wheeler_allowance_per_km || 0,
+  };
 
-    travelAllowance =
-      travelledKm *
-      (user.travelling_allowance_per_km || 0) *
-      allowanceMultiplier;
+  const perKmRate = rateMap[attendance.vehicle_type] || 0;
 
-    if (travelledKm >= (user.avg_travel_km_per_day || 0)) {
-      dailyAllowance =
-        (user.daily_allowance_with_doc || 0) * allowanceMultiplier;
-    }
+  travelAllowance = travelledKm * perKmRate * allowanceMultiplier;
+
+  // Daily allowance
+  if (travelledKm >= (user.avg_travel_km_per_day || 0)) {
+    dailyAllowance =
+      (user.daily_allowance_with_doc || 0) * allowanceMultiplier;
   }
+}
 
   /* ---------- Final Salary ---------- */
   const grossSalary = basicSalary + travelAllowance + dailyAllowance;
@@ -303,7 +309,14 @@ exports.markAttendance = async (req, res) => {
 
       // ================== NEW LOGIC END ==================
 
-      await Attendance.updateDayOver([ workingMinutes, unit, late, day_over_odometer_reading, day_over_location, todayAttendance.id,]);
+      await Attendance.updateDayOver([
+        workingMinutes,
+        unit,
+        late,
+        day_over_odometer_reading,
+        day_over_location,
+        todayAttendance.id,
+      ]);
       await generateDailySalaryInternal(
         employee_id,
         new Date().toISOString().split("T")[0],
@@ -343,15 +356,34 @@ exports.markAttendance = async (req, res) => {
 
 exports.getDayWiseAttendance = async (req, res) => {
   try {
-    let { employee_id, search, start_date, end_date, page = 1, limit = 10, } = req.query;
+    let {
+      employee_id,
+      search,
+      start_date,
+      end_date,
+      page = 1,
+      limit = 10,
+    } = req.query;
 
     page = Number(page);
     limit = Number(limit);
     const offset = (page - 1) * limit;
 
-    const attendance = await Attendance.getDayWiseAttendance({ employeeId: employee_id, search, startDate: start_date, endDate: end_date, limit, offset, });
+    const attendance = await Attendance.getDayWiseAttendance({
+      employeeId: employee_id,
+      search,
+      startDate: start_date,
+      endDate: end_date,
+      limit,
+      offset,
+    });
 
-    const totalRecords = await Attendance.getDayWiseAttendanceCount({ employeeId: employee_id, search, startDate: start_date, endDate: end_date, });
+    const totalRecords = await Attendance.getDayWiseAttendanceCount({
+      employeeId: employee_id,
+      search,
+      startDate: start_date,
+      endDate: end_date,
+    });
 
     return res.json({
       filters: {

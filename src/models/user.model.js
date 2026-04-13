@@ -30,7 +30,8 @@ const createUser = async (user) => {
       salary,
       week_off,
       attendance_selfie,
-      travelling_allowance_per_km,
+      two_wheeler_allowance_per_km,
+      four_wheeler_allowance_per_km,
       avg_travel_km_per_day,
       city_allowance_per_km,
       daily_allowance_with_doc,
@@ -47,7 +48,7 @@ const createUser = async (user) => {
     )
     VALUES (
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
     [
       user.name || null,
       user.email || null,
@@ -80,7 +81,9 @@ const createUser = async (user) => {
 
       user.week_off || null,
       user.attendance_selfie || null,
-      user.travelling_allowance_per_km || null,
+      // user.travelling_allowance_per_km || null,
+      user.two_wheeler_allowance_per_km || 0,
+user.four_wheeler_allowance_per_km || 0,
       user.avg_travel_km_per_day || null,
       user.city_allowance_per_km || null,
       user.daily_allowance_with_doc || null,
@@ -176,7 +179,8 @@ const getAllUsers = async ({ search = "", page = 1, limit = 10 }) => {
 
       u.week_off,
       u.attendance_selfie,
-      u.travelling_allowance_per_km,
+      u.two_wheeler_allowance_per_km,
+u.four_wheeler_allowance_per_km,
       u.avg_travel_km_per_day,
       u.city_allowance_per_km,
       u.daily_allowance_with_doc,
@@ -267,7 +271,8 @@ const getUserById = async (id) => {
 
       u.week_off,
       u.attendance_selfie,
-      u.travelling_allowance_per_km,
+      u.two_wheeler_allowance_per_km,
+u.four_wheeler_allowance_per_km,
       u.avg_travel_km_per_day,
       u.city_allowance_per_km,
       u.daily_allowance_with_doc,
@@ -397,8 +402,13 @@ const getUserDropdown = async () => {
   return rows;
 };
 
-
+const updateProfileImage = async (userId, imagePath) => {
+  await db.query(
+    `UPDATE users SET profile_image = ? WHERE id = ?`,
+    [imagePath, userId]
+  );
+};
 
 module.exports = {
-  createUser, findUserByEmail, getAllUsers, getUserById, updateUserById, updatePasswordByAdmin, updateUserStatus, softDeleteUser, getDeletedUsers, getUserDropdown
+  createUser, findUserByEmail, getAllUsers, getUserById, updateUserById, updatePasswordByAdmin, updateUserStatus, softDeleteUser, getDeletedUsers, getUserDropdown, updateProfileImage
 };

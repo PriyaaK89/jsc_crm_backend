@@ -12,6 +12,7 @@ const folderMap = {
   bills: "employee/expenses/bills",
   visits: "employee/visits",
   distributor_documents: "employee/dist-documents",
+  distributor_agreement: 'distributor/dist-letters'
 };
 
 const uploadFileToMinio = async (file, type, options = {}) => {
@@ -57,7 +58,6 @@ const getPresignedUrl = async (objectPath, expiry = 60 * 60) => {
       objectPath,
       expiry // seconds (1 hour default)
     );
-
     return url;
   } catch (err) {
     throw err;

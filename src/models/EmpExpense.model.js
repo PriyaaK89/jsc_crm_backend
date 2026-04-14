@@ -214,23 +214,20 @@ exports.getAdminExpenseSummary = async ({
   let whereConditions = [];
   let values = [];
 
-  //  Search
-  if (search) {
-    whereConditions.push("u.name LIKE ?");
-    values.push(`%${search}%`);
-  }
+  if (search && search.trim() !== "") {
+  whereConditions.push("u.name LIKE ?");
+  values.push(`%${search}%`);
+}
 
-  //  Expense Type Filter
-  if (expense_type) {
-    whereConditions.push("e.expense_type = ?");
-    values.push(expense_type);
-  }
+if (expense_type && expense_type.trim() !== "") {
+  whereConditions.push("e.expense_type = ?");
+  values.push(expense_type.toUpperCase());
+}
 
-  //  Date Filter
-  if (start_date && end_date) {
-    whereConditions.push("e.expense_date BETWEEN ? AND ?");
-    values.push(start_date, end_date);
-  }
+if (start_date && end_date && start_date !== "" && end_date !== "") {
+  whereConditions.push("e.expense_date BETWEEN ? AND ?");
+  values.push(new Date(start_date), new Date(end_date));
+}
 
   const whereClause =
     whereConditions.length > 0
@@ -257,8 +254,12 @@ exports.getAdminExpenseSummary = async ({
 
     FROM employee_expense_allocations a
     JOIN users u ON u.id = a.user_id
+  
+
     LEFT JOIN employee_expense_entries e 
-      ON e.allocation_id = a.id
+ON e.allocation_id = a.id
+AND (${expense_type ? "e.expense_type = ?" : "1=1"})
+  
 
     ${whereClause}
 
@@ -268,7 +269,10 @@ exports.getAdminExpenseSummary = async ({
     LIMIT ? OFFSET ?
   `;
 
-  values.push(limit, offset);
+  limit = Number(limit) || 10;
+offset = Number(offset) || 0;
+
+values.push(limit, offset);
 
   const [rows] = await db.execute(sql, values);
 
@@ -303,6 +307,8 @@ exports.getExpenseEntriesForAdmin = async (userId, filters = {}) => {
     where.push("e.expense_date BETWEEN ? AND ?");
     values.push(filters.start_date, filters.end_date);
   }
+
+  
 
   const sql = `
     SELECT 

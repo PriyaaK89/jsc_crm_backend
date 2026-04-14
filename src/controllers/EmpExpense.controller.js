@@ -240,101 +240,223 @@ exports.getMyUploadedExpenses = async (req, res) => {
   }
 };
 
+// exports.getAdminExpenseSummary = async (req, res) => {
+//   try {
+//     let {
+//       page = 1,
+//       limit = 10,
+//       search,
+//       expense_type,
+//       start_date,
+//       end_date
+//     } = req.query;
+
+//     page = parseInt(page);
+//     limit = parseInt(limit);
+//     const offset = (page - 1) * limit;
+
+//     const result = await expenseModel.getAdminExpenseSummary({
+//       search: search || null,
+//       expense_type: expense_type || null,
+//       start_date: start_date || null,
+//       end_date: end_date || null,
+//       limit,
+//       offset
+//     });
+
+//     //  Format response
+//  const formattedData = await Promise.all(
+//   result.rows.map(async (row) => {
+
+//     const entries = await expenseModel.getExpenseEntriesForAdmin(row.user_id, {
+//       expense_type,
+//       start_date,
+//       end_date
+//     });
+
+//     const entriesWithUrls = await Promise.all(
+//       entries.map(async (entry) => {
+//         let bill_url = null;
+
+//         if (entry.bill_object_path) {
+//           bill_url = await getPresignedUrl(entry.bill_object_path);
+//         }
+
+//         return {
+//           id: entry.id,
+//           expense_type: entry.expense_type,
+//           expense_date: entry.expense_date,
+//           amount: entry.amount,
+//           remarks: entry.remarks,
+//           status: entry.status,
+//           bill_url
+//         };
+//       })
+//     );
+
+//     return {
+//       user_id: row.user_id,
+//       employee_name: row.employee_name,
+
+//       allocation: {
+//         HOTEL: Number(row.hotel_amount || 0),
+//         BUS_TRAIN_TOLL: Number(row.bus_train_toll_amount || 0),
+//         PETROL_DIESEL: Number(row.petrol_diesel_amount || 0),
+//         OTHER: Number(row.other_amount || 0)
+//       },
+
+//       usage: {
+//         HOTEL: Number(row.hotel_used || 0),
+//         BUS_TRAIN_TOLL: Number(row.bus_used || 0),
+//         PETROL_DIESEL: Number(row.petrol_used || 0),
+//         OTHER: Number(row.other_used || 0)
+//       },
+
+//       remaining: {
+//         HOTEL: Number(row.hotel_amount || 0) - Number(row.hotel_used || 0),
+//         BUS_TRAIN_TOLL: Number(row.bus_train_toll_amount || 0) - Number(row.bus_used || 0),
+//         PETROL_DIESEL: Number(row.petrol_diesel_amount || 0) - Number(row.petrol_used || 0),
+//         OTHER: Number(row.other_amount || 0) - Number(row.other_used || 0)
+//       },
+
+//       entries: entriesWithUrls  
+//     };
+//   })
+// );
+
+//     return res.status(200).json({
+//       message: "Admin expense summary fetched successfully",
+//       page,
+//       limit,
+//       totalItems: result.total,
+//       total_pages: Math.ceil(result.total / limit),
+//       data: formattedData,
+
+//     });
+
+//   } catch (error) {
+//     return res.status(500).json({
+//       error: error.message
+//     });
+//   }
+// };
+
 exports.getAdminExpenseSummary = async (req, res) => {
   try {
     let {
-      page = 1,
-      limit = 10,
+      page,
+      limit,
       search,
       expense_type,
       start_date,
       end_date
     } = req.query;
 
-    page = parseInt(page);
-    limit = parseInt(limit);
-    const offset = (page - 1) * limit;
+    //  Safe parsing
+    const pageNumber = Number(page) || 1;
+    const limitNumber = Number(limit) || 10;
+    const offset = (pageNumber - 1) * limitNumber;
+
+    //  Clean filters (VERY IMPORTANT)
+    const cleanSearch = search && search.trim() !== "" ? search.trim() : null;
+    const cleanExpenseType =
+      expense_type && expense_type.trim() !== ""
+        ? expense_type.toUpperCase()
+        : null;
+
+    const cleanStartDate =
+      start_date && start_date !== "" ? new Date(start_date) : null;
+
+    const cleanEndDate =
+      end_date && end_date !== "" ? new Date(end_date) : null;
 
     const result = await expenseModel.getAdminExpenseSummary({
-      search: search || null,
-      expense_type: expense_type || null,
-      start_date: start_date || null,
-      end_date: end_date || null,
-      limit,
+      search: cleanSearch,
+      expense_type: cleanExpenseType,
+      start_date: cleanStartDate,
+      end_date: cleanEndDate,
+      limit: limitNumber,
       offset
     });
 
     //  Format response
- const formattedData = await Promise.all(
-  result.rows.map(async (row) => {
+    const formattedData = await Promise.all(
+      result.rows.map(async (row) => {
 
-    const entries = await expenseModel.getExpenseEntriesForAdmin(row.user_id, {
-      expense_type,
-      start_date,
-      end_date
-    });
+        const entries = await expenseModel.getExpenseEntriesForAdmin(
+          row.user_id,
+          {
+            expense_type: cleanExpenseType,
+            start_date: cleanStartDate,
+            end_date: cleanEndDate
+          }
+        );
 
-    const entriesWithUrls = await Promise.all(
-      entries.map(async (entry) => {
-        let bill_url = null;
+        const entriesWithUrls = await Promise.all(
+          entries.map(async (entry) => {
+            let bill_url = null;
 
-        if (entry.bill_object_path) {
-          bill_url = await getPresignedUrl(entry.bill_object_path);
-        }
+            if (entry.bill_object_path) {
+              bill_url = await getPresignedUrl(entry.bill_object_path);
+            }
+
+            return {
+              id: entry.id,
+              expense_type: entry.expense_type,
+              expense_date: entry.expense_date,
+              amount: entry.amount,
+              remarks: entry.remarks,
+              status: entry.status,
+              bill_url
+            };
+          })
+        );
 
         return {
-          id: entry.id,
-          expense_type: entry.expense_type,
-          expense_date: entry.expense_date,
-          amount: entry.amount,
-          remarks: entry.remarks,
-          status: entry.status,
-          bill_url
+          user_id: row.user_id,
+          employee_name: row.employee_name,
+
+          allocation: {
+            HOTEL: Number(row.hotel_amount || 0),
+            BUS_TRAIN_TOLL: Number(row.bus_train_toll_amount || 0),
+            PETROL_DIESEL: Number(row.petrol_diesel_amount || 0),
+            OTHER: Number(row.other_amount || 0)
+          },
+
+          usage: {
+            HOTEL: Number(row.hotel_used || 0),
+            BUS_TRAIN_TOLL: Number(row.bus_used || 0),
+            PETROL_DIESEL: Number(row.petrol_used || 0),
+            OTHER: Number(row.other_used || 0)
+          },
+
+          remaining: {
+            HOTEL: Number(row.hotel_amount || 0) - Number(row.hotel_used || 0),
+            BUS_TRAIN_TOLL:
+              Number(row.bus_train_toll_amount || 0) - Number(row.bus_used || 0),
+            PETROL_DIESEL:
+              Number(row.petrol_diesel_amount || 0) - Number(row.petrol_used || 0),
+            OTHER:
+              Number(row.other_amount || 0) - Number(row.other_used || 0)
+          },
+
+          entries: entriesWithUrls
         };
       })
     );
 
-    return {
-      user_id: row.user_id,
-      employee_name: row.employee_name,
-
-      allocation: {
-        HOTEL: Number(row.hotel_amount || 0),
-        BUS_TRAIN_TOLL: Number(row.bus_train_toll_amount || 0),
-        PETROL_DIESEL: Number(row.petrol_diesel_amount || 0),
-        OTHER: Number(row.other_amount || 0)
-      },
-
-      usage: {
-        HOTEL: Number(row.hotel_used || 0),
-        BUS_TRAIN_TOLL: Number(row.bus_used || 0),
-        PETROL_DIESEL: Number(row.petrol_used || 0),
-        OTHER: Number(row.other_used || 0)
-      },
-
-      remaining: {
-        HOTEL: Number(row.hotel_amount || 0) - Number(row.hotel_used || 0),
-        BUS_TRAIN_TOLL: Number(row.bus_train_toll_amount || 0) - Number(row.bus_used || 0),
-        PETROL_DIESEL: Number(row.petrol_diesel_amount || 0) - Number(row.petrol_used || 0),
-        OTHER: Number(row.other_amount || 0) - Number(row.other_used || 0)
-      },
-
-      entries: entriesWithUrls  
-    };
-  })
-);
-
     return res.status(200).json({
       message: "Admin expense summary fetched successfully",
-      page,
-      limit,
+      page: pageNumber,
+      limit: limitNumber,
       totalItems: result.total,
-      total_pages: Math.ceil(result.total / limit),
-      data: formattedData,
-
+      total_pages: Math.ceil(result.total / limitNumber),
+      data: formattedData
     });
 
   } catch (error) {
+    console.error("ERROR:", error); //  important for debugging
+
     return res.status(500).json({
       error: error.message
     });

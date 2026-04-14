@@ -12,7 +12,8 @@ const folderMap = {
   bills: "employee/expenses/bills",
   visits: "employee/visits",
   distributor_documents: "employee/dist-documents",
-  distributor_agreement: 'distributor/dist-letters'
+  distributor_agreement: 'distributor/dist-letters',
+  company: 'company/images'
 };
 
 const uploadFileToMinio = async (file, type, options = {}) => {

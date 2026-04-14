@@ -336,29 +336,30 @@ exports.getAdminExpenseSummary = async ({
   limit,
   offset
 }) => {
-
   let whereConditions = [];
-  let values = [];
+  let filterValues = [];
 
   // ✅ SEARCH
   if (search && search.trim() !== "") {
     whereConditions.push("u.name LIKE ?");
-    values.push(`%${search}%`);
+    filterValues.push(`%${search}%`);
   }
 
   // ✅ EXPENSE TYPE
   if (expense_type && expense_type.trim() !== "") {
     whereConditions.push("e.expense_type = ?");
-    values.push(expense_type.toUpperCase());
+    filterValues.push(expense_type.toUpperCase());
   }
 
-  // ✅ DATE FILTER (FIXED FORMAT)
+  // ✅ DATE FILTER
   if (start_date && end_date) {
-    whereConditions.push("e.expense_date BETWEEN ? AND ?");
-    values.push(
-      formatDate(start_date),
-      formatDate(end_date)
-    );
+    const start = formatDate(start_date);
+    const end = formatDate(end_date);
+
+    if (start && end) {
+      whereConditions.push("e.expense_date BETWEEN ? AND ?");
+      filterValues.push(start, end);
+    }
   }
 
   const whereClause =
@@ -366,6 +367,11 @@ exports.getAdminExpenseSummary = async ({
       ? `WHERE ${whereConditions.join(" AND ")}`
       : "";
 
+  // ✅ SAFE LIMIT OFFSET
+  const finalLimit = Number(limit) || 10;
+  const finalOffset = Number(offset) || 0;
+
+  // ✅ MAIN QUERY
   const sql = `
     SELECT 
       u.id AS user_id,
@@ -395,19 +401,15 @@ exports.getAdminExpenseSummary = async ({
     LIMIT ? OFFSET ?
   `;
 
-  // ✅ SAFE LIMIT OFFSET
-  limit = Number(limit) || 10;
-  offset = Number(offset) || 0;
+  // ✅ FINAL VALUES (IMPORTANT FIX)
+  const mainValues = [...filterValues, finalLimit, finalOffset];
 
-  values.push(limit, offset);
+  console.log("MAIN SQL:", sql);
+  console.log("MAIN VALUES:", mainValues);
 
-  // 🔍 DEBUG (keep for testing)
-  console.log("SQL:", sql);
-  console.log("VALUES:", values);
+  const [rows] = await db.execute(sql, mainValues);
 
-  const [rows] = await db.execute(sql, values);
-
-  // ✅ COUNT QUERY (FIXED)
+  // ✅ COUNT QUERY (SEPARATE VALUES)
   const countSql = `
     SELECT COUNT(DISTINCT u.id) as total
     FROM employee_expense_allocations a
@@ -417,25 +419,18 @@ exports.getAdminExpenseSummary = async ({
     ${whereClause}
   `;
 
-  const [countResult] = await db.execute(countSql, values.slice(0, values.length - 2));
+  const countValues = [...filterValues];
+
+  console.log("COUNT SQL:", countSql);
+  console.log("COUNT VALUES:", countValues);
+
+  const [countResult] = await db.execute(countSql, countValues);
 
   return {
     rows,
-    total: countResult[0].total
+    total: countResult[0]?.total || 0
   };
 };
-
-
-
-//  DATE FORMAT HELPER
-function formatDate(date) {
-  const d = new Date(date);
-  return d.toISOString().slice(0, 19).replace("T", " ");
-}
-
-
-
-// =============================
 
 exports.getExpenseEntriesForAdmin = async (userId, filters = {}) => {
   let where = ["e.user_id = ?"];
@@ -443,15 +438,17 @@ exports.getExpenseEntriesForAdmin = async (userId, filters = {}) => {
 
   if (filters.expense_type) {
     where.push("e.expense_type = ?");
-    values.push(filters.expense_type);
+    values.push(filters.expense_type.toUpperCase());
   }
 
   if (filters.start_date && filters.end_date) {
-    where.push("e.expense_date BETWEEN ? AND ?");
-    values.push(
-      formatDate(filters.start_date),
-      formatDate(filters.end_date)
-    );
+    const start = formatDate(filters.start_date);
+    const end = formatDate(filters.end_date);
+
+    if (start && end) {
+      where.push("e.expense_date BETWEEN ? AND ?");
+      values.push(start, end);
+    }
   }
 
   const sql = `
@@ -467,6 +464,9 @@ exports.getExpenseEntriesForAdmin = async (userId, filters = {}) => {
     WHERE ${where.join(" AND ")}
     ORDER BY e.expense_date DESC
   `;
+
+  console.log("DETAIL SQL:", sql);
+  console.log("DETAIL VALUES:", values);
 
   const [rows] = await db.execute(sql, values);
   return rows;

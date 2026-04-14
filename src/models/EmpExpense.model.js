@@ -202,6 +202,132 @@ exports.getUserExpenseEntriesByType = async (userId, expenseType) => {
   return rows;
 };
 
+// exports.getAdminExpenseSummary = async ({
+//   search,
+//   expense_type,
+//   start_date,
+//   end_date,
+//   limit,
+//   offset
+// }) => {
+
+//   let whereConditions = [];
+//   let values = [];
+
+//   if (search && search.trim() !== "") {
+//   whereConditions.push("u.name LIKE ?");
+//   values.push(`%${search}%`);
+// }
+
+// if (expense_type && expense_type.trim() !== "") {
+//   whereConditions.push("e.expense_type = ?");
+//   values.push(expense_type.toUpperCase());
+// }
+
+// if (start_date && end_date && start_date !== "" && end_date !== "") {
+//   whereConditions.push("e.expense_date BETWEEN ? AND ?");
+//   values.push(new Date(start_date), new Date(end_date));
+// }
+
+//   const whereClause =
+//     whereConditions.length > 0
+//       ? `WHERE ${whereConditions.join(" AND ")}`
+//       : "";
+
+//   const sql = `
+//     SELECT 
+//       u.id AS user_id,
+//       u.name AS employee_name,
+
+//       a.hotel_amount,
+//       a.bus_train_toll_amount,
+//       a.petrol_diesel_amount,
+//       a.other_amount,
+
+//       --  Usage aggregation
+//       SUM(CASE WHEN e.expense_type = 'HOTEL' THEN e.amount ELSE 0 END) AS hotel_used,
+//       SUM(CASE WHEN e.expense_type = 'BUS_TRAIN_TOLL' THEN e.amount ELSE 0 END) AS bus_used,
+//       SUM(CASE WHEN e.expense_type = 'PETROL_DIESEL' THEN e.amount ELSE 0 END) AS petrol_used,
+//       SUM(CASE WHEN e.expense_type = 'OTHER' THEN e.amount ELSE 0 END) AS other_used,
+
+//  GROUP_CONCAT(e.bill_url) AS bill_urls
+
+//     FROM employee_expense_allocations a
+//     JOIN users u ON u.id = a.user_id
+  
+
+//     LEFT JOIN employee_expense_entries e 
+// ON e.allocation_id = a.id
+// AND (${expense_type ? "e.expense_type = ?" : "1=1"})
+  
+
+//     ${whereClause}
+
+//     GROUP BY u.id
+
+//     ORDER BY u.name ASC
+//     LIMIT ? OFFSET ?
+//   `;
+
+//   limit = Number(limit) || 10;
+// offset = Number(offset) || 0;
+
+// values.push(limit, offset);
+
+//   const [rows] = await db.execute(sql, values);
+
+//   //  COUNT QUERY
+//   const countSql = `
+//     SELECT COUNT(*) as total
+//     FROM employee_expense_allocations a
+//     JOIN users u ON u.id = a.user_id
+//     ${search ? "WHERE u.name LIKE ?" : ""}
+//   `;
+
+//   const countValues = search ? [`%${search}%`] : [];
+
+//   const [countResult] = await db.execute(countSql, countValues);
+
+//   return {
+//     rows,
+//     total: countResult[0].total
+//   };
+// }
+
+// exports.getExpenseEntriesForAdmin = async (userId, filters = {}) => {
+//   let where = ["e.user_id = ?"];
+//   let values = [userId];
+
+//   if (filters.expense_type) {
+//     where.push("e.expense_type = ?");
+//     values.push(filters.expense_type);
+//   }
+
+//   if (filters.start_date && filters.end_date) {
+//     where.push("e.expense_date BETWEEN ? AND ?");
+//     values.push(filters.start_date, filters.end_date);
+//   }
+
+  
+
+//   const sql = `
+//     SELECT 
+//       e.id,
+//       e.expense_type,
+//       e.expense_date,
+//       e.amount,
+//       e.bill_object_path,
+//       e.remarks,
+//       e.status
+//     FROM employee_expense_entries e
+//     WHERE ${where.join(" AND ")}
+//     ORDER BY e.expense_date DESC
+//   `;
+
+//   const [rows] = await db.execute(sql, values);
+//   return rows;
+// };
+
 exports.getAdminExpenseSummary = async ({
   search,
   expense_type,
@@ -214,20 +340,26 @@ exports.getAdminExpenseSummary = async ({
   let whereConditions = [];
   let values = [];
 
+  // ✅ SEARCH
   if (search && search.trim() !== "") {
-  whereConditions.push("u.name LIKE ?");
-  values.push(`%${search}%`);
-}
+    whereConditions.push("u.name LIKE ?");
+    values.push(`%${search}%`);
+  }
 
-if (expense_type && expense_type.trim() !== "") {
-  whereConditions.push("e.expense_type = ?");
-  values.push(expense_type.toUpperCase());
-}
+  // ✅ EXPENSE TYPE
+  if (expense_type && expense_type.trim() !== "") {
+    whereConditions.push("e.expense_type = ?");
+    values.push(expense_type.toUpperCase());
+  }
 
-if (start_date && end_date && start_date !== "" && end_date !== "") {
-  whereConditions.push("e.expense_date BETWEEN ? AND ?");
-  values.push(new Date(start_date), new Date(end_date));
-}
+  // ✅ DATE FILTER (FIXED FORMAT)
+  if (start_date && end_date) {
+    whereConditions.push("e.expense_date BETWEEN ? AND ?");
+    values.push(
+      formatDate(start_date),
+      formatDate(end_date)
+    );
+  }
 
   const whereClause =
     whereConditions.length > 0
@@ -244,55 +376,66 @@ if (start_date && end_date && start_date !== "" && end_date !== "") {
       a.petrol_diesel_amount,
       a.other_amount,
 
-      --  Usage aggregation
-      SUM(CASE WHEN e.expense_type = 'HOTEL' THEN e.amount ELSE 0 END) AS hotel_used,
-      SUM(CASE WHEN e.expense_type = 'BUS_TRAIN_TOLL' THEN e.amount ELSE 0 END) AS bus_used,
-      SUM(CASE WHEN e.expense_type = 'PETROL_DIESEL' THEN e.amount ELSE 0 END) AS petrol_used,
-      SUM(CASE WHEN e.expense_type = 'OTHER' THEN e.amount ELSE 0 END) AS other_used,
+      COALESCE(SUM(CASE WHEN e.expense_type = 'HOTEL' THEN e.amount ELSE 0 END),0) AS hotel_used,
+      COALESCE(SUM(CASE WHEN e.expense_type = 'BUS_TRAIN_TOLL' THEN e.amount ELSE 0 END),0) AS bus_used,
+      COALESCE(SUM(CASE WHEN e.expense_type = 'PETROL_DIESEL' THEN e.amount ELSE 0 END),0) AS petrol_used,
+      COALESCE(SUM(CASE WHEN e.expense_type = 'OTHER' THEN e.amount ELSE 0 END),0) AS other_used,
 
- GROUP_CONCAT(e.bill_url) AS bill_urls
+      GROUP_CONCAT(e.bill_url) AS bill_urls
 
     FROM employee_expense_allocations a
     JOIN users u ON u.id = a.user_id
-  
-
     LEFT JOIN employee_expense_entries e 
-ON e.allocation_id = a.id
-AND (${expense_type ? "e.expense_type = ?" : "1=1"})
-  
+      ON e.allocation_id = a.id
 
     ${whereClause}
 
     GROUP BY u.id
-
     ORDER BY u.name ASC
     LIMIT ? OFFSET ?
   `;
 
+  // ✅ SAFE LIMIT OFFSET
   limit = Number(limit) || 10;
-offset = Number(offset) || 0;
+  offset = Number(offset) || 0;
 
-values.push(limit, offset);
+  values.push(limit, offset);
+
+  // 🔍 DEBUG (keep for testing)
+  console.log("SQL:", sql);
+  console.log("VALUES:", values);
 
   const [rows] = await db.execute(sql, values);
 
-  //  COUNT QUERY
+  // ✅ COUNT QUERY (FIXED)
   const countSql = `
-    SELECT COUNT(*) as total
+    SELECT COUNT(DISTINCT u.id) as total
     FROM employee_expense_allocations a
     JOIN users u ON u.id = a.user_id
-    ${search ? "WHERE u.name LIKE ?" : ""}
+    LEFT JOIN employee_expense_entries e 
+      ON e.allocation_id = a.id
+    ${whereClause}
   `;
 
-  const countValues = search ? [`%${search}%`] : [];
-
-  const [countResult] = await db.execute(countSql, countValues);
+  const [countResult] = await db.execute(countSql, values.slice(0, values.length - 2));
 
   return {
     rows,
     total: countResult[0].total
   };
+};
+
+
+
+//  DATE FORMAT HELPER
+function formatDate(date) {
+  const d = new Date(date);
+  return d.toISOString().slice(0, 19).replace("T", " ");
 }
+
+
+
+// =============================
 
 exports.getExpenseEntriesForAdmin = async (userId, filters = {}) => {
   let where = ["e.user_id = ?"];
@@ -305,10 +448,11 @@ exports.getExpenseEntriesForAdmin = async (userId, filters = {}) => {
 
   if (filters.start_date && filters.end_date) {
     where.push("e.expense_date BETWEEN ? AND ?");
-    values.push(filters.start_date, filters.end_date);
+    values.push(
+      formatDate(filters.start_date),
+      formatDate(filters.end_date)
+    );
   }
-
-  
 
   const sql = `
     SELECT 
@@ -327,4 +471,3 @@ exports.getExpenseEntriesForAdmin = async (userId, filters = {}) => {
   const [rows] = await db.execute(sql, values);
   return rows;
 };
-

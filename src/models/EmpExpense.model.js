@@ -385,10 +385,10 @@ exports.getAdminExpenseSummary = async ({
     const finalLimit = parseInt(limit, 10);
     const finalOffset = parseInt(offset, 10);
 
-    values.push(
-      Number.isInteger(finalLimit) ? finalLimit : 10,
-      Number.isInteger(finalOffset) ? finalOffset : 0
-    );
+    // values.push(
+    //   Number.isInteger(finalLimit) ? finalLimit : 10,
+    //   Number.isInteger(finalOffset) ? finalOffset : 0
+    // );
 
     const sql = `
       SELECT 
@@ -450,7 +450,8 @@ LIMIT ${finalLimit} OFFSET ${finalOffset}
       ${whereClause}
     `;
 
-    const countValues = values.slice(0, values.length - 2); // remove limit & offset
+    // const countValues = values.slice(0, values.length - 2); 
+    const countValues = [...values];
 
     const [countResult] = await db.execute(countSql, countValues);
 

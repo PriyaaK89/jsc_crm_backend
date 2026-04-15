@@ -414,9 +414,16 @@ exports.getAdminExpenseSummary = async ({
 
       ${whereClause}
 
-      GROUP BY u.id
-      ORDER BY u.name ASC
-      LIMIT ? OFFSET ?
+ GROUP BY 
+  u.id,
+  u.name,
+  a.hotel_amount,
+  a.bus_train_toll_amount,
+  a.petrol_diesel_amount,
+  a.other_amount
+
+ORDER BY u.name ASC
+LIMIT ${finalLimit} OFFSET ${finalOffset}
     `;
 
     //  DEBUG (VERY IMPORTANT)

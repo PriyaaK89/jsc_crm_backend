@@ -37,6 +37,8 @@ const panVerificationRoute = require("../src/routes/panVerification.route");
 const digioVerificationRoute = require("../src/routes/digioKyc.routes");
 const distributorDigioRoute = require("../src/routes/distributorDigio.routes");
 const companyRoute = require("../src/routes/company.routes");
+const stockGroupRoute = require("../src/routes/stockGroup.routes");
+const stockCategoryRoute = require("../src/routes/stockCategory.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -69,6 +71,8 @@ app.use(panVerificationRoute);
 app.use(digioVerificationRoute);
 app.use(distributorDigioRoute);
 app.use(companyRoute);
+app.use(stockGroupRoute);
+app.use(stockCategoryRoute);
 
 
 // 404 handler

@@ -139,10 +139,15 @@ const getAllUsers = async ({ search = "", page = 1, limit = 10 }) => {
   let whereClause = "";
   let params = [];
 
-  if (search) {
-    whereClause = "WHERE u.name LIKE ?";
-    params.push(`%${search}%`);
-  }
+if (search) {
+  whereClause = `
+    WHERE 
+      u.name LIKE ? 
+      OR u.email LIKE ? 
+      OR u.contact_no LIKE ?
+  `;
+  params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+}
 
   // Get paginated users
   const [rows] = await db.query(

@@ -328,108 +328,133 @@ exports.getUserExpenseEntriesByType = async (userId, expenseType) => {
 //   return rows;
 // };
 
+const formatDate = (date) => {
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return null;
+
+  return d.toISOString().slice(0, 19).replace("T", " ");
+};
+
 exports.getAdminExpenseSummary = async ({
   search,
   expense_type,
   start_date,
   end_date,
   limit,
-  offset
+  offset,
 }) => {
-  let whereConditions = [];
-  let filterValues = [];
+  try {
+    let whereConditions = [];
+    let values = [];
 
-  // ✅ SEARCH
-  if (search && search.trim() !== "") {
-    whereConditions.push("u.name LIKE ?");
-    filterValues.push(`%${search}%`);
-  }
-
-  // ✅ EXPENSE TYPE
-  if (expense_type && expense_type.trim() !== "") {
-    whereConditions.push("e.expense_type = ?");
-    filterValues.push(expense_type.toUpperCase());
-  }
-
-  // ✅ DATE FILTER
-  if (start_date && end_date) {
-    const start = formatDate(start_date);
-    const end = formatDate(end_date);
-
-    if (start && end) {
-      whereConditions.push("e.expense_date BETWEEN ? AND ?");
-      filterValues.push(start, end);
+    //  SEARCH
+    if (search && search.trim()) {
+      whereConditions.push("u.name LIKE ?");
+      values.push(`%${search.trim()}%`);
     }
+
+    //  EXPENSE TYPE
+    const validTypes = ["HOTEL", "BUS_TRAIN_TOLL", "PETROL_DIESEL", "OTHER"];
+    if (expense_type && validTypes.includes(expense_type.toUpperCase())) {
+      whereConditions.push("e.expense_type = ?");
+      values.push(expense_type.toUpperCase());
+    }
+
+    //  DATE FILTER (STRICT)
+    if (start_date && end_date) {
+      const start = new Date(start_date);
+      const end = new Date(end_date);
+
+      if (isNaN(start) || isNaN(end)) {
+        throw new Error("Invalid date format");
+      }
+
+      whereConditions.push("e.expense_date BETWEEN ? AND ?");
+      values.push(
+        start.toISOString().slice(0, 19).replace("T", " "),
+        end.toISOString().slice(0, 19).replace("T", " ")
+      );
+    }
+
+    const whereClause =
+      whereConditions.length > 0
+        ? `WHERE ${whereConditions.join(" AND ")}`
+        : "";
+
+    //  LIMIT OFFSET (VERY IMPORTANT FIX)
+    const finalLimit = parseInt(limit, 10);
+    const finalOffset = parseInt(offset, 10);
+
+    values.push(
+      Number.isInteger(finalLimit) ? finalLimit : 10,
+      Number.isInteger(finalOffset) ? finalOffset : 0
+    );
+
+    const sql = `
+      SELECT 
+        u.id AS user_id,
+        u.name AS employee_name,
+
+        a.hotel_amount,
+        a.bus_train_toll_amount,
+        a.petrol_diesel_amount,
+        a.other_amount,
+
+        COALESCE(SUM(CASE WHEN e.expense_type = 'HOTEL' THEN e.amount ELSE 0 END),0) AS hotel_used,
+        COALESCE(SUM(CASE WHEN e.expense_type = 'BUS_TRAIN_TOLL' THEN e.amount ELSE 0 END),0) AS bus_used,
+        COALESCE(SUM(CASE WHEN e.expense_type = 'PETROL_DIESEL' THEN e.amount ELSE 0 END),0) AS petrol_used,
+        COALESCE(SUM(CASE WHEN e.expense_type = 'OTHER' THEN e.amount ELSE 0 END),0) AS other_used,
+
+        GROUP_CONCAT(e.bill_url) AS bill_urls
+
+      FROM employee_expense_allocations a
+      JOIN users u ON u.id = a.user_id
+      LEFT JOIN employee_expense_entries e 
+        ON e.allocation_id = a.id
+
+      ${whereClause}
+
+      GROUP BY u.id
+      ORDER BY u.name ASC
+      LIMIT ? OFFSET ?
+    `;
+
+    //  DEBUG (VERY IMPORTANT)
+    const placeholders = (sql.match(/\?/g) || []).length;
+
+    console.log("SQL:", sql);
+    console.log("VALUES:", values);
+    console.log("Placeholders:", placeholders);
+    console.log("Values Count:", values.length);
+
+    if (placeholders !== values.length) {
+      throw new Error(" Placeholder mismatch");
+    }
+
+    const [rows] = await db.execute(sql, values);
+
+    //  COUNT QUERY
+    const countSql = `
+      SELECT COUNT(DISTINCT u.id) as total
+      FROM employee_expense_allocations a
+      JOIN users u ON u.id = a.user_id
+      LEFT JOIN employee_expense_entries e 
+        ON e.allocation_id = a.id
+      ${whereClause}
+    `;
+
+    const countValues = values.slice(0, values.length - 2); // remove limit & offset
+
+    const [countResult] = await db.execute(countSql, countValues);
+
+    return {
+      rows,
+      total: countResult[0]?.total || 0,
+    };
+  } catch (error) {
+    console.error(" ERROR in getAdminExpenseSummary:", error);
+    throw error;
   }
-
-  const whereClause =
-    whereConditions.length > 0
-      ? `WHERE ${whereConditions.join(" AND ")}`
-      : "";
-
-  // ✅ SAFE LIMIT OFFSET
-  const finalLimit = Number(limit) || 10;
-  const finalOffset = Number(offset) || 0;
-
-  // ✅ MAIN QUERY
-  const sql = `
-    SELECT 
-      u.id AS user_id,
-      u.name AS employee_name,
-
-      a.hotel_amount,
-      a.bus_train_toll_amount,
-      a.petrol_diesel_amount,
-      a.other_amount,
-
-      COALESCE(SUM(CASE WHEN e.expense_type = 'HOTEL' THEN e.amount ELSE 0 END),0) AS hotel_used,
-      COALESCE(SUM(CASE WHEN e.expense_type = 'BUS_TRAIN_TOLL' THEN e.amount ELSE 0 END),0) AS bus_used,
-      COALESCE(SUM(CASE WHEN e.expense_type = 'PETROL_DIESEL' THEN e.amount ELSE 0 END),0) AS petrol_used,
-      COALESCE(SUM(CASE WHEN e.expense_type = 'OTHER' THEN e.amount ELSE 0 END),0) AS other_used,
-
-      GROUP_CONCAT(e.bill_url) AS bill_urls
-
-    FROM employee_expense_allocations a
-    JOIN users u ON u.id = a.user_id
-    LEFT JOIN employee_expense_entries e 
-      ON e.allocation_id = a.id
-
-    ${whereClause}
-
-    GROUP BY u.id
-    ORDER BY u.name ASC
-    LIMIT ? OFFSET ?
-  `;
-
-  // ✅ FINAL VALUES (IMPORTANT FIX)
-  const mainValues = [...filterValues, finalLimit, finalOffset];
-
-  console.log("MAIN SQL:", sql);
-  console.log("MAIN VALUES:", mainValues);
-
-  const [rows] = await db.execute(sql, mainValues);
-
-  // ✅ COUNT QUERY (SEPARATE VALUES)
-  const countSql = `
-    SELECT COUNT(DISTINCT u.id) as total
-    FROM employee_expense_allocations a
-    JOIN users u ON u.id = a.user_id
-    LEFT JOIN employee_expense_entries e 
-      ON e.allocation_id = a.id
-    ${whereClause}
-  `;
-
-  const countValues = [...filterValues];
-
-  console.log("COUNT SQL:", countSql);
-  console.log("COUNT VALUES:", countValues);
-
-  const [countResult] = await db.execute(countSql, countValues);
-
-  return {
-    rows,
-    total: countResult[0]?.total || 0
-  };
 };
 
 exports.getExpenseEntriesForAdmin = async (userId, filters = {}) => {

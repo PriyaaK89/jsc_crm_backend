@@ -51,8 +51,7 @@ let dailyAllowance = 0;
 
 if (
   attendance.check_out_time &&
-  attendance.work_type !== "wfh" &&
-  attendance.travel_mode === "private"
+  attendance.work_type !== "wfh"
 ) {
   const startKm = Number(attendance.odometer_reading) || 0;
   const endKm = Number(attendance.day_over_odometer_reading) || 0;
@@ -60,7 +59,6 @@ if (
   let travelledKm = endKm - startKm;
   if (travelledKm < 0) travelledKm = 0;
 
-  // Vehicle-based rate
   const rateMap = {
     two_wheeler: user.two_wheeler_allowance_per_km || 0,
     four_wheeler: user.four_wheeler_allowance_per_km || 0,
@@ -68,12 +66,12 @@ if (
 
   const perKmRate = rateMap[attendance.vehicle_type] || 0;
 
-  travelAllowance = travelledKm * perKmRate * allowanceMultiplier;
+  //  FIX: No multiplier here
+  travelAllowance = travelledKm * perKmRate;
 
-  // Daily allowance
+  //  FIX: No multiplier here
   if (travelledKm >= (user.avg_travel_km_per_day || 0)) {
-    dailyAllowance =
-      (user.daily_allowance_with_doc || 0) * allowanceMultiplier;
+    dailyAllowance = user.daily_allowance_with_doc || 0;
   }
 }
 

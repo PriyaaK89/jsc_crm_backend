@@ -76,11 +76,7 @@ router.post(
   auth.setUserPassword,
 );
 
-router.post(
-  "/update-status",
-  authMiddleware,
-  auth.updateUserStatus
-);
+router.post( "/update-status", authMiddleware, auth.updateUserStatus);
 
 router.put(
   "/upload-profile-image",

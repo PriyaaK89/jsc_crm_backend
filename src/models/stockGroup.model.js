@@ -35,7 +35,15 @@ exports.create = async ({
 };
 exports.getAllStockGroups = async () => {
   const [rows] = await db.query(
-    `SELECT id, name FROM stock_groups ORDER BY name ASC`
+    `SELECT 
+        id,
+        name,
+        parent_id,
+        add_quantity,
+        gst_enabled,
+        overdue_limit
+     FROM stock_groups 
+     ORDER BY name ASC`
   );
   return rows;
 };

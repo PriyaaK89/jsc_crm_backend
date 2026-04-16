@@ -367,33 +367,82 @@ const getClientDevice = (req) => {
 //   }
 // };
 
+// exports.login = async (req, res) => {
+//   try {
+//     const { email, password } = req.body;
+
+//     // Get user
+//     const userResult = await User.findUserByEmail(email);
+
+//     //  FIX: handle array response
+//     const user = Array.isArray(userResult) ? userResult[0] : userResult;
+
+//     if (!user) {
+//       return res.status(401).json({ message: "Invalid credentials" });
+//     }
+
+//     // Check active status
+//     if (user.is_active === 0) {
+//       return res.status(403).json({
+//         message: "Your account is deactivated. Please contact admin.",
+//       });
+//     }
+
+//     //  IMPORTANT DEBUG (remove later)
+//     console.log("Password from request:", password);
+//     console.log("Password from DB:", user.password);
+//     console.log("Type:", typeof user.password);
+
+//     //  FIX: ensure string
+//     const isMatch = await bcrypt.compare(
+//       password,
+//       user.password?.toString()
+//     );
+
+//     if (!isMatch) {
+//       return res.status(401).json({ message: "Invalid credentials" });
+//     }
+
+//     // Generate JWT
+//     const token = jwt.sign(
+//       {
+//         id: user.id,
+//         role: user.role,
+//       },
+//       process.env.JWT_SECRET,
+//       { expiresIn: "1d" }
+//     );
+
+//     return res.json({
+//       token,
+//       user: {
+//         id: user.id,
+//         name: user.name,
+//         role: user.role,
+//       },
+//     });
+
+//   } catch (err) {
+//     return res.status(500).json({ error: err.message });
+//   }
+// };
+
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Get user
-    const userResult = await User.findUserByEmail(email);
-
-    //  FIX: handle array response
-    const user = Array.isArray(userResult) ? userResult[0] : userResult;
+    const user = await User.findUserByEmail(email);
 
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // Check active status
     if (user.is_active === 0) {
       return res.status(403).json({
         message: "Your account is deactivated. Please contact admin.",
       });
     }
 
-    //  IMPORTANT DEBUG (remove later)
-    console.log("Password from request:", password);
-    console.log("Password from DB:", user.password);
-    console.log("Type:", typeof user.password);
-
-    //  FIX: ensure string
     const isMatch = await bcrypt.compare(
       password,
       user.password?.toString()
@@ -403,7 +452,12 @@ exports.login = async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // Generate JWT
+    //  Generate profile image URL
+    let profileImageUrl = null;
+    if (user.profile_image) {
+      profileImageUrl = await getPresignedUrl(user.profile_image);
+    }
+
     const token = jwt.sign(
       {
         id: user.id,
@@ -419,6 +473,7 @@ exports.login = async (req, res) => {
         id: user.id,
         name: user.name,
         role: user.role,
+        profile_image_url: profileImageUrl, //  added here
       },
     });
 
@@ -874,22 +929,55 @@ exports.getUserDropdown = async (req, res) => {
 
 exports.updateUserStatus = async (req, res) => {
   try {
-    const userId = req.user.id; // from token middleware
+    const userId = req.user.id;
     const { internet_status, location_status } = req.body;
 
+    // STEP 1: Get previous status + name
+    const [rows] = await db.query(
+      `SELECT location_status, name FROM users WHERE id = ?`,
+      [userId]
+    );
+
+    const prevStatus = rows[0]?.location_status;
+    const userName = rows[0]?.name || "User";
+
+    let increment = 0;
+
+    // STEP 2: Detect OFF transition
+    if (prevStatus === "ON" && location_status === "OFF") {
+      increment = 1;
+    }
+
+    // STEP 3: Emit socket event with name + time
+    if (prevStatus !== location_status) {
+      global.io.to("admins").emit("locationStatusChanged", {
+        userId,
+        name: userName,
+        status: location_status,
+        message:
+          location_status === "OFF"
+            ? `${userName} turned OFF location`
+            : `${userName} turned ON location`,
+        time: new Date()
+      });
+    }
+
+    // STEP 4: Update DB
     await db.query(
       `
       UPDATE users 
       SET 
         internet_status = ?, 
         location_status = ?, 
-        last_seen = NOW()
+        last_seen = NOW(),
+        location_off_count = location_off_count + ?
       WHERE id = ?
       `,
-      [internet_status, location_status, userId]
+      [internet_status, location_status, increment, userId]
     );
 
     return res.json({ success: true });
+
   } catch (err) {
     console.error(err);
     return res.status(500).json({ success: false });

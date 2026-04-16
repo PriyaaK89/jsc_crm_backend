@@ -4,8 +4,6 @@ require('dotenv').config();
 
 const app = express();
 
-// Middlewares
-
 app.use(cors());
 
 // app.use(express.json());
@@ -45,7 +43,6 @@ app.get('/', (req, res) => {
   res.send('CRM API is running');
 });
 
-
 // Routes
 app.use('/auth', authRoutes);
 app.use('/department', departmentRoute);
@@ -73,7 +70,6 @@ app.use(distributorDigioRoute);
 app.use(companyRoute);
 app.use(stockGroupRoute);
 app.use(stockCategoryRoute);
-
 
 // 404 handler
 app.use((req, res) => {

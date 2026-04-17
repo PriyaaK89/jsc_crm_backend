@@ -932,37 +932,62 @@ exports.updateUserStatus = async (req, res) => {
     const userId = req.user.id;
     const { internet_status, location_status } = req.body;
 
-    // STEP 1: Get previous status + name
+    // STEP 1: Get previous data
     const [rows] = await db.query(
-      `SELECT location_status, name FROM users WHERE id = ?`,
+      `SELECT location_status, name, profile_image FROM users WHERE id = ?`,
       [userId]
     );
 
-    const prevStatus = rows[0]?.location_status;
-    const userName = rows[0]?.name || "User";
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const prevStatus = rows[0].location_status;
+    const userName = rows[0].name || "User";
+    const profileImagePath = rows[0].profile_image;
 
     let increment = 0;
 
-    // STEP 2: Detect OFF transition
     if (prevStatus === "ON" && location_status === "OFF") {
       increment = 1;
     }
 
-    // STEP 3: Emit socket event with name + time
+    let message = null;
+    let profileImageUrl = null;
+
+    // STEP 2: Only when status changes
     if (prevStatus !== location_status) {
+      message =
+        location_status === "OFF"
+          ? `${userName} turned OFF location`
+          : `${userName} turned ON location`;
+
+      // Generate presigned URL
+      if (profileImagePath) {
+        profileImageUrl = await getPresignedUrl(profileImagePath);
+      }
+
+      // SOCKET EVENT (send URL, not path)
       global.io.to("admins").emit("locationStatusChanged", {
         userId,
         name: userName,
         status: location_status,
-        message:
-          location_status === "OFF"
-            ? `${userName} turned OFF location`
-            : `${userName} turned ON location`,
+        message,
+        profile_image_url: profileImageUrl,
         time: new Date()
       });
+
+      // SAVE IN DB (store path only)
+      await db.query(
+        `
+        INSERT INTO notifications (user_id, name, profile_image, message, status)
+        VALUES (?, ?, ?, ?, ?)
+        `,
+        [userId, userName, profileImagePath, message, location_status]
+      );
     }
 
-    // STEP 4: Update DB
+    // STEP 3: Update user
     await db.query(
       `
       UPDATE users 
@@ -976,11 +1001,140 @@ exports.updateUserStatus = async (req, res) => {
       [internet_status, location_status, increment, userId]
     );
 
-    return res.json({ success: true });
+    return res.json({
+      success: true,
+      message: "Status updated successfully",
+      data: {
+        userId,
+        internet_status,
+        location_status,
+        location_off_incremented: increment === 1
+      }
+    });
 
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ success: false });
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.getNotifications = async (req, res) => {
+  try {
+    let { page = 1, limit = 10 } = req.query;
+
+    page = parseInt(page);
+    limit = parseInt(limit);
+
+    const offset = (page - 1) * limit;
+
+    // Get total count
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM notifications`
+    );
+
+    // Get paginated data
+    const [rows] = await db.query(
+      `
+      SELECT * FROM notifications
+      ORDER BY created_at DESC
+      LIMIT ? OFFSET ?
+      `,
+      [limit, offset]
+    );
+
+    const data = await Promise.all(
+      rows.map(async (item) => {
+        let profileImageUrl = null;
+
+        if (item.profile_image) {
+          profileImageUrl = await getPresignedUrl(item.profile_image);
+        }
+
+        return {
+          ...item,
+          profile_image_url: profileImageUrl
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      pagination: {
+        total,
+        page,
+        limit,
+        total_pages: Math.ceil(total / limit)
+      },
+      data
+    });
+
+  } catch (err) {
+    res.status(500).json({ success: false });
+  }
+};
+
+exports.markAsRead = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await db.query(
+      `UPDATE notifications SET is_read = 1 WHERE id = ?`,
+      [id]
+    );
+
+    res.json({ success: true, message: "Marked as read" });
+
+  } catch (err) {
+    res.status(500).json({ success: false });
+  }
+};
+
+exports.markAllAsRead = async (req, res) => {
+  try {
+    await db.query(`UPDATE notifications SET is_read = 1`);
+
+    res.json({ success: true });
+
+  } catch (err) {
+    res.status(500).json({ success: false });
+  }
+};
+
+exports.getUnreadCount = async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT COUNT(*) AS unread_count 
+       FROM notifications 
+       WHERE is_read = 0`
+    );
+
+    res.json({
+      success: true,
+      unread_count: rows[0].unread_count
+    });
+
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.deleteNotification = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await db.query(`DELETE FROM notifications WHERE id = ?`, [id]);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false });
+  }
+};
+exports.clearNotifications = async (req, res) => {
+  try {
+    await db.query(`DELETE FROM notifications`);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false });
   }
 };
 

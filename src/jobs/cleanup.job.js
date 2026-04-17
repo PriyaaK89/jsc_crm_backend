@@ -16,3 +16,14 @@ cron.schedule('0 2 * * *', async () => {
     console.error("Cleanup error:", error.message);
   }
 });
+
+cron.schedule("0 0 * * *", async () => {
+  try {
+    await db.query(
+      `DELETE FROM notifications WHERE created_at < NOW() - INTERVAL 30 DAY`
+    );
+    console.log("Old notifications deleted");
+  } catch (err) {
+    console.error(err);
+  }
+});

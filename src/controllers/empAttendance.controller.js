@@ -18,7 +18,7 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   const [[lockedRow]] = await require("../config/db").query(
     `SELECT salary_locked FROM emp_salary 
      WHERE employee_id = ? AND month = ? AND year = ?`,
-    [employeeId, month, year],
+    [employeeId, month, year]
   );
 
   if (lockedRow && lockedRow.salary_locked === 1) return;
@@ -30,14 +30,11 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   const perDaySalary = monthlySalary / daysInMonth;
 
   let basicSalary = 0;
-  let allowanceMultiplier = 0;
 
   if (attendance.attendance_unit === "full") {
     basicSalary = perDaySalary;
-    allowanceMultiplier = 1;
   } else if (attendance.attendance_unit === "half") {
     basicSalary = perDaySalary * 0.5;
-    allowanceMultiplier = 0.5;
   }
 
   /* ---------- Working Hours Format ---------- */
@@ -46,47 +43,72 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   const minutes = totalMinutes % 60;
   const formattedWorkingHours = `${hours} hr ${minutes} min`;
 
-let travelAllowance = 0;
-let dailyAllowance = 0;
+  /* ---------- Travel & Daily Allowance ---------- */
+  let travelAllowance = 0;
+  let dailyAllowance = 0;
 
-if (
-  attendance.check_out_time &&
-  attendance.work_type !== "wfh"
-) {
-  const startKm = Number(attendance.odometer_reading) || 0;
-  const endKm = Number(attendance.day_over_odometer_reading) || 0;
-
-  let travelledKm = endKm - startKm;
-  if (travelledKm < 0) travelledKm = 0;
-
-  const rateMap = {
-    two_wheeler: user.two_wheeler_allowance_per_km || 0,
-    four_wheeler: user.four_wheeler_allowance_per_km || 0,
-  };
-
-  const perKmRate = rateMap[attendance.vehicle_type] || 0;
-
-  //  FIX: No multiplier here
-  travelAllowance = travelledKm * perKmRate;
-
-  //  FIX: No multiplier here
   if (
-    attendance.attendance_unit === "full" &&
-    travelledKm >= (user.avg_travel_km_per_day || 0)
+    attendance.check_out_time &&
+    attendance.work_type !== "wfh"
   ) {
-    dailyAllowance = user.daily_allowance_with_doc || 0;
-  } else {
-    dailyAllowance = 0;
-  }
-}
+    const startKm = Number(attendance.odometer_reading) || 0;
+    const endKm = Number(attendance.day_over_odometer_reading) || 0;
 
-console.log("vehicle_type:", attendance.vehicle_type);
-console.log("rate:", perKmRate);
-console.log("travelledKm:", travelledKm);
+    let travelledKm = endKm - startKm;
+    if (travelledKm < 0) travelledKm = 0;
+
+    // Normalize vehicle type (prevents mismatch bugs)
+    const vehicleType = (attendance.vehicle_type || "").toLowerCase();
+
+    const rateMap = {
+      two_wheeler: Number(user.two_wheeler_allowance_per_km) || 0,
+      four_wheeler: Number(user.four_wheeler_allowance_per_km) || 0,
+    };
+
+    const perKmRate = rateMap[vehicleType] || 0;
+
+    /* ---------- VALIDATION (No silent failure) ---------- */
+    if (travelledKm > 0) {
+      if (!vehicleType) {
+        console.error(` vehicle_type missing for employee ${employeeId} on ${date}`);
+      }
+
+      if (!rateMap.hasOwnProperty(vehicleType)) {
+        console.error(` Invalid vehicle_type: ${attendance.vehicle_type}`);
+      }
+
+      if (perKmRate === 0) {
+        console.error(` Per KM rate is 0 for vehicle_type: ${vehicleType}`);
+      }
+    }
+
+    //  Travel Allowance (ALWAYS FULL - as per your requirement)
+    travelAllowance = travelledKm * perKmRate;
+
+    //  Daily Allowance (ONLY for FULL DAY)
+    if (
+      attendance.attendance_unit === "full" &&
+      travelledKm >= (user.avg_travel_km_per_day || 0)
+    ) {
+      dailyAllowance = Number(user.daily_allowance_with_doc) || 0;
+    } else {
+      dailyAllowance = 0;
+    }
+
+    /* ---------- Debug Logs ---------- */
+    console.log({
+      employeeId,
+      date,
+      vehicleType,
+      travelledKm,
+      perKmRate,
+      travelAllowance,
+      dailyAllowance,
+    });
+  }
 
   /* ---------- Final Salary ---------- */
   const grossSalary = basicSalary + travelAllowance + dailyAllowance;
-
   const netSalary = grossSalary;
 
   await SalaryDaily.saveDailySalary([

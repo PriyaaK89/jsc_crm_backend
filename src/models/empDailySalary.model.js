@@ -34,7 +34,8 @@ exports.getAttendanceByDate = async (employeeId, date) => {
       working_minutes,
       odometer_reading,
       day_over_odometer_reading,
-      check_out_time
+      check_out_time,
+      vehicle_type
     FROM emp_attendance
     WHERE employee_id = ?
     AND attendance_date = ?

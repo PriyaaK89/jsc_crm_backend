@@ -70,10 +70,19 @@ if (
   travelAllowance = travelledKm * perKmRate;
 
   //  FIX: No multiplier here
-  if (travelledKm >= (user.avg_travel_km_per_day || 0)) {
+  if (
+    attendance.attendance_unit === "full" &&
+    travelledKm >= (user.avg_travel_km_per_day || 0)
+  ) {
     dailyAllowance = user.daily_allowance_with_doc || 0;
+  } else {
+    dailyAllowance = 0;
   }
 }
+
+console.log("vehicle_type:", attendance.vehicle_type);
+console.log("rate:", perKmRate);
+console.log("travelledKm:", travelledKm);
 
   /* ---------- Final Salary ---------- */
   const grossSalary = basicSalary + travelAllowance + dailyAllowance;

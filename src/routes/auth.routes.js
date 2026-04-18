@@ -95,7 +95,7 @@ router.get("/get-notifications", authMiddleware, auth.getNotifications);
 router.get("/get-unreadCount", authMiddleware, auth.getUnreadCount)
 router.patch("/mark-notification-as-read/:id", authMiddleware, auth.markAsRead);
 router.patch("/mark-allAsRead", authMiddleware, auth.markAllAsRead);
-router.delete("deleteAllNotifications", authMiddleware, auth.clearNotifications);
+router.delete("/deleteAllNotifications", authMiddleware, auth.clearNotifications);
 router.delete("/delete-notification/:id", authMiddleware, auth.deleteNotification);
 
 

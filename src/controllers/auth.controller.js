@@ -443,6 +443,7 @@ exports.login = async (req, res) => {
       });
     }
 
+    //  PASSWORD CHECK
     const isMatch = await bcrypt.compare(
       password,
       user.password?.toString()
@@ -452,17 +453,35 @@ exports.login = async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
+    //  NEW LOGIC: CHECK TODAY LOCATION OFF COUNT
+    const today = new Date().toISOString().split("T")[0];
+
+    const [attendance] = await db.query(
+      `SELECT location_off_count 
+       FROM emp_attendance 
+       WHERE employee_id = ? AND attendance_date = ?`,
+      [user.id, today]
+    );
+
+    const count = attendance[0]?.location_off_count || 0;
+
+    if (count >= 3) {
+      return res.status(403).json({
+        success: false,
+        message: "Login blocked for today. You turned off location more than 3 times.",
+        location_off_count_today: count
+      });
+    }
+
     //  Generate profile image URL
     let profileImageUrl = null;
     if (user.profile_image) {
       profileImageUrl = await getPresignedUrl(user.profile_image);
     }
 
+    //  TOKEN
     const token = jwt.sign(
-      {
-        id: user.id,
-        role: user.role,
-      },
+      { id: user.id, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: "1d" }
     );
@@ -473,7 +492,7 @@ exports.login = async (req, res) => {
         id: user.id,
         name: user.name,
         role: user.role,
-        profile_image_url: profileImageUrl, //  added here
+        profile_image_url: profileImageUrl,
       },
     });
 
@@ -932,6 +951,8 @@ exports.updateUserStatus = async (req, res) => {
     const userId = req.user.id;
     const { internet_status, location_status } = req.body;
 
+    const today = new Date().toISOString().split("T")[0];
+
     // STEP 1: Get previous data
     const [rows] = await db.query(
       `SELECT location_status, name, profile_image FROM users WHERE id = ?`,
@@ -946,16 +967,40 @@ exports.updateUserStatus = async (req, res) => {
     const userName = rows[0].name || "User";
     const profileImagePath = rows[0].profile_image;
 
-    let increment = 0;
-
-    if (prevStatus === "ON" && location_status === "OFF") {
-      increment = 1;
-    }
+    const isTurningOff = prevStatus === "ON" && location_status === "OFF";
 
     let message = null;
     let profileImageUrl = null;
 
-    // STEP 2: Only when status changes
+    // STEP 2: Ensure attendance row exists (daily tracking)
+    await db.query(
+      `
+      INSERT INTO emp_attendance (employee_id, attendance_date, location_off_count)
+      VALUES (?, ?, 0)
+      ON DUPLICATE KEY UPDATE attendance_date = attendance_date
+      `,
+      [userId, today]
+    );
+
+    // STEP 3: Get current count BEFORE increment
+    const [attendance] = await db.query(
+      `SELECT location_off_count FROM emp_attendance 
+       WHERE employee_id = ? AND attendance_date = ?`,
+      [userId, today]
+    );
+
+    let count = attendance[0]?.location_off_count || 0;
+
+    //  STEP 4: BLOCK if already exceeded (IMPORTANT)
+    if (isTurningOff && count >= 3) {
+      return res.status(403).json({
+        success: false,
+        message: "You have exceeded today's limit. Logged out for today.",
+        location_off_count_today: count
+      });
+    }
+
+    // STEP 5: Handle status change (SOCKET + NOTIFICATION)
     if (prevStatus !== location_status) {
       message =
         location_status === "OFF"
@@ -967,7 +1012,7 @@ exports.updateUserStatus = async (req, res) => {
         profileImageUrl = await getPresignedUrl(profileImagePath);
       }
 
-      // SOCKET EVENT (send URL, not path)
+      //  SOCKET EVENT
       global.io.to("admins").emit("locationStatusChanged", {
         userId,
         name: userName,
@@ -977,28 +1022,39 @@ exports.updateUserStatus = async (req, res) => {
         time: new Date()
       });
 
-      // SAVE IN DB (store path only)
+      //  SAVE NOTIFICATION
       await db.query(
-        `
-        INSERT INTO notifications (user_id, name, profile_image, message, status)
-        VALUES (?, ?, ?, ?, ?)
-        `,
+        `INSERT INTO notifications (user_id, name, profile_image, message, status)
+         VALUES (?, ?, ?, ?, ?)`,
         [userId, userName, profileImagePath, message, location_status]
       );
     }
 
-    // STEP 3: Update user
+    // STEP 6: Increment AFTER check
+    if (isTurningOff) {
+      await db.query(
+        `
+        UPDATE emp_attendance 
+        SET location_off_count = location_off_count + 1
+        WHERE employee_id = ? AND attendance_date = ?
+        `,
+        [userId, today]
+      );
+
+      count++;
+    }
+
+    // STEP 7: Update user status (NO location_off_count here ❌)
     await db.query(
       `
       UPDATE users 
       SET 
         internet_status = ?, 
         location_status = ?, 
-        last_seen = NOW(),
-        location_off_count = location_off_count + ?
+        last_seen = NOW()
       WHERE id = ?
       `,
-      [internet_status, location_status, increment, userId]
+      [internet_status, location_status, userId]
     );
 
     return res.json({
@@ -1008,7 +1064,7 @@ exports.updateUserStatus = async (req, res) => {
         userId,
         internet_status,
         location_status,
-        location_off_incremented: increment === 1
+        location_off_count_today: count
       }
     });
 
@@ -1082,7 +1138,7 @@ exports.markAsRead = async (req, res) => {
       [id]
     );
 
-    res.json({ success: true, message: "Marked as read" });
+    res.status(200).json({ success: true, message: "Marked as read" });
 
   } catch (err) {
     res.status(500).json({ success: false });
@@ -1093,7 +1149,7 @@ exports.markAllAsRead = async (req, res) => {
   try {
     await db.query(`UPDATE notifications SET is_read = 1`);
 
-    res.json({ success: true });
+    res.status(200).json({ success: true, message: "All notifications marked as read successfully." });
 
   } catch (err) {
     res.status(500).json({ success: false });
@@ -1108,7 +1164,7 @@ exports.getUnreadCount = async (req, res) => {
        WHERE is_read = 0`
     );
 
-    res.json({
+    res.status(200).json({
       success: true,
       unread_count: rows[0].unread_count
     });
@@ -1124,7 +1180,7 @@ exports.deleteNotification = async (req, res) => {
 
     await db.query(`DELETE FROM notifications WHERE id = ?`, [id]);
 
-    res.json({ success: true });
+    res.status(200).json({ success: true, message: "Notification deleted successfully" });
   } catch (err) {
     res.status(500).json({ success: false });
   }
@@ -1132,7 +1188,7 @@ exports.deleteNotification = async (req, res) => {
 exports.clearNotifications = async (req, res) => {
   try {
     await db.query(`DELETE FROM notifications`);
-    res.json({ success: true });
+    res.status(200).json({ success: true , message: "All notifications are deleted successfully."});
   } catch (err) {
     res.status(500).json({ success: false });
   }

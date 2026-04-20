@@ -10,12 +10,18 @@ const createJobRole = async (departmentId, name) => {
 
 const getRolesByDepartment = async (departmentId) => {
   const [rows] = await db.query(
-    `SELECT id, name 
-     FROM job_roles 
-     WHERE department_id = ? AND is_active = 1`,
+    `SELECT id, name  FROM job_roles  WHERE department_id = ? AND is_active = 1`,
     [departmentId]
   );
   return rows;
+};
+
+const getRoleById = async (id) => {
+  const [rows] = await db.query(
+    'SELECT id, name, level, department_id FROM job_roles WHERE id = ?',
+    [id]
+  );
+  return rows[0];
 };
 
 module.exports = {

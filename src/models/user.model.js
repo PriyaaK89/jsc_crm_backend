@@ -2,8 +2,7 @@ const db = require("../config/db");
 
 const createUser = async (user) => {
   const [result] = await db.query(
-    `
-    INSERT INTO users (
+    ` INSERT INTO users (
       name,
       email,
       password,
@@ -277,7 +276,7 @@ const getUserById = async (id) => {
       u.week_off,
       u.attendance_selfie,
       u.two_wheeler_allowance_per_km,
-u.four_wheeler_allowance_per_km,
+      u.four_wheeler_allowance_per_km,
       u.avg_travel_km_per_day,
       u.city_allowance_per_km,
       u.daily_allowance_with_doc,
@@ -412,6 +411,26 @@ const updateProfileImage = async (userId, imagePath) => {
     `UPDATE users SET profile_image = ? WHERE id = ?`,
     [imagePath, userId]
   );
+};
+
+const getUsersUnderManager = async (managerId) => {
+  const [rows] = await db.query(
+    `WITH RECURSIVE team AS (
+      SELECT id, name, reporting_to
+      FROM users
+      WHERE reporting_to = ?
+
+      UNION ALL
+
+      SELECT u.id, u.name, u.reporting_to
+      FROM users u
+      INNER JOIN team t ON u.reporting_to = t.id
+    )
+    SELECT * FROM team`,
+    [managerId]
+  );
+
+  return rows;
 };
 
 module.exports = {

@@ -37,6 +37,7 @@ const distributorDigioRoute = require("../src/routes/distributorDigio.routes");
 const companyRoute = require("../src/routes/company.routes");
 const stockGroupRoute = require("../src/routes/stockGroup.routes");
 const stockCategoryRoute = require("../src/routes/stockCategory.routes");
+const teamRoute = require("../src/routes/team.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -70,6 +71,7 @@ app.use(distributorDigioRoute);
 app.use(companyRoute);
 app.use(stockGroupRoute);
 app.use(stockCategoryRoute);
+app.use(teamRoute);
 
 // 404 handler
 app.use((req, res) => {

@@ -6,7 +6,6 @@ const getRoleIdByName = async (roleName) => {
     "SELECT id FROM roles WHERE name = ?",
     [roleName]
   );
-  
 
   return rows[0]?.id || null;
 };

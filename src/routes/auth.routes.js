@@ -20,7 +20,7 @@ router.post(
 router.post(
   "/create-user",
   authMiddleware,
-  isAdmin,
+  // isAdmin,
   upload.fields([{ name: "profile_image", maxCount: 1 }]),
   (req, res, next) => {
     req.body.roleName = "USER";
@@ -47,12 +47,12 @@ router.post(
   auth.approveDeviceRequest,
 );
 router.post("/login", auth.login);
-router.get("/get-users", authMiddleware, isAdmin, auth.getUsersList);
+router.get("/get-users", authMiddleware, auth.getUsersList);
 // router.put( "/update-user/:id", authMiddleware, isAdmin, auth.updateUserById);
 router.put(
   "/update-user/:id",
   authMiddleware,
-  isAdmin,
+  // isAdmin,
   upload.fields([{ name: "profile_image", maxCount: 1 }]), //  ADD THIS
   auth.updateUserById,
 );
@@ -72,7 +72,7 @@ router.get("/get-deleted-users", authMiddleware, isAdmin, auth.getDeletedUsers);
 router.post(
   "/set-password/:userId",
   authMiddleware,
-  allowRoles("ADMIN", "SUPER_ADMIN"),
+  // allowRoles("ADMIN", "SUPER_ADMIN"),
   auth.setUserPassword,
 );
 

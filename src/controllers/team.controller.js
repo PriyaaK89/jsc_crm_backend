@@ -144,43 +144,55 @@ exports.assignTarget = async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    const { parent_id, parent_type, assignments } = req.body;
+    const { parent_id, parent_type, parent_role, assignments } = req.body;
 
+    // ✅ Validation
     if (!parent_id || !parent_type || !assignments?.length) {
       return res.status(400).json({ message: 'Invalid data' });
     }
 
-    // 1. Get parent pending target
-    let parent;
+    if (parent_type === 'USER' && !parent_role) {
+      return res.status(400).json({ message: 'parent_role is required for USER' });
+    }
 
+    let parentPending = 0;
+
+    // ✅ 1. Get parent pending target
     if (parent_type === 'SUBTEAM') {
       const [rows] = await connection.query(
         `SELECT pending_target_amount FROM sub_teams WHERE id = ?`,
         [parent_id]
       );
-      parent = rows[0];
-    } else {
+
+      if (!rows.length) throw new Error('Parent not found');
+
+      parentPending = Number(rows[0].pending_target_amount);
+
+    } else if (parent_type === 'USER') {
       const [rows] = await connection.query(
-        `SELECT pending_target FROM target_assignments WHERE user_id = ?`,
-        [parent_id]
+        `SELECT pending_target 
+         FROM target_assignments 
+         WHERE user_id = ? AND role = ?`,
+        [parent_id, parent_role]
       );
-      parent = rows[0];
+
+      if (!rows.length) throw new Error('Parent not found');
+
+      parentPending = Number(rows[0].pending_target);
     }
 
-    if (!parent) throw new Error('Parent not found');
-
+    // ✅ 2. Calculate total assigning target
     let totalAssign = 0;
-
-    // 2. Calculate total assigning target
     assignments.forEach(a => {
       totalAssign += Number(a.target);
     });
 
-    if (totalAssign > parent.pending_target_amount && parent.pending_target) {
+    // ✅ FIXED CONDITION
+    if (totalAssign > parentPending) {
       throw new Error('Target exceeds parent pending');
     }
 
-    // 3. Insert assignments
+    // ✅ 3. Insert assignments
     for (const a of assignments) {
       await connection.query(
         `INSERT INTO target_assignments 
@@ -198,7 +210,7 @@ exports.assignTarget = async (req, res) => {
       );
     }
 
-    // 4. Deduct parent pending
+    // ✅ 4. Deduct parent pending
     if (parent_type === 'SUBTEAM') {
       await connection.query(
         `UPDATE sub_teams 
@@ -206,22 +218,27 @@ exports.assignTarget = async (req, res) => {
          WHERE id = ?`,
         [totalAssign, parent_id]
       );
+
     } else {
       await connection.query(
         `UPDATE target_assignments 
          SET pending_target = pending_target - ?
-         WHERE user_id = ?`,
-        [totalAssign, parent_id]
+         WHERE user_id = ? AND role = ?`,
+        [totalAssign, parent_id, parent_role]
       );
     }
 
     await connection.commit();
 
-    res.status(200).json({ message: 'Target assigned successfully' });
+    res.status(200).json({
+      message: 'Target assigned successfully'
+    });
 
   } catch (error) {
     await connection.rollback();
-    res.status(400).json({ message: error.message });
+    res.status(400).json({
+      message: error.message
+    });
   } finally {
     connection.release();
   }
@@ -229,7 +246,7 @@ exports.assignTarget = async (req, res) => {
 
 exports.getAssignedTargets = async (req, res) => {
   try {
-    let { page, limit, role, search} = req.query;
+    let { page, limit, role, search } = req.query;
 
     page = parseInt(page) || 1;
     limit = parseInt(limit) || 10;
@@ -237,13 +254,16 @@ exports.getAssignedTargets = async (req, res) => {
     const result = await teamModel.getAssignedTargets({
       page,
       limit,
-      role, search
+      role,
+      search
     });
 
     res.status(200).json({
       message: 'Assigned targets fetched successfully',
-      ...result,
-      totalPages: Math.ceil(result.total / limit)
+      data: result.data,
+      total: result.total,
+      totalPages: Math.ceil(result.total / limit),
+      currentPage: page
     });
 
   } catch (error) {

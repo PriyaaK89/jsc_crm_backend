@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { getAssignedTargets } = require('../controllers/team.controller');
 
 const createTeam = async (name, target_amount, created_by) => {
   const [result] = await db.query(
@@ -180,62 +181,58 @@ const getSubTeamsByTeam = async (teamId) => {
   }));
 };
 
-const getAssignedTargets = async ({
-  page = 1,
-  limit = 10,
-  role,
-  search
-}) => {
+// teamModel.js
+
+exports.getAssignedTargets = async ({ page, limit, role, search }) => {
   const offset = (page - 1) * limit;
 
   let where = `WHERE 1=1`;
-  const params = [];
+  let params = [];
 
+  // ✅ Role filter
   if (role) {
     where += ` AND ta.role = ?`;
     params.push(role);
   }
 
-  //  Search by user name
+  // ✅ Search filter (name/email)
   if (search) {
-    where += ` AND u.name LIKE ?`;
-    params.push(`%${search}%`);
+    where += ` AND (u.name LIKE ? OR u.email LIKE ?)`;
+    params.push(`%${search}%`, `%${search}%`);
   }
 
-  //  Main data query
+  // ✅ Main query
   const [rows] = await db.query(
     `SELECT 
         ta.id,
-        ta.user_id,
-        u.name,
-        ta.role,
         ta.parent_id,
         ta.parent_type,
+        ta.user_id,
+        ta.role,
         ta.total_target,
         ta.pending_target,
-        ta.created_at
+        u.name,
+        u.email
      FROM target_assignments ta
-     JOIN users u ON u.id = ta.user_id
+     LEFT JOIN users u ON u.id = ta.user_id
      ${where}
-     ORDER BY ta.created_at DESC
+     ORDER BY ta.id DESC
      LIMIT ? OFFSET ?`,
-    [...params, Number(limit), Number(offset)]
+    [...params, limit, offset]
   );
 
-  //  Count query (IMPORTANT: same WHERE)
+  // ✅ Count query
   const [countRows] = await db.query(
-    `SELECT COUNT(*) as total 
+    `SELECT COUNT(*) as total
      FROM target_assignments ta
-     JOIN users u ON u.id = ta.user_id
+     LEFT JOIN users u ON u.id = ta.user_id
      ${where}`,
     params
   );
 
   return {
     data: rows,
-    total: countRows[0].total,
-    page,
-    limit
+    total: countRows[0].total
   };
 };
 

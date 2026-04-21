@@ -9,3 +9,14 @@ exports.allowRoles = (...roles) => {
     next();
   };
 };
+
+exports.authorizeByLevel = (maxLevelAllowed) => {
+  return (req, res, next) => {
+    if (req.user.job_role_level > maxLevelAllowed) {
+      return res.status(403).json({
+        message: "Access denied",
+      });
+    }
+    next();
+  };
+};

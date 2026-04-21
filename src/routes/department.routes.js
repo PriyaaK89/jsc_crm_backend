@@ -11,6 +11,8 @@ router.post(
   controller.createDepartment
 );
 
-router.get('/get-deparments', auth, isAdmin, controller.getDepartments);
+router.get('/get-deparments', auth,
+  //  isAdmin,
+    controller.getDepartments);
 
 module.exports = router;

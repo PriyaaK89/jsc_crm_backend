@@ -114,7 +114,7 @@ exports.createUserByRole = async (req, res) => {
 //       total_leaves,
 //       authentication_amount,
 //       headquarter,
-//       approver_name,
+//       approver_id,
 //       login_time,
 //       logout_time,
 //       pf,
@@ -164,7 +164,7 @@ exports.createUserByRole = async (req, res) => {
 //       total_leaves,
 //       authentication_amount,
 //       headquarter,
-//       approver_name,
+//       approver_id,
 //       login_time,
 //       logout_time,
 //       pf,
@@ -481,7 +481,8 @@ exports.login = async (req, res) => {
 
     //  TOKEN
     const token = jwt.sign(
-      { id: user.id, role: user.role },
+      { id: user.id, role: user.role , job_role_id: user.job_role_id,
+    job_role_level: user.job_role_level},
       process.env.JWT_SECRET,
       { expiresIn: "1d" }
     );
@@ -492,6 +493,10 @@ exports.login = async (req, res) => {
         id: user.id,
         name: user.name,
         role: user.role,
+          job_role_id: user.job_role_id,
+    job_role_name: user.job_role_name,
+    job_role_level: user.job_role_level,
+    reporting_under: user.reporting_under,
         profile_image_url: profileImageUrl,
       },
     });
@@ -614,7 +619,7 @@ exports.updateUserById = async (req, res) => {
       headquarter, login_time, logout_time,
       pf, esi,
 
-      approver_name, role_id,
+      approver_id, role_id,
       reporting_under
     } = req.body;
 
@@ -676,7 +681,7 @@ exports.updateUserById = async (req, res) => {
       pf,
       esi,
 
-      approver_name,
+      approver_id,
       role_id,
       reporting_under
     };
@@ -755,7 +760,7 @@ exports.updateUserById = async (req, res) => {
 //       pf,
 //       esi,
 
-//       approver_name,
+//       approver_id,
 //       role_id,
 //       profile_image,
 // reporting_under
@@ -815,7 +820,7 @@ exports.updateUserById = async (req, res) => {
 //       pf,
 //       esi,
 
-//       approver_name,
+//       approver_id,
 //       role_id,
 //       profile_image: profileImagePath,
 // reporting_under

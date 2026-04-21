@@ -5,6 +5,8 @@ const { checkAllowedIp, isAdmin } = require('../middleware/checkAllowedIp.middle
 const { allowRoles } = require('../middleware/role.middleware');
 
 router.post('/create-jobRole', auth, allowRoles('SUPER_ADMIN', 'ADMIN'), controller.createJobRole);
-router.get( '/get-jobRole/:departmentId', auth, isAdmin, controller.getRolesByDepartment);
+router.get( '/get-jobRole/:departmentId', auth,
+    //  isAdmin,
+      controller.getRolesByDepartment);
 
 module.exports = router;

@@ -18,9 +18,11 @@ exports.getVisits = async (filters) => {
   const params = [];
 
   //  Filters
-  if (filters.user_id) {
-    baseQuery += " AND v.user_id = ?";
-    params.push(filters.user_id);}
+
+if (filters.user_ids && filters.user_ids.length > 0) {
+  baseQuery += ` AND v.user_id IN (${filters.user_ids.map(() => "?").join(",")})`;
+  params.push(...filters.user_ids);
+}
 
   if (filters.visit_type) {
     baseQuery += " AND v.visit_type = ?";

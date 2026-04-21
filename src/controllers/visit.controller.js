@@ -2,6 +2,7 @@ const { uploadFileToMinio,getPresignedUrl } = require("../utils/fileUpload");
 const visitModel = require("../models/visit.model");
 const customerModel = require("../models/customer.model");
 const db = require("../config/db");
+const User = require("../models/user.model");
 
 const validPurposes = [
   "new_dist_planning",
@@ -116,8 +117,9 @@ const clean = (value) => {
 
 exports.getVisits = async (req, res) => {
   try {
+    const loggedInUser = req.user;
+
     const filters = {
-      user_id: clean(req.query.user_id),
       visit_type: clean(req.query.visit_type),
       district: clean(req.query.district),
       from_date: clean(req.query.from_date),
@@ -127,14 +129,29 @@ exports.getVisits = async (req, res) => {
       limit: req.query.limit || 10
     };
 
-    const result = await visitModel.getVisits(filters);
+    let userIds = [];
 
-       const data = await Promise.all(
-  result.data.map(async (item) => ({
-    ...item,
-    image_url: item.image_path  ? await getPresignedUrl(item.image_path) : null
-  }))
-);
+    //  ADMIN → see all
+    if (loggedInUser.role === "ADMIN") {
+      userIds = null; // IMPORTANT (not [])
+    } else {
+      // hierarchy
+      userIds = await User.getSubordinateIds(loggedInUser.id);
+    }
+
+    const result = await visitModel.getVisits({
+      ...filters,
+      user_ids: userIds
+    });
+
+    const data = await Promise.all(
+      result.data.map(async (item) => ({
+        ...item,
+        image_url: item.image_path
+          ? await getPresignedUrl(item.image_path)
+          : null
+      }))
+    );
 
     res.status(200).json({
       success: true,
@@ -152,10 +169,10 @@ exports.getVisits = async (req, res) => {
 
 exports.getMyVisits = async (req, res) => {
   try {
-    const userId = req.user.id; //  from token (important)
+    const userId = req.user.id;
 
     const filters = {
-      user_id: userId, //  force employee's own data
+      user_ids: [userId], // FIXED
       visit_type: clean(req.query.visit_type),
       district: clean(req.query.district),
       from_date: clean(req.query.from_date),
@@ -168,11 +185,13 @@ exports.getMyVisits = async (req, res) => {
     const result = await visitModel.getVisits(filters);
 
     const data = await Promise.all(
-  result.data.map(async (item) => ({
-    ...item,
-    image_url: item.image_path  ? await getPresignedUrl(item.image_path) : null
-  }))
-);
+      result.data.map(async (item) => ({
+        ...item,
+        image_url: item.image_path
+          ? await getPresignedUrl(item.image_path)
+          : null
+      }))
+    );
 
     return res.status(200).json({
       success: true,
@@ -193,7 +212,7 @@ exports.getTodayVisit =  async (req, res) => {
     const today = new Date().toISOString().split("T")[0];
 
     const result = await visitModel.getVisits({
-      user_id: req.user.id,
+       user_ids: [req.user.id], 
       from_date: today,
       to_date: today,
       page: 1,

@@ -39,7 +39,7 @@ const createUser = async (user) => {
       total_leaves,
       authentication_amount,
       headquarter,
-      approver_name,
+      approver_id,
       login_time,
       logout_time,
       pf,
@@ -92,7 +92,7 @@ user.four_wheeler_allowance_per_km || 0,
       user.total_leaves ?? 0,
       user.authentication_amount || null,
       user.headquarter || null,
-      user.approver_name || null,
+      user.approver_id || null,
 
       user.login_time || null,
       user.logout_time || null,
@@ -106,18 +106,21 @@ user.reporting_under || null
   return { id: result.insertId };
 };
 
-
 const findUserByEmail = async (email) => {
   const [rows] = await db.query(
-    `
-    SELECT u.*, r.name AS role
+    ` SELECT 
+      u.*, 
+      r.name AS role,
+      jr.name AS job_role_name,
+      jr.level AS job_role_level,
+      d.name AS department_name
     FROM users u
-    JOIN roles r ON r.id = u.role_id
-    WHERE u.email = ?
-    `,
+    LEFT JOIN job_roles jr ON u.job_role_id = jr.id
+    LEFT JOIN roles r ON r.id = u.role_id
+    LEFT JOIN department d ON d.id = u.department_id
+    WHERE u.email = ? `,
     [email]
   );
-
   return rows[0];
 };
 
@@ -199,7 +202,8 @@ u.four_wheeler_allowance_per_km,
       u.esi,
       u.is_active,
 
-      u.approver_name,
+      u.approver_id,
+approver.name AS approver_name,
       r.name AS role,
        u.profile_image,
     u.reporting_under,
@@ -214,6 +218,7 @@ u.four_wheeler_allowance_per_km,
      JOIN roles r ON r.id = u.role_id
     LEFT JOIN department d ON d.id = u.department_id AND d.is_active = 1
     LEFT JOIN job_roles jr ON jr.id = u.job_role_id AND jr.is_active = 1
+    LEFT JOIN users approver ON approver.id = u.approver_id
 
      LEFT JOIN users manager ON manager.id = u.reporting_under
     ${whereClause}
@@ -286,7 +291,8 @@ const getUserById = async (id) => {
       u.total_leaves,
       u.authentication_amount,
       u.headquarter,
-      u.approver_name,
+      u.approver_id,
+      approver.name AS approver_name,
 
       u.login_time,
       u.logout_time,
@@ -308,6 +314,7 @@ const getUserById = async (id) => {
     LEFT JOIN department d ON d.id = u.department_id AND d.is_active = 1
     LEFT JOIN job_roles jr ON jr.id = u.job_role_id AND jr.is_active = 1
     LEFT JOIN users manager ON manager.id = u.reporting_under
+    LEFT JOIN users approver ON approver.id = u.approver_id
     WHERE u.id = ?
     `,
     [id]
@@ -431,6 +438,27 @@ const getUsersUnderManager = async (managerId) => {
   );
 
   return rows;
+};
+
+exports.getSubordinateIds = async (userId) => {
+  const query = `
+    WITH RECURSIVE subordinates AS (
+      SELECT id, reporting_under
+      FROM users
+      WHERE id = ?
+
+      UNION ALL
+
+      SELECT u.id, u.reporting_under
+      FROM users u
+      INNER JOIN subordinates s ON u.reporting_under = s.id
+    )
+    SELECT id FROM subordinates
+  `;
+
+  const [rows] = await db.query(query, [userId]);
+
+  return rows.map(row => row.id);
 };
 
 module.exports = {

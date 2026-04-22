@@ -136,13 +136,13 @@ const autoClosePreviousDay = async (employeeId) => {
   if (
     attendance &&
     attendance.status === "present" &&
+    attendance.check_in_time &&   //  ADD THIS
     !attendance.check_out_time
   ) {
-    // Mark as half day
     await Attendance.updateDayOver([
-      0, // working minutes
-      "half", // attendance unit
-      0, // late
+      0,
+      "half",
+      0,
       null,
       null,
       attendance.id,
@@ -160,7 +160,7 @@ exports.markAttendance = async (req, res) => {
       return res.status(400).json({ message: "Required fields missing" });
     }
 
-    await autoClosePreviousDay(employee_id);
+    // await autoClosePreviousDay(employee_id);
     const todayAttendance = await Attendance.getTodayAttendance(employee_id);
 
     /* ======================= LEAVE ======================= */
@@ -269,6 +269,12 @@ exports.markAttendance = async (req, res) => {
           message: "Present attendance required before day over",
         });
       }
+
+      if (!todayAttendance.check_in_time) {
+  return res.status(400).json({
+    message: "Invalid attendance: check-in missing",
+  });
+}
 
       if (todayAttendance.check_out_time) {
         return res.status(400).json({ message: "Day over already marked" });

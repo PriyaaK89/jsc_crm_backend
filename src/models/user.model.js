@@ -423,15 +423,15 @@ const updateProfileImage = async (userId, imagePath) => {
 const getUsersUnderManager = async (managerId) => {
   const [rows] = await db.query(
     `WITH RECURSIVE team AS (
-      SELECT id, name, reporting_to
+      SELECT id, name, reporting_under
       FROM users
-      WHERE reporting_to = ?
+      WHERE reporting_under = ?
 
       UNION ALL
 
-      SELECT u.id, u.name, u.reporting_to
+      SELECT u.id, u.name, u.reporting_under
       FROM users u
-      INNER JOIN team t ON u.reporting_to = t.id
+      INNER JOIN team t ON u.reporting_under = t.id
     )
     SELECT * FROM team`,
     [managerId]
@@ -440,7 +440,7 @@ const getUsersUnderManager = async (managerId) => {
   return rows;
 };
 
-exports.getSubordinateIds = async (userId) => {
+const getSubordinateIds = async (userId) => {
   const query = `
     WITH RECURSIVE subordinates AS (
       SELECT id, reporting_under
@@ -462,5 +462,5 @@ exports.getSubordinateIds = async (userId) => {
 };
 
 module.exports = {
-  createUser, findUserByEmail, getAllUsers, getUserById, updateUserById, updatePasswordByAdmin, updateUserStatus, softDeleteUser, getDeletedUsers, getUserDropdown, updateProfileImage
+  createUser, findUserByEmail, getAllUsers, getUserById, updateUserById, updatePasswordByAdmin, updateUserStatus, softDeleteUser, getDeletedUsers, getUserDropdown, updateProfileImage, getSubordinateIds, getUsersUnderManager
 };

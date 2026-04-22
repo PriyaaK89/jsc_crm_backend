@@ -129,13 +129,10 @@ exports.getVisits = async (req, res) => {
       limit: req.query.limit || 10
     };
 
-    let userIds = [];
+    let userIds = null; //  default = no restriction
 
-    //  ADMIN → see all
-    if (loggedInUser.role === "ADMIN") {
-      userIds = null; // IMPORTANT (not [])
-    } else {
-      // hierarchy
+    //  Only apply hierarchy for NON-admin users
+    if (!["ADMIN", "SUPER_ADMIN"].includes(loggedInUser.role)) {
       userIds = await User.getSubordinateIds(loggedInUser.id);
     }
 

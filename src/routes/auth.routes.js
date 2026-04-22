@@ -6,16 +6,7 @@ const { allowRoles } = require("../middleware/role.middleware");
 // const {isAdmin} = require("../middleware/checkAllowedIp.middleware")
 const { isAdmin } = require("../middleware/checkAllowedDevice.middleware");
 const upload = require("../middleware/upload.middleware");
-router.post(
-  "/create-admin",
-  authMiddleware,
-  allowRoles("SUPER_ADMIN"),
-  (req, res, next) => {
-    req.body.roleName = "ADMIN";
-    next();
-  },
-  auth.createUserByRole,
-);
+router.post( "/create-admin", authMiddleware, allowRoles("SUPER_ADMIN"), (req, res, next) => { req.body.roleName = "ADMIN"; next(); }, auth.registerAdmin, );
 
 router.post(
   "/create-user",
@@ -40,12 +31,8 @@ router.get(
   isAdmin,
   auth.getPendingDeviceRequests,
 );
-router.post(
-  "/approve-device/:deviceRequestId",
-  authMiddleware,
-  isAdmin,
-  auth.approveDeviceRequest,
-);
+router.post( "/approve-device/:deviceRequestId", authMiddleware, isAdmin, auth.approveDeviceRequest,);
+
 router.post("/login", auth.login);
 router.get("/get-users", authMiddleware, auth.getUsersList);
 // router.put( "/update-user/:id", authMiddleware, isAdmin, auth.updateUserById);

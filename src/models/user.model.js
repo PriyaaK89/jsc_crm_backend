@@ -82,7 +82,7 @@ const createUser = async (user) => {
       user.attendance_selfie || null,
       // user.travelling_allowance_per_km || null,
       user.two_wheeler_allowance_per_km || 0,
-user.four_wheeler_allowance_per_km || 0,
+      user.four_wheeler_allowance_per_km || 0,
       user.avg_travel_km_per_day || null,
       user.city_allowance_per_km || null,
       user.daily_allowance_with_doc || null,
@@ -99,7 +99,7 @@ user.four_wheeler_allowance_per_km || 0,
       user.pf || null,
       user.esi || null,
       user.profile_image || null,
-user.reporting_under || null
+      user.reporting_under || null
     ]
   );
 
@@ -370,9 +370,35 @@ const softDeleteUser = async (userId) => {
   try {
     await conn.beginTransaction();
 
-    // 1. Copy to deleted_users
     const [rows] = await conn.query(
-      `INSERT INTO deleted_users SELECT *, NOW() FROM users WHERE id = ?`,
+      `INSERT INTO deleted_users (
+        id, name, gender, contact_no, date_of_birth, email, password,
+        role_id, is_active, created_at,
+        address_line1, address_line2, country, state, city, district, area, pincode,
+        father_name, pan_number, aadhar_no, blood_group,
+        department_id, job_role_id, date_of_joining, salary,
+        approver_name, attendance_selfie,
+        avg_travel_km_per_day, city_allowance_per_km,
+        daily_allowance_with_doc, daily_allowance_without_doc, hotel_allowance,
+        total_leaves, authentication_amount, headquarter,
+        login_time, logout_time, pf, esi,
+        must_change_password, week_off,
+        manager_id, deleted_at
+      )
+      SELECT 
+        id, name, gender, contact_no, date_of_birth, email, password,
+        role_id, is_active, created_at,
+        address_line1, address_line2, country, state, city, district, area, pincode,
+        father_name, pan_number, aadhar_no, blood_group,
+        department_id, job_role_id, date_of_joining, salary,
+        approver_name, attendance_selfie,
+        avg_travel_km_per_day, city_allowance_per_km,
+        daily_allowance_with_doc, daily_allowance_without_doc, hotel_allowance,
+        total_leaves, authentication_amount, headquarter,
+        login_time, logout_time, pf, esi,
+        must_change_password, week_off,
+        reporting_under, NOW()
+      FROM users WHERE id = ?`,
       [userId]
     );
 
@@ -381,7 +407,6 @@ const softDeleteUser = async (userId) => {
       return false;
     }
 
-    // 2. Delete from users
     await conn.query(`DELETE FROM users WHERE id = ?`, [userId]);
 
     await conn.commit();
@@ -394,6 +419,37 @@ const softDeleteUser = async (userId) => {
     conn.release();
   }
 };
+
+// const softDeleteUser = async (userId) => {
+//   const conn = await db.getConnection();
+
+//   try {
+//     await conn.beginTransaction();
+
+//     // 1. Copy to deleted_users
+//     const [rows] = await conn.query(
+//       `INSERT INTO deleted_users SELECT *, NOW() FROM users WHERE id = ?`,
+//       [userId]
+//     );
+
+//     if (rows.affectedRows === 0) {
+//       await conn.rollback();
+//       return false;
+//     }
+
+//     // 2. Delete from users
+//     await conn.query(`DELETE FROM users WHERE id = ?`, [userId]);
+
+//     await conn.commit();
+//     return true;
+
+//   } catch (err) {
+//     await conn.rollback();
+//     throw err;
+//   } finally {
+//     conn.release();
+//   }
+// };
 
 const getDeletedUsers = async () => {
   const [rows] = await db.query(

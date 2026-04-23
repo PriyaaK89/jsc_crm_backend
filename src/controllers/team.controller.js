@@ -143,10 +143,9 @@ exports.assignTarget = async (req, res) => {
 
   try {
     await connection.beginTransaction();
-
     const { parent_id, parent_type, parent_role, assignments } = req.body;
 
-    // ✅ Validation
+    //  Validation
     if (!parent_id || !parent_type || !assignments?.length) {
       return res.status(400).json({ message: 'Invalid data' });
     }
@@ -157,7 +156,7 @@ exports.assignTarget = async (req, res) => {
 
     let parentPending = 0;
 
-    // ✅ 1. Get parent pending target
+    //  1. Get parent pending target
     if (parent_type === 'SUBTEAM') {
       const [rows] = await connection.query(
         `SELECT pending_target_amount FROM sub_teams WHERE id = ?`,
@@ -181,18 +180,18 @@ exports.assignTarget = async (req, res) => {
       parentPending = Number(rows[0].pending_target);
     }
 
-    // ✅ 2. Calculate total assigning target
+    //  2. Calculate total assigning target
     let totalAssign = 0;
     assignments.forEach(a => {
       totalAssign += Number(a.target);
     });
 
-    // ✅ FIXED CONDITION
+    //  FIXED CONDITION
     if (totalAssign > parentPending) {
       throw new Error('Target exceeds parent pending');
     }
 
-    // ✅ 3. Insert assignments
+    //  3. Insert assignments
     for (const a of assignments) {
       await connection.query(
         `INSERT INTO target_assignments 
@@ -210,7 +209,7 @@ exports.assignTarget = async (req, res) => {
       );
     }
 
-    // ✅ 4. Deduct parent pending
+    //  4. Deduct parent pending
     if (parent_type === 'SUBTEAM') {
       await connection.query(
         `UPDATE sub_teams 

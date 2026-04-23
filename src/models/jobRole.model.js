@@ -24,7 +24,44 @@ const getRoleById = async (id) => {
   return rows[0];
 };
 
+const updateJobRole = async (id, departmentId, name) => {
+  const [result] = await db.query(
+    `UPDATE job_roles 
+     SET department_id = ?, name = ?
+     WHERE id = ? AND is_active = 1`,
+    [departmentId, name, id]
+  );
+
+  return result.affectedRows;
+};
+
+const deleteJobRole = async (id) => {
+  const [result] = await db.query(
+    `UPDATE job_roles 
+     SET is_active = 0
+     WHERE id = ? AND is_active = 1`,
+    [id]
+  );
+
+  return result.affectedRows;
+};
+
+const getUsersByLevel = async (level) => {
+  const [rows] = await db.query(
+    `SELECT u.id, u.name
+     FROM users u
+     JOIN job_roles jr ON u.job_role_id = jr.id
+     WHERE jr.level = ? AND u.is_active = 1`,
+    [level]
+  );
+
+  return rows;
+};
+
 module.exports = {
   createJobRole,
-  getRolesByDepartment
+  getRolesByDepartment,
+  getRoleById,
+  updateJobRole,
+  deleteJobRole, getUsersByLevel
 };

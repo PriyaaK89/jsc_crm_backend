@@ -35,5 +35,32 @@ const isAdmin = (req, res, next) => {
   next();
 };
 
+const checkPermission = (code) => {
+  return async (req, res, next) => {
+    try {
+      const user = req.user;
 
-module.exports = {checkAllowedIp, isAdmin};
+      //  BYPASS for ADMIN / SUPER_ADMIN
+      if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') {
+        return next();
+      }
+
+      const [rows] = await db.query(`
+        SELECT up.is_allowed
+        FROM user_permissions up
+        JOIN permissions p ON p.id = up.permission_id
+        WHERE up.user_id = ? AND p.code = ?
+      `, [user.id, code]);
+
+      if (!rows.length || rows[0].is_allowed === 0) {
+        return res.status(403).json({ message: 'Access denied' });
+      }
+
+      next();
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  };
+};
+
+module.exports = {checkAllowedIp, isAdmin, checkPermission};

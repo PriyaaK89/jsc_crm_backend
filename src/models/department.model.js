@@ -15,6 +15,14 @@ const getAllDepartments = async () => {
   return rows;
 };
 
+const updateDepartment = async (id, name) => {
+  const [result] = await db.query(
+    'UPDATE department SET name = ? WHERE id = ? AND is_active = 1',
+    [name, id]
+  );
+  return result.affectedRows;
+};
+
 const deactivateDepartment = async (id) => {
   await db.query(
     'UPDATE department SET is_active = 0 WHERE id = ?',

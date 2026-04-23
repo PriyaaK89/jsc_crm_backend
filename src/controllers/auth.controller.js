@@ -616,7 +616,7 @@ exports.updateUserById = async (req, res) => {
       city_allowance_per_km, daily_allowance_with_doc,
       daily_allowance_without_doc, hotel_allowance,
       total_leaves, authentication_amount,
-      headquarter, login_time, logout_time,
+      headquarter, working_area, login_time, logout_time,
       pf, esi,
 
       approver_id, role_id,
@@ -676,6 +676,7 @@ exports.updateUserById = async (req, res) => {
       total_leaves,
       authentication_amount,
       headquarter,
+      working_area,
       login_time,
       logout_time,
       pf,
@@ -1287,6 +1288,31 @@ exports.getMyProfile = async (req, res) => {
 
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+};
+
+exports.getUserPermissions = async (req, res) => {
+  try {
+    const userId = req.params.userId;
+
+    const permissions = await User.getPermissionsByUser(userId);
+
+    res.status(200).json(permissions);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.updateUserPermissions = async (req, res) => {
+  try {
+    const { user_id, permissions } = req.body;
+
+    await User.saveUserPermissions(user_id, permissions);
+
+    res.status(200).json({ message: 'Permissions updated successfully' });
+
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };
 

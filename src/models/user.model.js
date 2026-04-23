@@ -39,6 +39,7 @@ const createUser = async (user) => {
       total_leaves,
       authentication_amount,
       headquarter,
+      working_area,
       approver_id,
       login_time,
       logout_time,
@@ -47,7 +48,7 @@ const createUser = async (user) => {
     )
     VALUES (
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
     [
       user.name || null,
       user.email || null,
@@ -92,6 +93,7 @@ const createUser = async (user) => {
       user.total_leaves ?? 0,
       user.authentication_amount || null,
       user.headquarter || null,
+      user.working_area || null,
       user.approver_id || null,
 
       user.login_time || null,
@@ -196,6 +198,7 @@ u.four_wheeler_allowance_per_km,
       u.total_leaves,
       u.authentication_amount,
       u.headquarter,
+      u.working_area,
       u.login_time,
       u.logout_time,
       u.pf,
@@ -291,6 +294,7 @@ const getUserById = async (id) => {
       u.total_leaves,
       u.authentication_amount,
       u.headquarter,
+      u.working_area,
       u.approver_id,
       approver.name AS approver_name,
 
@@ -380,7 +384,7 @@ const softDeleteUser = async (userId) => {
         approver_name, attendance_selfie,
         avg_travel_km_per_day, city_allowance_per_km,
         daily_allowance_with_doc, daily_allowance_without_doc, hotel_allowance,
-        total_leaves, authentication_amount, headquarter,
+        total_leaves, authentication_amount, headquarter, working_area,
         login_time, logout_time, pf, esi,
         must_change_password, week_off,
         manager_id, deleted_at
@@ -394,7 +398,7 @@ const softDeleteUser = async (userId) => {
         approver_name, attendance_selfie,
         avg_travel_km_per_day, city_allowance_per_km,
         daily_allowance_with_doc, daily_allowance_without_doc, hotel_allowance,
-        total_leaves, authentication_amount, headquarter,
+        total_leaves, authentication_amount, headquarter, working_area,
         login_time, logout_time, pf, esi,
         must_change_password, week_off,
         reporting_under, NOW()
@@ -517,6 +521,34 @@ const getSubordinateIds = async (userId) => {
   return rows.map(row => row.id);
 };
 
+const getPermissionsByUser = async (userId) => {
+  const [rows] = await db.query(`
+    SELECT 
+      p.id,
+      p.name,
+      p.code,
+      p.module,
+      COALESCE(up.is_allowed, 0) as is_allowed
+    FROM permissions p
+    LEFT JOIN user_permissions up 
+      ON p.id = up.permission_id 
+      AND up.user_id = ?
+    ORDER BY p.module
+  `, [userId]);
+
+  return rows;
+};
+
+const saveUserPermissions = async (userId, permissions) => {
+  for (const perm of permissions) {
+    await db.query(`
+      INSERT INTO user_permissions (user_id, permission_id, is_allowed)
+      VALUES (?, ?, ?)
+      ON DUPLICATE KEY UPDATE is_allowed = ?
+    `, [userId, perm.permission_id, perm.is_allowed, perm.is_allowed]);
+  }
+};
+
 module.exports = {
-  createUser, findUserByEmail, getAllUsers, getUserById, updateUserById, updatePasswordByAdmin, updateUserStatus, softDeleteUser, getDeletedUsers, getUserDropdown, updateProfileImage, getSubordinateIds, getUsersUnderManager
+  createUser, findUserByEmail, getAllUsers, getUserById, updateUserById, updatePasswordByAdmin, updateUserStatus, softDeleteUser, getDeletedUsers, getUserDropdown, updateProfileImage, getSubordinateIds, getUsersUnderManager, getPermissionsByUser, saveUserPermissions
 };

@@ -84,6 +84,8 @@ router.patch("/mark-notification-as-read/:id", authMiddleware, auth.markAsRead);
 router.patch("/mark-allAsRead", authMiddleware, auth.markAllAsRead);
 router.delete("/deleteAllNotifications", authMiddleware, auth.clearNotifications);
 router.delete("/delete-notification/:id", authMiddleware, auth.deleteNotification);
+router.get('/user-permissions/:userId', authMiddleware, auth.getUserPermissions);
+router.post('/user-permissions', authMiddleware, isAdmin, auth.updateUserPermissions);
 
 
 module.exports = router;

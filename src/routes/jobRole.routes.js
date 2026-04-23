@@ -6,7 +6,12 @@ const { allowRoles } = require('../middleware/role.middleware');
 
 router.post('/create-jobRole', auth, allowRoles('SUPER_ADMIN', 'ADMIN'), controller.createJobRole);
 router.get( '/get-jobRole/:departmentId', auth,
-    //  isAdmin,
+     isAdmin,
       controller.getRolesByDepartment);
+
+router.get('/get-jobRole-by-id/:id', auth, controller.getRoleById);
+router.put('/update-jobRole/:id', auth, isAdmin, controller.updateJobRole);
+router.delete('/delete-jobRole/:id', auth, isAdmin, controller.deleteJobRole);
+router.get('/users-by-level/:level', auth, controller.getUsersByLevel);
 
 module.exports = router;

@@ -38,6 +38,8 @@ const companyRoute = require("../src/routes/company.routes");
 const stockGroupRoute = require("../src/routes/stockGroup.routes");
 const stockCategoryRoute = require("../src/routes/stockCategory.routes");
 const teamRoute = require("../src/routes/team.routes");
+const visitTargetRoute = require("../src/routes/visitTarget.routes");
+const dailyReportRoute = require("../src/routes/dailyReport.route");
 
 // Health check
 app.get('/', (req, res) => {
@@ -72,6 +74,8 @@ app.use(companyRoute);
 app.use(stockGroupRoute);
 app.use(stockCategoryRoute);
 app.use(teamRoute);
+app.use(visitTargetRoute);
+app.use(dailyReportRoute);
 
 // 404 handler
 app.use((req, res) => {

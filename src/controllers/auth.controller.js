@@ -958,14 +958,17 @@ exports.updateUserStatus = async (req, res) => {
 
     const today = new Date().toISOString().split("T")[0];
 
-    // STEP 1: Get previous data
+    // STEP 1: Get previous user data
     const [rows] = await db.query(
       `SELECT location_status, name, profile_image FROM users WHERE id = ?`,
       [userId]
     );
 
     if (!rows.length) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
     }
 
     const prevStatus = rows[0].location_status;
@@ -976,58 +979,57 @@ exports.updateUserStatus = async (req, res) => {
 
     let message = null;
     let profileImageUrl = null;
+    let count = 0;
 
-    // STEP 2: Ensure attendance row exists (daily tracking)
-    await db.query(
-      `
-      INSERT INTO emp_attendance (employee_id, attendance_date, location_off_count)
-      VALUES (?, ?, 0)
-      ON DUPLICATE KEY UPDATE attendance_date = attendance_date
-      `,
+    //  STEP 2: Check if user has marked PRESENT today
+    const [attendanceRows] = await db.query(
+      `SELECT id, location_off_count 
+       FROM emp_attendance 
+       WHERE employee_id = ? 
+       AND attendance_date = ? 
+       AND status = 'present'
+       AND check_in_time IS NOT NULL`,
       [userId, today]
     );
 
-    // STEP 3: Get current count BEFORE increment
-    const [attendance] = await db.query(
-      `SELECT location_off_count FROM emp_attendance 
-       WHERE employee_id = ? AND attendance_date = ?`,
-      [userId, today]
-    );
+    const hasMarkedPresent = attendanceRows.length > 0;
 
-    let count = attendance[0]?.location_off_count || 0;
+    //  STEP 3: Only handle attendance IF present exists
+    if (hasMarkedPresent) {
+      count = attendanceRows[0].location_off_count || 0;
 
-    //  STEP 4: BLOCK if already exceeded (IMPORTANT)
-    if (isTurningOff && count >= 3) {
-      return res.status(403).json({
-        success: false,
-        message: "You have exceeded today's limit. Logged out for today.",
-        location_off_count_today: count
-      });
+      // BLOCK if limit exceeded
+      if (isTurningOff && count >= 3) {
+        return res.status(403).json({
+          success: false,
+          message: "You have exceeded today's limit. Logged out for today.",
+          location_off_count_today: count,
+        });
+      }
     }
 
-    // STEP 5: Handle status change (SOCKET + NOTIFICATION)
+    // STEP 4: Handle status change (SOCKET + NOTIFICATION)
     if (prevStatus !== location_status) {
       message =
         location_status === "OFF"
           ? `${userName} turned OFF location`
           : `${userName} turned ON location`;
 
-      // Generate presigned URL
       if (profileImagePath) {
         profileImageUrl = await getPresignedUrl(profileImagePath);
       }
 
-      //  SOCKET EVENT
+      // SOCKET EVENT
       global.io.to("admins").emit("locationStatusChanged", {
         userId,
         name: userName,
         status: location_status,
         message,
         profile_image_url: profileImageUrl,
-        time: new Date()
+        time: new Date(),
       });
 
-      //  SAVE NOTIFICATION
+      // SAVE NOTIFICATION
       await db.query(
         `INSERT INTO notifications (user_id, name, profile_image, message, status)
          VALUES (?, ?, ?, ?, ?)`,
@@ -1035,30 +1037,26 @@ exports.updateUserStatus = async (req, res) => {
       );
     }
 
-    // STEP 6: Increment AFTER check
-    if (isTurningOff) {
+    //  STEP 5: Increment ONLY if present exists
+    if (isTurningOff && hasMarkedPresent) {
       await db.query(
-        `
-        UPDATE emp_attendance 
-        SET location_off_count = location_off_count + 1
-        WHERE employee_id = ? AND attendance_date = ?
-        `,
+        `UPDATE emp_attendance 
+         SET location_off_count = location_off_count + 1
+         WHERE employee_id = ? AND attendance_date = ?`,
         [userId, today]
       );
 
       count++;
     }
 
-    // STEP 7: Update user status (NO location_off_count here ❌)
+    // STEP 6: Update user status
     await db.query(
-      `
-      UPDATE users 
-      SET 
-        internet_status = ?, 
-        location_status = ?, 
-        last_seen = NOW()
-      WHERE id = ?
-      `,
+      `UPDATE users 
+       SET 
+         internet_status = ?, 
+         location_status = ?, 
+         last_seen = NOW()
+       WHERE id = ?`,
       [internet_status, location_status, userId]
     );
 
@@ -1069,13 +1067,16 @@ exports.updateUserStatus = async (req, res) => {
         userId,
         internet_status,
         location_status,
-        location_off_count_today: count
-      }
+        location_off_count_today: hasMarkedPresent ? count : null,
+      },
     });
 
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ success: false, message: err.message });
+    console.error("updateUserStatus Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
 

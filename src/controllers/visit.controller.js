@@ -4,13 +4,7 @@ const customerModel = require("../models/customer.model");
 const db = require("../config/db");
 const User = require("../models/user.model");
 
-const validPurposes = [
-  "new_dist_planning",
-  "sales_order",
-  "sales_return",
-  "collection",
-  "others"
-];
+const validPurposes = [ "new_dist_planning", "sales_order", "sales_return", "collection", "others"];
 
 exports.createVisit = async (req, res) => {
   try {
@@ -42,16 +36,8 @@ exports.createVisit = async (req, res) => {
       }
 
       finalCustomerId = await customerModel.createCustomer([
-        visit_type,
-        name,
-        firm_name,
-        firm_address,
-        contact_number,
-        address,
-        area,
-        district,
-        pincode,
-        user_id
+         visit_type, name, firm_name, firm_address,
+        contact_number, address, area, district, pincode, user_id
       ]);
     }
 
@@ -69,6 +55,7 @@ exports.createVisit = async (req, res) => {
     message: "Image is mandatory. Please upload an image."
   });
 }
+
 const cleanedReminderDate = clean(reminder_date);
     // Upload Image
     let imagePath = null;

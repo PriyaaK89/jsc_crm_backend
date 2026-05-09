@@ -376,33 +376,33 @@ const softDeleteUser = async (userId) => {
 
     const [rows] = await conn.query(
       `INSERT INTO deleted_users (
-        id, name, gender, contact_no, date_of_birth, email, password,
-        role_id, is_active, created_at,
-        address_line1, address_line2, country, state, city, district, area, pincode,
-        father_name, pan_number, aadhar_no, blood_group,
-        department_id, job_role_id, date_of_joining, salary,
-        approver_name, attendance_selfie,
-        avg_travel_km_per_day, city_allowance_per_km,
-        daily_allowance_with_doc, daily_allowance_without_doc, hotel_allowance,
-        total_leaves, authentication_amount, headquarter, working_area,
-        login_time, logout_time, pf, esi,
-        must_change_password, week_off,
-        manager_id, deleted_at
-      )
-      SELECT 
-        id, name, gender, contact_no, date_of_birth, email, password,
-        role_id, is_active, created_at,
-        address_line1, address_line2, country, state, city, district, area, pincode,
-        father_name, pan_number, aadhar_no, blood_group,
-        department_id, job_role_id, date_of_joining, salary,
-        approver_name, attendance_selfie,
-        avg_travel_km_per_day, city_allowance_per_km,
-        daily_allowance_with_doc, daily_allowance_without_doc, hotel_allowance,
-        total_leaves, authentication_amount, headquarter, working_area,
-        login_time, logout_time, pf, esi,
-        must_change_password, week_off,
-        reporting_under, NOW()
-      FROM users WHERE id = ?`,
+  id, name, gender, contact_no, date_of_birth, email, password,
+  role_id, is_active, created_at,
+  address_line1, address_line2, country, state, city, district, area, pincode,
+  father_name, pan_number, aadhar_no, blood_group,
+  department_id, job_role_id, date_of_joining, salary,
+  approver_name, attendance_selfie,
+  avg_travel_km_per_day, city_allowance_per_km,
+  daily_allowance_with_doc, daily_allowance_without_doc, hotel_allowance,
+  total_leaves, authentication_amount, headquarter, working_area,
+  login_time, logout_time, pf, esi,
+  must_change_password, week_off,
+  deleted_at
+)
+SELECT 
+  id, name, gender, contact_no, date_of_birth, email, password,
+  role_id, is_active, created_at,
+  address_line1, address_line2, country, state, city, district, area, pincode,
+  father_name, pan_number, aadhar_no, blood_group,
+  department_id, job_role_id, date_of_joining, salary,
+  approver_name, attendance_selfie,
+  avg_travel_km_per_day, city_allowance_per_km,
+  daily_allowance_with_doc, daily_allowance_without_doc, hotel_allowance,
+  total_leaves, authentication_amount, headquarter, working_area,
+  login_time, logout_time, pf, esi,
+  must_change_password, week_off,
+  NOW()
+FROM users WHERE id = ?;`,
       [userId]
     );
 

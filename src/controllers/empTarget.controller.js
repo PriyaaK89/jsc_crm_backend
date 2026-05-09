@@ -1,16 +1,18 @@
+const db = require("../config/db");
 const empTargetModel = require("../models/empTarget.model")
 
 function calculateEndDate(start_date, duration_type) {
   const start = new Date(start_date);
 
-  if (duration_type === 'MONTHLY') start.setMonth(start.getMonth() + 1);
-  if (duration_type === 'QUARTERLY') start.setMonth(start.getMonth() + 3);
-  if (duration_type === 'HALF_YEARLY') start.setMonth(start.getMonth() + 6);
-  if (duration_type === 'YEARLY') start.setFullYear(start.getFullYear() + 1);
+  switch (duration_type) {
+    case "MONTHLY": start.setMonth(start.getMonth() + 1); break;
+    case "QUARTERLY": start.setMonth(start.getMonth() + 3); break;
+    case "HALF_YEARLY": start.setMonth(start.getMonth() + 6); break;
+    case "YEARLY": start.setFullYear(start.getFullYear() + 1); break;
+  }
 
   start.setDate(start.getDate() - 1);
-
-  return start.toISOString().split('T')[0];
+  return start.toISOString().split("T")[0];
 }
 
 exports.createEmployeeTarget = async (req, res) => {

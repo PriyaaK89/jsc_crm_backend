@@ -11,4 +11,32 @@ router.post( '/create-subteam', auth,  controller.createSubTeam);
 router.post('/assign-target', auth, controller.assignTarget);
 router.get('/get-assigned-targets', auth, controller.getAssignedTargets);
 
+// TEAM
+
+router.put(
+  '/update-team/:id',
+  auth,
+  controller.updateTeam
+);
+
+router.delete(
+  '/delete-team/:id',
+  auth,
+  controller.deleteTeam
+);
+
+// SUBTEAM
+
+router.put(
+  '/update-subteam/:id',
+  auth,
+  controller.updateSubTeam
+);
+
+router.delete(
+  '/delete-subteam/:id',
+  auth,
+  controller.deleteSubTeam
+);
+
 module.exports = router;

@@ -534,9 +534,7 @@ exports.getAssignedTargets = async (req, res) => {
         'Assigned targets fetched successfully',
 
       data: result.data,
-
       total: result.total,
-
       totalPages:
         Math.ceil(result.total / limit),
 
@@ -611,34 +609,22 @@ exports.deleteTeam = async (req, res) => {
 exports.updateSubTeam = async (req, res) => {
 
   try {
-
     const { id } = req.params;
-
-    const {
-      name,
-      sub_team_target_amount
-    } = req.body;
+    const { name, sub_team_target_amount } = req.body;
 
     if (!name || !sub_team_target_amount) {
-
       return res.status(400).json({
         message: 'All fields are required'
       });
     }
 
-    await teamModel.updateSubTeam({
-
-      id,
-      name,
-      sub_team_target_amount
-    });
+    await teamModel.updateSubTeam({ id, name, sub_team_target_amount });
 
     return res.status(200).json({
       message: 'SubTeam updated successfully'
     });
 
   } catch (error) {
-
     return res.status(500).json({
       message: error.message
     });
@@ -646,21 +632,39 @@ exports.updateSubTeam = async (req, res) => {
 };
 
 exports.deleteSubTeam = async (req, res) => {
+    try {
+      const { id } = req.params;
 
-  try {
+      if (!id) {
 
-    const { id } = req.params;
+        return res.status(400)
+          .json({
 
-    await teamModel.deleteSubTeam(id);
+            message:
+              "Sub team id is required"
+          });
+      }
 
-    return res.status(200).json({
-      message: 'SubTeam deleted successfully'
-    });
+      await teamModel.deleteSubTeam(id);
 
-  } catch (error) {
+      return res.status(200)
+        .json({
 
-    return res.status(500).json({
-      message: error.message
-    });
-  }
-};
+          message:
+            "Sub team deleted successfully"
+        });
+
+    } catch (error) {
+
+      console.log(error);
+
+      return res.status(500)
+        .json({
+
+          message:
+            error.message ||
+            "Something went wrong"
+        });
+    }
+  };
+

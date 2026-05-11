@@ -9,14 +9,7 @@ const createTeam = async (name, target_amount, created_by) => {
 
   return result.insertId;
 };
-// const getAllTeams = async () => {
-//   const [rows] = await db.query(
-//     `SELECT id, name, target_amount, pending_target_amount 
-//      FROM teams 
-//      ORDER BY name ASC`
-//   );
-//   return rows;
-// };
+
 const getAllTeams = async ({
   page,
   limit,
@@ -24,38 +17,24 @@ const getAllTeams = async ({
 }) => {
 
   const offset = (page - 1) * limit;
-
   let where = `WHERE 1=1`;
-
   let params = [];
 
   // SEARCH FILTER
 
   if (search) {
-
     where += ` AND name LIKE ?`;
-
     params.push(`%${search}%`);
   }
 
   // MAIN QUERY
 
   const [rows] = await db.query(
-
-    `SELECT
-        id,
-        name,
-        target_amount,
-        pending_target_amount
-
-     FROM teams
-
-     ${where}
-
+    `SELECT id, name, target_amount, pending_target_amount
+     FROM teams ${where}
      ORDER BY id DESC
 
      LIMIT ? OFFSET ?`,
-
     [...params, limit, offset]
   );
 
@@ -118,13 +97,7 @@ const createSubTeam = async ({
       `INSERT INTO sub_teams 
       (name, parent_team_id, sub_team_target_amount, pending_target_amount, created_by)
       VALUES (?, ?, ?, ?, ?)`,
-      [
-        name,
-        parent_team_id,
-        sub_team_target_amount,
-        sub_team_target_amount,
-        created_by
-      ]
+      [ name, parent_team_id, sub_team_target_amount, sub_team_target_amount, created_by ]
     );
 
     const subTeamId = result.insertId;
@@ -246,71 +219,32 @@ const getSubTeamsByTeam = async ({
     total: countRows[0].total
   };
 };
-// const getSubTeamsByTeam = async (teamId) => {
-//   const [rows] = await db.query(
-//     `SELECT 
-//         st.id,
-//         st.name,
-//         st.sub_team_target_amount,
-//         st.pending_target_amount,
-//         GROUP_CONCAT(sc.name) as categories
-//      FROM sub_teams st
-//      LEFT JOIN sub_team_categories stc ON st.id = stc.sub_team_id
-//      LEFT JOIN stock_categories sc ON sc.id = stc.category_id
-//      WHERE st.parent_team_id = ?
-//      GROUP BY st.id
-//      ORDER BY st.name ASC`,
-//     [teamId]
-//   );
-
-//   //  Transform categories string → array
-//   return rows.map(row => ({
-//     ...row,
-//     categories: row.categories ? row.categories.split(',') : []
-//   }));
-// };
 
 // teamModel.js
 
-const getAssignedTargets = async ({
-  page,
-  limit,
-  role,
-  search,
-  team_id,
-  sub_team_id
-}) => {
-
+const getAssignedTargets = async ({ page, limit, role, search, team_id, sub_team_id}) => {
   const offset = (page - 1) * limit;
-
   let where = `WHERE 1=1`;
-
   let params = [];
 
   // ROLE FILTER
 
   if (role) {
-
     where += ` AND ta.role = ?`;
-
     params.push(role);
   }
 
   // TEAM FILTER
 
   if (team_id) {
-
     where += ` AND ta.team_id = ?`;
-
     params.push(team_id);
   }
 
   // SUBTEAM FILTER
 
   if (sub_team_id) {
-
     where += ` AND ta.sub_team_id = ?`;
-
     params.push(sub_team_id);
   }
 
@@ -375,15 +309,9 @@ const getAssignedTargets = async ({
 
   const [countRows] = await db.query(
 
-    `SELECT COUNT(*) as total
-
-     FROM target_assignments ta
-
-     LEFT JOIN users u
+    `SELECT COUNT(*) as total FROM target_assignments ta LEFT JOIN users u
        ON u.id = ta.user_id
-
      ${where}`,
-
     params
   );
 
@@ -411,15 +339,79 @@ const updateTeam = async ({
   );
 };
 
-const deleteTeam = async (id) => {
+// const deleteTeam = async (id) => {
+//   await db.query( `DELETE FROM teams WHERE id = ?`, [id]);
+// };
 
-  await db.query(
+const deleteTeam = async (teamId) => {
 
-    `DELETE FROM teams
-     WHERE id = ?`,
+  const connection = await db.getConnection();
 
-    [id]
-  );
+  try {
+
+    await connection.beginTransaction();
+
+    const [subTeams] = await connection.query(
+
+      `SELECT id
+       FROM sub_teams
+       WHERE parent_team_id = ?`,
+
+      [teamId]
+    );
+
+    const subTeamIds =
+      subTeams.map(item => item.id);
+
+    if (subTeamIds.length > 0) {
+
+      await connection.query(
+
+        `DELETE FROM sub_team_categories
+         WHERE sub_team_id IN (?)`,
+
+        [subTeamIds]
+      );
+
+      await connection.query(
+
+        `DELETE FROM target_assignments
+         WHERE sub_team_id IN (?)`,
+
+        [subTeamIds]
+      );
+
+      await connection.query(
+
+        `DELETE FROM sub_teams
+         WHERE id IN (?)`,
+
+        [subTeamIds]
+      );
+    }
+
+    await connection.query(
+
+      `DELETE FROM teams
+       WHERE id = ?`,
+
+      [teamId]
+    );
+
+    await connection.commit();
+
+    return true;
+
+  } catch (error) {
+
+    await connection.rollback();
+
+    throw error;
+
+  } finally {
+
+    connection.release();
+  }
 };
 
 const updateSubTeam = async ({
@@ -442,14 +434,84 @@ const updateSubTeam = async ({
 
 const deleteSubTeam = async (id) => {
 
-  await db.query(
+  const connection =
+    await db.getConnection();
 
-    `DELETE FROM sub_teams
-     WHERE id = ?`,
+  try {
 
-    [id]
-  );
+    await connection.beginTransaction();
+
+    // ================= CHECK SUBTEAM EXISTS =================
+
+    const [subTeamRows] =
+      await connection.query(
+
+        `SELECT
+            id,
+            parent_team_id,
+            pending_target_amount
+
+         FROM sub_teams
+         WHERE id = ?`,
+
+        [id]
+      );
+
+    const subTeam =
+      subTeamRows[0];
+
+    if (!subTeam) {
+
+      throw new Error(
+        "Sub team not found"
+      );
+    }
+
+    // ================= CHECK ASSIGNMENTS =================
+
+    const [assignments] =
+      await connection.query(
+        `SELECT id
+         FROM target_assignments
+         WHERE sub_team_id = ?
+         LIMIT 1`,
+        [id]
+      );
+    if ( assignments.length > 0 ) {
+      throw new Error(
+        "Cannot delete sub team because targets are assigned to employees."
+      );
+    }
+    // ================= RESTORE PENDING TARGET =================
+
+    await connection.query(
+      `UPDATE teams
+       SET pending_target_amount =
+           pending_target_amount + ?
+       WHERE id = ?`,
+      [
+        subTeam.pending_target_amount,
+        subTeam.parent_team_id
+      ]
+    );
+
+    // ================= DELETE CATEGORY MAPPINGS =================
+
+    await connection.query(
+      `DELETE FROM sub_team_categories  WHERE sub_team_id = ?`, [id]
+    );
+
+    // ================= DELETE SUBTEAM =================
+
+    await connection.query( `DELETE FROM sub_teams WHERE id = ?`, [id] );
+    await connection.commit();
+    return true;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 };
-
 
 module.exports = { createTeam,createSubTeam, getAllTeams, getTeamById, getSubTeamsByTeam, getAssignedTargets, updateTeam, deleteTeam, updateSubTeam, deleteSubTeam};

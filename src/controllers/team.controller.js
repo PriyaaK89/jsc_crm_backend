@@ -501,53 +501,64 @@ exports.assignTarget = async (req, res) => {
 };
 
 exports.getAssignedTargets = async (req, res) => {
-
   try {
-
-    let {
-      page,
-      limit,
-      role,
-      search,
-      team_id,
-      sub_team_id
-    } = req.query;
-
+    let { page, limit, search } = req.query;
     page = parseInt(page) || 1;
-
     limit = parseInt(limit) || 10;
 
-    const result =
-      await teamModel.getAssignedTargets({
-
-        page,
-        limit,
-        role,
-        search,
-        team_id,
-        sub_team_id
-      });
+    const result = await teamModel.getAssignedTargets({
+      page,
+      limit,
+      search
+    });
 
     return res.status(200).json({
-
-      message:
-        'Assigned targets fetched successfully',
-
+      message: "Assigned targets fetched successfully",
       data: result.data,
       total: result.total,
-      totalPages:
-        Math.ceil(result.total / limit),
-
+      totalPages: Math.ceil(result.total / limit),
       currentPage: page
     });
 
   } catch (error) {
-
     return res.status(500).json({
       message: error.message
     });
+
   }
 };
+
+// exports.getAssignedTargets = async (req, res) => {
+//   try {
+//     let { page, limit, role, search, team_id, sub_team_id } = req.query;
+
+//     page = parseInt(page) || 1;
+//     limit = parseInt(limit) || 10;
+
+//     const result =
+//       await teamModel.getAssignedTargets({
+//         page,
+//         limit,
+//         role,
+//         search,
+//         team_id,
+//         sub_team_id });
+
+//     return res.status(200).json({
+
+//       message: 'Assigned targets fetched successfully',
+//       data: result.data,
+//       total: result.total,
+//       totalPages: Math.ceil(result.total / limit),
+//       currentPage: page
+//     });
+
+//   } catch (error) {
+//     return res.status(500).json({
+//       message: error.message
+//     });
+//   }
+// };
 
 exports.updateTeam = async (req, res) => {
 

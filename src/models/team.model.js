@@ -222,31 +222,13 @@ const getSubTeamsByTeam = async ({
 
 // teamModel.js
 
-const getAssignedTargets = async ({ page, limit, role, search, team_id, sub_team_id}) => {
+const getAssignedTargets = async ({ page, limit, search }) => {
+
   const offset = (page - 1) * limit;
+
   let where = `WHERE 1=1`;
+
   let params = [];
-
-  // ROLE FILTER
-
-  if (role) {
-    where += ` AND ta.role = ?`;
-    params.push(role);
-  }
-
-  // TEAM FILTER
-
-  if (team_id) {
-    where += ` AND ta.team_id = ?`;
-    params.push(team_id);
-  }
-
-  // SUBTEAM FILTER
-
-  if (sub_team_id) {
-    where += ` AND ta.sub_team_id = ?`;
-    params.push(sub_team_id);
-  }
 
   // SEARCH FILTER
 
@@ -256,10 +238,18 @@ const getAssignedTargets = async ({ page, limit, role, search, team_id, sub_team
       AND (
         u.name LIKE ?
         OR u.email LIKE ?
+        OR ta.role LIKE ?
+        OR t.name LIKE ?
+        OR st.name LIKE ?
+        OR ta.parent_type LIKE ?
       )
     `;
 
     params.push(
+      `%${search}%`,
+      `%${search}%`,
+      `%${search}%`,
+      `%${search}%`,
       `%${search}%`,
       `%${search}%`
     );
@@ -280,10 +270,13 @@ const getAssignedTargets = async ({ page, limit, role, search, team_id, sub_team
         ta.role,
         ta.total_target,
         ta.pending_target,
+
         u.name,
         u.email,
-        t.name as team_name,
-        st.name as sub_team_name
+
+        t.name AS team_name,
+
+        st.name AS sub_team_name
 
      FROM target_assignments ta
 
@@ -309,9 +302,21 @@ const getAssignedTargets = async ({ page, limit, role, search, team_id, sub_team
 
   const [countRows] = await db.query(
 
-    `SELECT COUNT(*) as total FROM target_assignments ta LEFT JOIN users u
+    `SELECT COUNT(*) AS total
+
+     FROM target_assignments ta
+
+     LEFT JOIN users u
        ON u.id = ta.user_id
+
+     LEFT JOIN teams t
+       ON t.id = ta.team_id
+
+     LEFT JOIN sub_teams st
+       ON st.id = ta.sub_team_id
+
      ${where}`,
+
     params
   );
 

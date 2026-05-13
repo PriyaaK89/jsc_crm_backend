@@ -10,6 +10,9 @@ router.get('/getTeam/:id', auth, controller.getTeamById);
 router.post( '/create-subteam', auth,  controller.createSubTeam);
 router.post('/assign-target', auth, controller.assignTarget);
 router.get('/get-assigned-targets', auth, controller.getAssignedTargets);
+router.put( '/edit-assigned-target/:id', auth, controller.updateAssignedTarget );
+router.delete( '/delete-assigned-target/:id', auth, controller.deleteAssignedTarget);
+router.get( '/get-assigned-target/:id', auth, controller.getAssignedTargetById);
 
 // TEAM
 

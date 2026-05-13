@@ -326,6 +326,18 @@ const getAssignedTargets = async ({ page, limit, search }) => {
   };
 };
 
+const getAssignmentById = async (id, connection = db) => {
+
+  const [rows] = await connection.query(
+    `SELECT *
+     FROM target_assignments
+     WHERE id = ?`,
+    [id]
+  );
+
+  return rows[0];
+};
+
 const updateTeam = async ({
   id,
   name,
@@ -519,4 +531,4 @@ const deleteSubTeam = async (id) => {
   }
 };
 
-module.exports = { createTeam,createSubTeam, getAllTeams, getTeamById, getSubTeamsByTeam, getAssignedTargets, updateTeam, deleteTeam, updateSubTeam, deleteSubTeam};
+module.exports = { createTeam,createSubTeam, getAllTeams, getTeamById, getSubTeamsByTeam, getAssignedTargets, updateTeam, deleteTeam, updateSubTeam, deleteSubTeam, getAssignmentById};

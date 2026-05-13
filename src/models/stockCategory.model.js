@@ -74,3 +74,22 @@ exports.deleteStockCategory = async (id) => {
 
   return result;
 };
+
+exports.getCategoriesByStockGroup = async (stock_group_id) => {
+  const [rows] = await db.query(
+    `SELECT 
+        c.id,
+        c.name,
+        c.stock_group_id,
+        g.name AS group_name
+     FROM stock_categories c
+     LEFT JOIN stock_groups g 
+        ON c.stock_group_id = g.id
+     WHERE c.stock_group_id = ?
+       AND c.is_deleted = 0
+     ORDER BY c.name ASC`,
+    [stock_group_id]
+  );
+
+  return rows;
+};

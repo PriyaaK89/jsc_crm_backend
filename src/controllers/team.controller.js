@@ -31,26 +31,8 @@ exports.createTeam = async (req, res) => {
   }
 };
 
-// exports.getTeams = async (req, res) => {
-//   try {
-//     const teams = await teamModel.getAllTeams();
-
-//     res.status(200).json({
-//       message: 'Teams fetched successfully',
-//       data: teams
-//     });
-
-//   } catch (error) {
-//     res.status(500).json({
-//       message: error.message
-//     });
-//   }
-// };
-
 exports.getTeams = async (req, res) => {
-
   try {
-
     let {
       page,
       limit,
@@ -207,31 +189,6 @@ exports.getSubTeams = async (req, res) => {
   }
 };
 
-// exports.getSubTeams = async (req, res) => {
-//   try {
-//     const { teamId } = req.params;
-
-//     if (!teamId) {
-//       return res.status(400).json({
-//         message: 'Team ID is required'
-//       });
-//     }
-
-//     const subTeams = await teamModel.getSubTeamsByTeam(teamId);
-
-//     res.status(200).json({
-//       message: 'Sub teams fetched successfully',
-//       data: subTeams
-//     });
-
-//   } catch (error) {
-//     res.status(500).json({
-//       message: error.message
-//     });
-//   }
-// };
-
-
 exports.assignTarget = async (req, res) => {
 
   const connection = await db.getConnection();
@@ -249,9 +206,6 @@ exports.assignTarget = async (req, res) => {
       assignments
     } = req.body;
 
-    // =========================================
-    // VALIDATION
-    // =========================================
 
     if (
       !team_id ||
@@ -280,42 +234,23 @@ exports.assignTarget = async (req, res) => {
       });
     }
 
-    // =========================================
-    // CHECK TEAM EXISTS
-    // =========================================
-
-    const [teamRows] = await connection.query(
-      `SELECT id FROM teams WHERE id = ?`,
-      [team_id]
-    );
+    const [teamRows] = await connection.query( `SELECT id FROM teams WHERE id = ?`, [team_id] );
 
     if (!teamRows.length) {
       throw new Error('Team not found');
     }
 
-    // =========================================
-    // CHECK SUBTEAM EXISTS
-    // =========================================
-
     const [subRows] = await connection.query(
-      `SELECT id, pending_target_amount
-       FROM sub_teams
-       WHERE id = ?`,
-      [sub_team_id]
+      `SELECT id, pending_target_amount FROM sub_teams WHERE id = ?`, [sub_team_id]
     );
 
     if (!subRows.length) {
       throw new Error('SubTeam not found');
     }
 
-    // =========================================
-    // DUPLICATE USER CHECK
-    // =========================================
-
     const uniqueUsers = new Set();
 
     for (const a of assignments) {
-
       if (uniqueUsers.has(a.user_id)) {
         throw new Error('Duplicate users are not allowed');
       }
@@ -323,13 +258,7 @@ exports.assignTarget = async (req, res) => {
       uniqueUsers.add(a.user_id);
     }
 
-    // =========================================
-    // GET PARENT PENDING
-    // =========================================
-
     let parentPending = 0;
-
-    // SUBTEAM DIRECT ASSIGNMENT
 
     if (parent_type === 'SUBTEAM') {
 
@@ -338,17 +267,12 @@ exports.assignTarget = async (req, res) => {
       );
     }
 
-    // HIERARCHY ASSIGNMENT
-
     else {
-
       if (!parent_assignment_id) {
-
         return res.status(400).json({
           message: 'parent_assignment_id is required'
         });
       }
-
       const [rows] = await connection.query(
         `SELECT pending_target
          FROM target_assignments
@@ -365,38 +289,23 @@ exports.assignTarget = async (req, res) => {
       );
     }
 
-    // =========================================
-    // TOTAL ASSIGN VALIDATION
-    // =========================================
-
     let totalAssign = 0;
-
     for (const a of assignments) {
-
       if (!a.target || Number(a.target) <= 0) {
         throw new Error(
           'Target must be greater than 0'
         );
       }
-
       totalAssign += Number(a.target);
     }
 
     if (totalAssign > parentPending) {
-
       throw new Error(
         'Assigned target exceeds pending target'
       );
     }
 
-    // =========================================
-    // INSERT ASSIGNMENTS
-    // =========================================
-
     for (const a of assignments) {
-
-      // CHECK USER EXISTS
-
       const [userRows] = await connection.query(
         `SELECT id
          FROM users
@@ -411,7 +320,6 @@ exports.assignTarget = async (req, res) => {
       }
 
       await connection.query(
-
         `INSERT INTO target_assignments
         (
           team_id,
@@ -441,12 +349,7 @@ exports.assignTarget = async (req, res) => {
       );
     }
 
-    // =========================================
-    // UPDATE PARENT PENDING
-    // =========================================
-
     if (parent_type === 'SUBTEAM') {
-
       await connection.query(
         `UPDATE sub_teams
          SET pending_target_amount =
@@ -678,4 +581,322 @@ exports.deleteSubTeam = async (req, res) => {
         });
     }
   };
+
+  exports.getAssignedTargetById = async (req, res) => {
+
+  try {
+
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        message: 'Assignment ID is required'
+      });
+    }
+
+    const assignment =
+      await teamModel.getAssignmentById(id);
+
+    if (!assignment) {
+      return res.status(404).json({
+        message: 'Assignment not found'
+      });
+    }
+
+    return res.status(200).json({
+      message:
+        'Assigned target fetched successfully',
+      data: assignment
+    });
+
+  } catch (error) {
+
+    return res.status(500).json({
+      message: error.message
+    });
+  }
+};
+
+exports.updateAssignedTarget = async (req, res) => {
+
+  const connection = await db.getConnection();
+
+  try {
+
+    await connection.beginTransaction();
+
+    const { id } = req.params;
+
+    const {
+      target,
+      role
+    } = req.body;
+
+    if (!target || Number(target) <= 0) {
+      return res.status(400).json({
+        message: 'Valid target is required'
+      });
+    }
+
+    // GET CURRENT ASSIGNMENT
+
+    const assignment =
+      await teamModel.getAssignmentById(
+        id,
+        connection
+      );
+
+    if (!assignment) {
+      throw new Error('Assignment not found');
+    }
+
+    const oldTarget =
+      Number(assignment.total_target);
+
+    const oldPending =
+      Number(assignment.pending_target);
+
+    const newTarget =
+      Number(target);
+
+    // USED TARGET
+
+    const usedTarget =
+      oldTarget - oldPending;
+
+    // PREVENT INVALID REDUCTION
+
+    if (newTarget < usedTarget) {
+      throw new Error(
+        `Target cannot be less than already distributed target (${usedTarget})`
+      );
+    }
+
+    const difference =
+      newTarget - oldTarget;
+
+    let parentPending = 0;
+
+    // CHECK EXTRA TARGET AVAILABILITY
+
+    if (difference > 0) {
+
+      // SUBTEAM PARENT
+
+      if (assignment.parent_type === 'SUBTEAM') {
+
+        const [rows] = await connection.query(
+          `SELECT pending_target_amount
+           FROM sub_teams
+           WHERE id = ?`,
+          [assignment.sub_team_id]
+        );
+
+        if (!rows.length) {
+          throw new Error('Sub team not found');
+        }
+
+        parentPending =
+          Number(rows[0].pending_target_amount);
+      }
+
+      // OTHER ASSIGNMENT PARENT
+
+      else {
+
+        const [rows] = await connection.query(
+          `SELECT pending_target
+           FROM target_assignments
+           WHERE id = ?`,
+          [assignment.parent_assignment_id]
+        );
+
+        if (!rows.length) {
+          throw new Error(
+            'Parent assignment not found'
+          );
+        }
+
+        parentPending =
+          Number(rows[0].pending_target);
+      }
+
+      if (difference > parentPending) {
+        throw new Error(
+          'Insufficient pending target available'
+        );
+      }
+    }
+
+    // NEW PENDING
+
+    const newPending =
+      oldPending + difference;
+
+    // UPDATE ASSIGNMENT
+
+    await connection.query(
+      `UPDATE target_assignments
+       SET
+         total_target = ?,
+         pending_target = ?,
+         role = ?
+       WHERE id = ?`,
+      [
+        newTarget,
+        newPending,
+        role || assignment.role,
+        id
+      ]
+    );
+
+    // UPDATE PARENT TARGET
+
+    if (difference !== 0) {
+
+      if (assignment.parent_type === 'SUBTEAM') {
+
+        await connection.query(
+          `UPDATE sub_teams
+           SET pending_target_amount =
+               pending_target_amount - ?
+           WHERE id = ?`,
+          [
+            difference,
+            assignment.sub_team_id
+          ]
+        );
+      }
+
+      else {
+
+        await connection.query(
+          `UPDATE target_assignments
+           SET pending_target =
+               pending_target - ?
+           WHERE id = ?`,
+          [
+            difference,
+            assignment.parent_assignment_id
+          ]
+        );
+      }
+    }
+
+    await connection.commit();
+
+    return res.status(200).json({
+      message:
+        'Assigned target updated successfully'
+    });
+
+  } catch (error) {
+
+    await connection.rollback();
+
+    return res.status(400).json({
+      message: error.message
+    });
+
+  } finally {
+
+    connection.release();
+  }
+};
+
+exports.deleteAssignedTarget = async (req, res) => {
+
+  const connection = await db.getConnection();
+
+  try {
+
+    await connection.beginTransaction();
+
+    const { id } = req.params;
+
+    // GET ASSIGNMENT
+
+    const assignment =
+      await teamModel.getAssignmentById(
+        id,
+        connection
+      );
+
+    if (!assignment) {
+      throw new Error('Assignment not found');
+    }
+
+    // CHECK CHILD ASSIGNMENTS
+
+    const [childRows] = await connection.query(
+      `SELECT id
+       FROM target_assignments
+       WHERE parent_assignment_id = ?`,
+      [id]
+    );
+
+    if (childRows.length) {
+      throw new Error(
+        'Cannot delete assignment with child targets'
+      );
+    }
+
+    // RESTORE PENDING TARGET TO PARENT
+
+    if (assignment.parent_type === 'SUBTEAM') {
+
+      await connection.query(
+        `UPDATE sub_teams
+         SET pending_target_amount =
+             pending_target_amount + ?
+         WHERE id = ?`,
+        [
+          assignment.pending_target,
+          assignment.sub_team_id
+        ]
+      );
+    }
+
+    else {
+
+      await connection.query(
+        `UPDATE target_assignments
+         SET pending_target =
+             pending_target + ?
+         WHERE id = ?`,
+        [
+          assignment.pending_target,
+          assignment.parent_assignment_id
+        ]
+      );
+    }
+
+    // DELETE ASSIGNMENT
+
+    await connection.query(
+      `DELETE FROM target_assignments
+       WHERE id = ?`,
+      [id]
+    );
+
+    await connection.commit();
+
+    return res.status(200).json({
+      message:
+        'Assigned target deleted successfully'
+    });
+
+  } catch (error) {
+
+    await connection.rollback();
+
+    return res.status(400).json({
+      message: error.message
+    });
+
+  } finally {
+
+    connection.release();
+  }
+};
 

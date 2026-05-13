@@ -110,3 +110,32 @@ exports.deleteStockCategory = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+exports.getCategoriesByStockGroup = async (req, res) => {
+  try {
+    const { stock_group_id } = req.params;
+
+    if (!stock_group_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Stock group id is required"
+      });
+    }
+
+    const data = await StockCategory.getCategoriesByStockGroup(
+      stock_group_id
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Categories fetched successfully",
+      data
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};

@@ -149,31 +149,23 @@ const getUnitById = async (req, res) => {
 
 // UPDATE UNIT
 const updateUnit = async (req, res) => {
-
     try {
-
         const { id } = req.params;
-
         const existingUnit = await unitModel.getUnitById(id);
-
         if (!existingUnit) {
             return res.status(404).json({
                 success: false,
                 message: "Unit not found"
             });
         }
-
         await unitModel.updateUnit(id, req.body);
-
         return res.status(200).json({
             success: true,
             message: "Unit updated successfully"
         });
 
     } catch (error) {
-
         console.log(error);
-
         return res.status(500).json({
             success: false,
             message: error.message

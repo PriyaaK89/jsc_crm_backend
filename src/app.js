@@ -44,6 +44,8 @@ const rollingUserRoute = require("../src/routes/rollingUser.routes");
 const empTargetRoute = require("../src/routes/empTarget.routes");
 const godownRoute = require("../src/routes/godown.routes");
 const unitOfMeasureRoute = require("../src/routes/unit.routes");
+const stockItemRoute = require("../src/routes/stockItem.routes");
+const accountGroupRoute = require("../src/routes/accountGroup.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -84,6 +86,8 @@ app.use(rollingUserRoute);
 app.use(empTargetRoute);
 app.use(godownRoute);
 app.use(unitOfMeasureRoute);
+app.use(stockItemRoute);
+app.use(accountGroupRoute)
 
 
 // 404 handler

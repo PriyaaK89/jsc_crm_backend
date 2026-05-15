@@ -1,53 +1,101 @@
 const db = require("../config/db");
 
 const createStockItem = async (data) => {
+
     const {
         item_name,
         stock_group_id,
         stock_category_id,
         unit_id,
+
+        alternative_unit_id,
+        alternative_unit_value,
+        base_unit_value,
+
+        bulk_unit_id,
+        bulk_unit_value,
+        bulk_base_value,
+
+        maintain_in_batches,
+        track_mfg_date,
+        use_expiry_dates,
+        set_standard_rates,
+        enable_cost_tracking,
+
         gst_applicable,
         set_gst_details,
         type_of_supply,
         rate_of_duty,
         description,
         created_by
+
     } = data;
 
     const [result] = await db.query(
         `
         INSERT INTO stock_items (
+
             item_name,
             stock_group_id,
             stock_category_id,
             unit_id,
+
+            alternative_unit_id,
+            alternative_unit_value,
+            base_unit_value,
+
+            bulk_unit_id,
+            bulk_unit_value,
+            bulk_base_value,
+
+            maintain_in_batches,
+            track_mfg_date,
+            use_expiry_dates,
+            set_standard_rates,
+            enable_cost_tracking,
+
             gst_applicable,
             set_gst_details,
             type_of_supply,
             rate_of_duty,
             description,
             created_by
+
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
+
             item_name,
             stock_group_id,
-            stock_category_id,
+            stock_category_id || null,
             unit_id,
-            gst_applicable,
-            set_gst_details,
-            type_of_supply,
-            rate_of_duty,
-            description,
-            created_by
+
+            alternative_unit_id || null,
+            alternative_unit_value || null,
+            base_unit_value || null,
+
+            bulk_unit_id || null,
+            bulk_unit_value || null,
+            bulk_base_value || null,
+
+            maintain_in_batches || 0,
+            track_mfg_date || 0,
+            use_expiry_dates || 0,
+            set_standard_rates || 0,
+            enable_cost_tracking || 0,
+
+            gst_applicable || 0,
+            set_gst_details || 0,
+            type_of_supply || "Goods",
+            rate_of_duty || 0,
+            description || null,
+            created_by || null
         ]
     );
 
     return result.insertId;
 };
-
-
 
 // CREATE GST DETAILS
 const createGSTDetails = async (stock_item_id, data) => {
@@ -102,16 +150,7 @@ const createGSTDetails = async (stock_item_id, data) => {
 // CREATE OPENING STOCK
 const createOpeningStock = async (stock_item_id, data) => {
 
-    const {
-        godown_id,
-        batch_no,
-        mfg_date,
-        expiry_date,
-        quantity,
-        rate,
-        per_unit_id,
-        amount
-    } = data;
+    const { godown_id, batch_no, mfg_date, expiry_date, quantity, rate,   supercash_price,per_unit_id, amount } = data;
 
     const [result] = await db.query(
         `
@@ -123,10 +162,11 @@ const createOpeningStock = async (stock_item_id, data) => {
             expiry_date,
             quantity,
             rate,
+            supercash_price,
             per_unit_id,
             amount
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
             stock_item_id,
@@ -136,18 +176,245 @@ const createOpeningStock = async (stock_item_id, data) => {
             expiry_date,
             quantity,
             rate,
+             supercash_price || 0,
             per_unit_id,
             amount
         ]
     );
-
     return result.insertId;
 };
 
 
+const getStockItems = async (
+    search = "",
+    page = 1,
+    limit = 10
+) => {
+
+    const offset = (page - 1) * limit;
+
+    
+    // =========================
+    // GET TOTAL COUNT
+    // =========================
+
+    const [countRows] = await db.query(
+        `
+        SELECT COUNT(*) AS total
+        FROM stock_items
+        WHERE item_name LIKE ?
+        `,
+        [`%${search}%`]
+    );
+
+    const totalRecords = countRows[0].total;
+
+
+
+    // =========================
+    // GET DATA
+    // =========================
+
+    const [rows] = await db.query(
+        `
+
+        SELECT
+
+            si.id,
+            si.item_name,
+
+            si.type_of_supply,
+            si.rate_of_duty,
+
+            si.gst_applicable,
+            si.set_gst_details,
+
+            si.maintain_in_batches,
+            si.track_mfg_date,
+            si.use_expiry_dates,
+
+            si.set_standard_rates,
+            si.enable_cost_tracking,
+
+            si.description,
+            si.created_at,
+
+            sg.name AS stock_group_name,
+
+            sc.name AS stock_category_name,
+
+            u.symbol AS base_unit_name,
+
+            au.symbol AS alternative_unit_name,
+            si.alternative_unit_value,
+            si.base_unit_value,
+
+            bu.symbol AS bulk_unit_name,
+            si.bulk_unit_value,
+            si.bulk_base_value,
+
+            os.quantity,
+            os.rate,
+            os.supercash_price,
+            os.amount,
+
+            gu.symbol AS opening_stock_unit,
+
+            g.godown_name
+
+        FROM stock_items si
+
+        LEFT JOIN stock_groups sg
+            ON si.stock_group_id = sg.id
+
+        LEFT JOIN stock_categories sc
+            ON si.stock_category_id = sc.id
+
+        LEFT JOIN units u
+            ON si.unit_id = u.id
+
+        LEFT JOIN units au
+            ON si.alternative_unit_id = au.id
+
+        LEFT JOIN units bu
+            ON si.bulk_unit_id = bu.id
+
+        LEFT JOIN stock_item_opening_stock os
+            ON si.id = os.stock_item_id
+
+        LEFT JOIN units gu
+            ON os.per_unit_id = gu.id
+
+        LEFT JOIN godowns g
+            ON os.godown_id = g.id
+
+        WHERE si.item_name LIKE ?
+
+        ORDER BY si.id DESC
+
+        LIMIT ?
+        OFFSET ?
+
+        `,
+        [
+            `%${search}%`,
+            Number(limit),
+            Number(offset)
+        ]
+    );
+
+
+
+    return {
+        rows,
+        totalRecords,
+        totalPages: Math.ceil(totalRecords / limit),
+        currentPage: Number(page)
+    };
+};
+
+const getStockItemById = async (id) => {
+    const [rows] = await db.query(`
+        SELECT
+            si.*,
+            sg.name AS stock_group_name,
+            sc.name AS stock_category_name,
+            u.symbol AS base_unit_name,
+            au.symbol AS alternative_unit_name,
+            bu.symbol AS bulk_unit_name
+
+        FROM stock_items si
+
+        LEFT JOIN stock_groups sg
+            ON si.stock_group_id = sg.id
+
+        LEFT JOIN stock_categories sc
+            ON si.stock_category_id = sc.id
+
+        LEFT JOIN units u
+            ON si.unit_id = u.id
+
+        LEFT JOIN units au
+            ON si.alternative_unit_id = au.id
+
+        LEFT JOIN units bu
+            ON si.bulk_unit_id = bu.id
+
+        WHERE si.id = ?
+    `, [id]);
+
+    return rows[0];
+};
+
+
+
+// =============================
+// GET GST DETAILS
+// =============================
+const getGSTDetails = async (stock_item_id) => {
+
+    const [rows] = await db.query(`
+    
+        SELECT *
+        FROM stock_item_gst_details
+        WHERE stock_item_id = ?
+    
+    `, [stock_item_id]);
+
+    return rows[0];
+};
+
+
+
+// =============================
+// GET OPENING STOCK
+// =============================
+const getOpeningStock = async (stock_item_id) => {
+    const [rows] = await db.query(`
+        SELECT
+            os.*,
+            g.godown_name,
+            u.symbol AS per_unit_name
+        FROM stock_item_opening_stock os
+
+        LEFT JOIN godowns g
+            ON os.godown_id = g.id
+
+        LEFT JOIN units u
+            ON os.per_unit_id = u.id
+
+        WHERE os.stock_item_id = ?
+
+    `, [stock_item_id]);
+
+    return rows[0];
+};
+
+
+
+// =============================
+// DELETE STOCK ITEM
+// =============================
+const deleteStockItem = async (id) => {
+
+    const [result] = await db.query(`
+    
+        DELETE FROM stock_items
+        WHERE id = ?
+    
+    `, [id]);
+
+    return result;
+};
 
 module.exports = {
     createStockItem,
     createGSTDetails,
-    createOpeningStock
+    createOpeningStock,
+
+      getStockItems,
+    getStockItemById,
+    getGSTDetails,
+    getOpeningStock,
+    deleteStockItem
 };

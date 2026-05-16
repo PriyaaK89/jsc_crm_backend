@@ -3,36 +3,16 @@ const db = require("../config/db");
 const createLedger = async (ledgerData) => {
 
   const {
-    ledger_name,
-    group_id,
-    employee_under,
-
-    opening_balance,
-    balance_type,
-    opening_date,
-
-    mailing_name,
-    location,
-    country,
-    state,
-    pincode,
-
-    pan_no,
-    gst_no,
-
+    ledger_name, group_id, employee_under,
+    opening_balance, balance_type, opening_date,
+    mailing_name, location, country, state, pincode, pan_no, gst_no,
     maintain_bill_by_bill,
     default_credit_period,
     check_credit_days,
     credit_limit,
-
-    inventory_values_affected,
-    use_for_payroll,
-
+    inventory_values_affected, use_for_payroll,
     activate_interest_calculation,
-
-    od_limit,
-
-    created_by,
+    od_limit, created_by,
   } = ledgerData;
 
   const [result] = await db.query(
@@ -216,21 +196,16 @@ const createLedgerInterestConfig = async (
     `,
     [
       ledger_id,
-
       calculate_transaction_by_transaction || 0,
       interest_based_on || null,
-
       amount_added || 0,
       amount_deducted || 0,
-
       rate || 0,
       rate_per || null,
       rate_on || null,
-
       applicability || null,
       applicability_days || 0,
       grace_period || 0,
-
       security_enabled || 0,
       security_amount || 0,
     ]
@@ -250,9 +225,387 @@ const findLedgerByName = async (ledger_name) => {
   return rows[0];
 };
 
-module.exports = {
-  createLedger,
-  createLedgerBankDetails,
-  createLedgerInterestConfig,
-  findLedgerByName,
+const createLedgerOtherDetails = async (ledger_id, crmData) => {
+  const {
+    customer_name, customer_dob,
+    firm_name, firm_type, firm_email, firm_since,
+    firm_pan, firm_aadhar, firm_gstn_type,
+    firm_annual_turnover, expected_sale_per_year, other_company_detail,
+    address, state, district, tehsil, pincode, landmark, branch,
+    contact,
+    responsible_person_name, responsible_person_address, responsible_person_contact,
+    seed_licence_no, fert_licence_no, pest_licence_no,
+    transport_name,
+    bank_name, bank_acc_number, bank_ifsc, bank_branch,  // new
+    security_cheque_no1, security_cheque_no2,
+  } = crmData;
+
+  await db.query(
+    `INSERT INTO ledger_other_details (
+      ledger_id,
+      customer_name, customer_dob,
+      firm_name, firm_type, firm_email, firm_since,
+      firm_pan, firm_aadhar, firm_gstn_type,
+      firm_annual_turnover, expected_sale_per_year, other_company_detail,
+      address, state, district, tehsil, pincode, landmark, branch,
+      contact,
+      responsible_person_name, responsible_person_address, responsible_person_contact,
+      seed_licence_no, fert_licence_no, pest_licence_no,
+      transport_name,
+      bank_name, bank_acc_number, bank_ifsc, bank_branch,
+      security_cheque_no1, security_cheque_no2
+    ) VALUES (
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    )`,
+    [
+      ledger_id,
+      customer_name || null,
+      customer_dob || null,
+      firm_name || null,
+      firm_type || null,
+      firm_email || null,
+      firm_since || null,
+      firm_pan || null,
+      firm_aadhar || null,
+      firm_gstn_type || null,
+      firm_annual_turnover || null,
+      expected_sale_per_year || null,
+      other_company_detail || null,
+      address || null,
+      state || null,
+      district || null,
+      tehsil || null,
+      pincode || null,
+      landmark || null,
+      branch || null,
+      contact || null,
+      responsible_person_name || null,
+      responsible_person_address || null,
+      responsible_person_contact || null,
+      seed_licence_no || null,
+      fert_licence_no || null,
+      pest_licence_no || null,
+      transport_name || null,
+      bank_name || null,        // new
+      bank_acc_number || null,  // new
+      bank_ifsc || null,        // new
+      bank_branch || null,      // new
+      security_cheque_no1 || null,
+      security_cheque_no2 || null,
+    ]
+  );
 };
+
+const getLedgersModel = async (
+  filters,
+  limit,
+  offset
+) => {
+
+  const {
+    search,
+    group_id,
+    state,
+    activate_interest_calculation,
+  } = filters;
+
+  let whereConditions = [];
+  let queryParams = [];
+
+  // SEARCH
+  if (search && search.trim() !== "") {
+
+    whereConditions.push(`
+      (
+        l.ledger_name LIKE ?
+        OR l.mailing_name LIKE ?
+        OR l.location LIKE ?
+        OR l.gst_no LIKE ?
+        OR l.pan_no LIKE ?
+        OR lod.customer_name LIKE ?
+        OR lod.firm_name LIKE ?
+        OR lod.contact LIKE ?
+      )
+    `);
+
+    const searchValue = `%${search.trim()}%`;
+
+    queryParams.push(
+      searchValue,
+      searchValue,
+      searchValue,
+      searchValue,
+      searchValue,
+      searchValue,
+      searchValue,
+      searchValue
+    );
+  }
+
+  // GROUP FILTER
+  if (group_id) {
+
+    whereConditions.push(
+      `l.group_id = ?`
+    );
+
+    queryParams.push(group_id);
+  }
+
+  // STATE FILTER
+  if (state) {
+
+    whereConditions.push(
+      `l.state = ?`
+    );
+
+    queryParams.push(state);
+  }
+
+  // INTEREST FILTER
+  if (
+    activate_interest_calculation !== undefined &&
+    activate_interest_calculation !== ""
+  ) {
+
+    whereConditions.push(
+      `l.activate_interest_calculation = ?`
+    );
+
+    queryParams.push(
+      Number(activate_interest_calculation)
+    );
+  }
+
+  const whereClause =
+    whereConditions.length > 0
+      ? `WHERE ${whereConditions.join(" AND ")}`
+      : "";
+
+  const [rows] = await db.query(
+    `
+    SELECT
+
+      l.id,
+      l.ledger_name,
+      l.group_id,
+      ag.group_name,
+
+      l.employee_under,
+
+      l.opening_balance,
+      l.balance_type,
+      l.opening_date,
+
+      l.mailing_name,
+      l.location,
+      l.country,
+      l.state,
+      l.pincode,
+
+      l.pan_no,
+      l.gst_no,
+
+      l.maintain_bill_by_bill,
+      l.default_credit_period,
+      l.check_credit_days,
+      l.credit_limit,
+
+      l.inventory_values_affected,
+      l.use_for_payroll,
+      l.activate_interest_calculation,
+      l.od_limit,
+
+      l.created_by,
+      l.created_at,
+      l.updated_at,
+
+      -- BANK DETAILS
+
+      lbd.id AS bank_detail_id,
+      lbd.account_holder_name,
+      lbd.account_number,
+      lbd.ifsc_code,
+      lbd.bank_name,
+      lbd.branch_name,
+      lbd.cheque_book_enabled,
+      lbd.cheque_printing_enabled,
+
+      -- INTEREST CONFIG
+
+      lic.id AS interest_config_id,
+      lic.calculate_transaction_by_transaction,
+      lic.interest_based_on,
+      lic.amount_added,
+      lic.amount_deducted,
+      lic.rate,
+      lic.rate_per,
+      lic.rate_on,
+      lic.applicability,
+      lic.applicability_days,
+      lic.grace_period,
+      lic.security_enabled,
+      lic.security_amount,
+
+      -- CRM DETAILS
+
+      lod.id AS crm_detail_id,
+      lod.customer_name,
+      lod.customer_dob,
+      lod.firm_name,
+      lod.firm_type,
+      lod.firm_email,
+      lod.firm_since,
+      lod.firm_pan,
+      lod.firm_aadhar,
+      lod.firm_gstn_type,
+      lod.firm_annual_turnover,
+      lod.expected_sale_per_year,
+      lod.other_company_detail,
+      lod.address,
+      lod.state AS crm_state,
+      lod.district,
+      lod.tehsil,
+      lod.pincode AS crm_pincode,
+      lod.landmark,
+      lod.branch,
+      lod.contact,
+
+      lod.responsible_person_name,
+      lod.responsible_person_address,
+      lod.responsible_person_contact,
+
+      lod.seed_licence_no,
+      lod.fert_licence_no,
+      lod.pest_licence_no,
+
+      lod.transport_name,
+
+      lod.bank_name AS crm_bank_name,
+      lod.bank_acc_number,
+      lod.bank_ifsc,
+      lod.bank_branch,
+
+      lod.security_cheque_no1,
+      lod.security_cheque_no2
+
+    FROM ledgers l
+
+    LEFT JOIN account_groups ag
+    ON ag.id = l.group_id
+
+    LEFT JOIN ledger_bank_details lbd
+    ON lbd.ledger_id = l.id
+
+    LEFT JOIN ledger_interest_config lic
+    ON lic.ledger_id = l.id
+
+    LEFT JOIN ledger_other_details lod
+    ON lod.ledger_id = l.id
+
+    ${whereClause}
+
+    ORDER BY l.id DESC
+
+    LIMIT ? OFFSET ?
+    `,
+    [...queryParams, limit, offset]
+  );
+
+  return rows;
+};
+
+/* ======================================================
+   GET TOTAL COUNT
+====================================================== */
+
+const getLedgerCountModel = async (
+  filters
+) => {
+
+  const {
+    search,
+    group_id,
+    state,
+    activate_interest_calculation,
+  } = filters;
+
+  let whereConditions = [];
+  let queryParams = [];
+
+  if (search && search.trim() !== "") {
+
+    whereConditions.push(`
+      (
+        l.ledger_name LIKE ?
+        OR lod.customer_name LIKE ?
+        OR lod.firm_name LIKE ?
+      )
+    `);
+
+    const searchValue = `%${search.trim()}%`;
+
+    queryParams.push(
+      searchValue,
+      searchValue,
+      searchValue
+    );
+  }
+
+  if (group_id) {
+
+    whereConditions.push(
+      `l.group_id = ?`
+    );
+
+    queryParams.push(group_id);
+  }
+
+  if (state) {
+
+    whereConditions.push(
+      `l.state = ?`
+    );
+
+    queryParams.push(state);
+  }
+
+  if (
+    activate_interest_calculation !== undefined &&
+    activate_interest_calculation !== ""
+  ) {
+
+    whereConditions.push(
+      `l.activate_interest_calculation = ?`
+    );
+
+    queryParams.push(
+      Number(activate_interest_calculation)
+    );
+  }
+
+  const whereClause =
+    whereConditions.length > 0
+      ? `WHERE ${whereConditions.join(" AND ")}`
+      : "";
+
+  const [rows] = await db.query(
+    `
+    SELECT COUNT(DISTINCT l.id) AS total
+
+    FROM ledgers l
+
+    LEFT JOIN ledger_other_details lod
+    ON lod.ledger_id = l.id
+
+    ${whereClause}
+    `,
+    queryParams
+  );
+
+  return rows[0].total;
+};
+
+
+module.exports = { createLedger, createLedgerBankDetails, createLedgerInterestConfig, createLedgerOtherDetails, findLedgerByName,   getLedgersModel,
+  getLedgerCountModel,};

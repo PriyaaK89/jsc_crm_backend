@@ -1,66 +1,23 @@
-const {
-  createLedger,
-  createLedgerBankDetails,
-  createLedgerInterestConfig,
-  findLedgerByName,
-} = require("../models/ledger.model");
-
-const {
-  getGroupById,
-} = require("../models/accountGroup.model");
+const { createLedger, createLedgerBankDetails,  createLedgerOtherDetails, createLedgerInterestConfig, findLedgerByName, getLedgersModel,
+  getLedgerCountModel, } = require("../models/ledger.model");
+const { getGroupById, } = require("../models/accountGroup.model");
 
 const isValidBoolean = (value) => {
   return value === 0 || value === 1;
 };
 
 const createLedgerController = async (req, res) => {
-
   try {
-
     const {
-
-      // BASIC DETAILS
-      ledger_name,
-      group_id,
-      employee_under,
-
-      // OPENING DETAILS
-      opening_balance,
-      balance_type,
-      opening_date,
-
-      // MAILING DETAILS
-      mailing_name,
-      location,
-      country,
-      state,
-      pincode,
-
-      // TAX DETAILS
-      pan_no,
-      gst_no,
-
-      // CREDIT DETAILS
-      maintain_bill_by_bill,
-      default_credit_period,
-      check_credit_days,
-      credit_limit,
-
-      // OTHER FEATURES
-      inventory_values_affected,
-      use_for_payroll,
-      activate_interest_calculation,
-      od_limit,
-
-      // NESTED OBJECTS
-      bank_details,
-      interest_config,
+      ledger_name, group_id, employee_under,
+      opening_balance, balance_type, opening_date,
+      mailing_name, location, country, state, pincode,
+      pan_no, gst_no,
+      maintain_bill_by_bill, default_credit_period, check_credit_days, credit_limit,
+      inventory_values_affected, use_for_payroll, activate_interest_calculation, od_limit,
+      bank_details, interest_config, crm_details
 
     } = req.body;
-
-    // ===============================
-    // REQUIRED VALIDATIONS
-    // ===============================
 
     if (!ledger_name || !ledger_name.trim()) {
 
@@ -78,10 +35,6 @@ const createLedgerController = async (req, res) => {
       });
     }
 
-    // ===============================
-    // GROUP VALIDATION
-    // ===============================
-
     const group = await getGroupById(group_id);
 
     if (!group) {
@@ -91,10 +44,6 @@ const createLedgerController = async (req, res) => {
         message: "Group not found",
       });
     }
-
-    // ===============================
-    // DUPLICATE CHECK
-    // ===============================
 
     const existingLedger = await findLedgerByName(
       ledger_name.trim()
@@ -107,10 +56,6 @@ const createLedgerController = async (req, res) => {
         message: "Ledger already exists",
       });
     }
-
-    // ===============================
-    // BOOLEAN VALIDATION
-    // ===============================
 
     const booleanFields = [
 
@@ -145,10 +90,6 @@ const createLedgerController = async (req, res) => {
       }
     }
 
-    // ===============================
-    // BALANCE TYPE VALIDATION
-    // ===============================
-
     if (
       balance_type &&
       !["Cr", "Dr"].includes(balance_type)
@@ -160,10 +101,6 @@ const createLedgerController = async (req, res) => {
           "Balance type must be either Cr or Dr",
       });
     }
-
-    // ===============================
-    // INTEREST ENUM VALIDATIONS
-    // ===============================
 
     if (interest_config) {
 
@@ -236,118 +173,81 @@ const createLedgerController = async (req, res) => {
       }
     }
 
+     if (crm_details) {
+      if (
+        crm_details.firm_type &&
+        !["proprietor", "partner"].includes(crm_details.firm_type)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "firm_type must be either proprietor or partner",
+        });
+      }
+
+      if (
+        crm_details.firm_gstn_type &&
+        !["Composition", "Consumer", "Regular", "Unregistered"].includes(crm_details.firm_gstn_type)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid firm_gstn_type value",
+        });
+      }
+    }
+
+
     // ===============================
     // CREATE LEDGER
     // ===============================
 
     const ledgerId = await createLedger({
-
       ledger_name: ledger_name.trim(),
-
       group_id,
 
-      employee_under:
-        employee_under || null,
-
-      opening_balance:
-        opening_balance || 0,
-
-      balance_type:
-        balance_type || "Dr",
-
-      opening_date:
-        opening_date || null,
-
+      employee_under: employee_under || null,
+      opening_balance: opening_balance || 0,
+      balance_type: balance_type || "Dr",
+      opening_date: opening_date || null,
       // MAILING
-      mailing_name:
-        mailing_name || null,
-
-      location:
-        location || null,
-
-      country:
-        country || null,
-
-      state:
-        state || null,
-
-      pincode:
-        pincode || null,
-
+      mailing_name: mailing_name || null,
+      location: location || null,
+      country: country || null,
+      state: state || null,
+      pincode: pincode || null,
       // TAX
-      pan_no:
-        pan_no || null,
-
-      gst_no:
-        gst_no || null,
-
+      pan_no: pan_no || null,
+      gst_no: gst_no || null,
       // CREDIT
-      maintain_bill_by_bill:
-        maintain_bill_by_bill ?? 0,
-
-      default_credit_period:
-        default_credit_period || 0,
-
-      check_credit_days:
-        check_credit_days ?? 0,
-
-      credit_limit:
-        credit_limit || 0,
-
+      maintain_bill_by_bill: maintain_bill_by_bill ?? 0,
+      default_credit_period: default_credit_period || 0,
+      check_credit_days: check_credit_days ?? 0,
+      credit_limit: credit_limit || 0,
       // FEATURES
-      inventory_values_affected:
-        inventory_values_affected ?? 0,
+      inventory_values_affected: inventory_values_affected ?? 0,
+      use_for_payroll: use_for_payroll ?? 0,
+      activate_interest_calculation: activate_interest_calculation ?? 0,
+      od_limit: od_limit || 0,
+      created_by: req.user?.id || null,
+    })
 
-      use_for_payroll:
-        use_for_payroll ?? 0,
 
-      activate_interest_calculation:
-        activate_interest_calculation ?? 0,
-
-      od_limit:
-        od_limit || 0,
-
-      created_by:
-        req.user?.id || null,
-    });
-
-    // ===============================
-    // CREATE BANK DETAILS
-    // ===============================
 
     if (bank_details) {
 
       await createLedgerBankDetails(
         ledgerId,
         {
-
-          account_holder_name:
-            bank_details.account_holder_name || null,
-
-          account_number:
-            bank_details.account_number || null,
-
-          ifsc_code:
-            bank_details.ifsc_code || null,
-
-          bank_name:
-            bank_details.bank_name || null,
-
-          branch_name:
-            bank_details.branch_name || null,
-
-          cheque_book_enabled:
-            bank_details.cheque_book_enabled ?? 0,
-
-          cheque_printing_enabled:
-            bank_details.cheque_printing_enabled ?? 0,
+          account_holder_name: bank_details.account_holder_name || null,
+          account_number: bank_details.account_number || null,
+          ifsc_code: bank_details.ifsc_code || null,
+          bank_name: bank_details.bank_name || null,
+          branch_name: bank_details.branch_name || null,
+          cheque_book_enabled: bank_details.cheque_book_enabled ?? 0,
+          cheque_printing_enabled: bank_details.cheque_printing_enabled ?? 0,
         }
       );
     }
 
-    // ===============================
-    // CREATE INTEREST CONFIG
-    // ===============================
 
     if (
       activate_interest_calculation === 1 &&
@@ -357,49 +257,60 @@ const createLedgerController = async (req, res) => {
       await createLedgerInterestConfig(
         ledgerId,
         {
-
-          calculate_transaction_by_transaction:
-            interest_config.calculate_transaction_by_transaction ?? 0,
-
-          interest_based_on:
-            interest_config.interest_based_on || null,
-
-          amount_added:
-            interest_config.amount_added ?? 0,
-
-          amount_deducted:
-            interest_config.amount_deducted ?? 0,
-
-          rate:
-            interest_config.rate || 0,
-
-          rate_per:
-            interest_config.rate_per || null,
-
-          rate_on:
-            interest_config.rate_on || null,
-
-          applicability:
-            interest_config.applicability || null,
-
-          applicability_days:
-            interest_config.applicability_days || 0,
-
-          grace_period:
-            interest_config.grace_period || 0,
-
-          security_enabled:
-            interest_config.security_enabled ?? 0,
-
-          security_amount:
-            interest_config.security_amount || 0,
+          calculate_transaction_by_transaction:  interest_config.calculate_transaction_by_transaction ?? 0,
+          interest_based_on: interest_config.interest_based_on || null,
+          amount_added: interest_config.amount_added ?? 0,
+          amount_deducted: interest_config.amount_deducted ?? 0,
+          rate: interest_config.rate || 0,
+          rate_per: interest_config.rate_per || null,
+          rate_on: interest_config.rate_on || null,
+          applicability: interest_config.applicability || null,
+          applicability_days: interest_config.applicability_days || 0,
+          grace_period: interest_config.grace_period || 0,
+          security_enabled: interest_config.security_enabled ?? 0,
+          security_amount: interest_config.security_amount || 0,
         }
       );
     }
 
-    // ===============================
-    // SUCCESS RESPONSE
-    // ===============================
+     if (crm_details) {
+      await createLedgerOtherDetails(ledgerId, {
+        customer_name: crm_details.customer_name || null,
+        customer_dob: crm_details.customer_dob || null,
+        firm_name: crm_details.firm_name || null,
+        firm_type: crm_details.firm_type || null,
+        firm_email: crm_details.firm_email || null,
+        firm_since: crm_details.firm_since || null,
+        firm_pan: crm_details.firm_pan || null,
+        firm_aadhar: crm_details.firm_aadhar || null,
+        firm_gstn_type: crm_details.firm_gstn_type || null,
+        firm_annual_turnover: crm_details.firm_annual_turnover || null,
+        expected_sale_per_year: crm_details.expected_sale_per_year || null,
+        other_company_detail: crm_details.other_company_detail || null,
+        address: crm_details.address || null,
+        state: crm_details.state || null,
+        district: crm_details.district || null,
+        tehsil: crm_details.tehsil || null,
+        pincode: crm_details.pincode || null,
+        landmark: crm_details.landmark || null,
+        branch: crm_details.branch || null,
+        contact: crm_details.contact || null,
+        responsible_person_name: crm_details.responsible_person_name || null,
+        responsible_person_address: crm_details.responsible_person_address || null,
+        responsible_person_contact: crm_details.responsible_person_contact || null,
+        seed_licence_no: crm_details.seed_licence_no || null,
+        fert_licence_no: crm_details.fert_licence_no || null,
+        pest_licence_no: crm_details.pest_licence_no || null,
+        transport_name: crm_details.transport_name || null,
+        bank_name: crm_details.bank_name || null,
+        bank_acc_number: crm_details.bank_acc_number || null,
+        bank_ifsc: crm_details.bank_ifsc || null,
+        bank_branch: crm_details.bank_branch || null,
+        security_cheque_no1: crm_details.security_cheque_no1 || null,
+        security_cheque_no2: crm_details.security_cheque_no2 || null,
+      });
+    }
+
 
     return res.status(201).json({
       success: true,
@@ -408,7 +319,6 @@ const createLedgerController = async (req, res) => {
     });
 
   } catch (error) {
-
     console.log(
       "CREATE LEDGER ERROR:",
       error
@@ -422,6 +332,84 @@ const createLedgerController = async (req, res) => {
   }
 };
 
-module.exports = {
-  createLedgerController,
+const getLedgers = async (
+  req,
+  res
+) => {
+
+  try {
+
+    let {
+      page = 1,
+      limit = 10,
+      search = "",
+      group_id,
+      state,
+      activate_interest_calculation,
+    } = req.query;
+
+    page = parseInt(page);
+    limit = parseInt(limit);
+
+    const offset =
+      (page - 1) * limit;
+
+    const filters = {
+      search,
+      group_id,
+      state,
+      activate_interest_calculation,
+    };
+
+    // GET TOTAL
+    const totalRecords =
+      await getLedgerCountModel(
+        filters
+      );
+
+    // GET DATA
+    const rows =
+      await getLedgersModel(
+        filters,
+        limit,
+        offset
+      );
+
+    return res.status(200).json({
+      success: true,
+
+      pagination: {
+        total_records:
+          totalRecords,
+
+        current_page: page,
+
+        total_pages:
+          Math.ceil(
+            totalRecords / limit
+          ),
+
+        per_page: limit,
+      },
+
+      data: rows,
+    });
+
+  } catch (error) {
+
+    console.log(
+      "GET LEDGERS ERROR:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Internal server error",
+      error: error.message,
+    });
+  }
 };
+
+
+module.exports = {  createLedgerController, getLedgers };

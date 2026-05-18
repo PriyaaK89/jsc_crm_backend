@@ -151,6 +151,34 @@ const autoClosePreviousDay = async (employeeId) => {
     await generateDailySalaryInternal(employeeId, dateStr);
   }
 };
+// attendance.controller.js
+
+exports.getTodayAttendance = async (req, res) => {
+  try {
+    const { employee_id } = req.params;
+
+    const attendance = await Attendance.getTodayAttendance(employee_id);
+
+    if (!attendance) {
+      return res.status(404).json({
+        success: false,
+        message: "No attendance found for today",
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: attendance,
+    });
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
 
 exports.markAttendance = async (req, res) => {
   try {

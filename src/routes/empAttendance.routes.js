@@ -28,5 +28,6 @@ router.get( "/attendance/monthly-summary/:employeeId", auth, attendanceControlle
 router.get( "/get-attendance-images/:employeeId", auth, attendanceController.getAttendanceImagesByDate);
 router.get( "/my-attendance", auth, attendanceController.getMyAttendance);
 router.get("/daily-summary", auth, attendanceController.getDailyAttendanceSummary);
+router.get( "/today-attendance/:employee_id", auth, attendanceController.getTodayAttendance);
 
 module.exports = router;

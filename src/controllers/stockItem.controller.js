@@ -22,25 +22,24 @@ exports.createStockItem = async (req, res) => {
     bulk_unit_value,
     bulk_base_value,
 
+      is_returnable,
+   returnable_percentage,
+
     maintain_in_batches,
     track_mfg_date,
     use_expiry_dates,
     set_standard_rates,
     enable_cost_tracking,
-
     gst_applicable,
     set_gst_details,
-
     type_of_supply,
     rate_of_duty,
-
     description,
     created_by,
-
     gst_details,
+    opening_stock, 
 
-    opening_stock
-
+   
 } = req.body;
 
         if (!item_name) {
@@ -64,6 +63,29 @@ exports.createStockItem = async (req, res) => {
             });
         }
 
+        if (is_returnable == 1) {
+
+   if (
+      returnable_percentage == null ||
+      returnable_percentage === ""
+   ) {
+      return res.status(400).json({
+         success: false,
+         message: "Returnable percentage is required"
+      });
+   }
+
+   if (
+      Number(returnable_percentage) < 0 ||
+      Number(returnable_percentage) > 100
+   ) {
+      return res.status(400).json({
+         success: false,
+         message: "Returnable percentage must be between 0 and 100"
+      });
+   }
+}
+
 
 
         // CREATE STOCK ITEM
@@ -85,6 +107,9 @@ const [stockItemResult] = await connection.query(
         bulk_unit_value,
         bulk_base_value,
 
+           is_returnable,
+   returnable_percentage,
+
         maintain_in_batches,
         track_mfg_date,
         use_expiry_dates,
@@ -101,7 +126,7 @@ const [stockItemResult] = await connection.query(
         created_by
 
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
 
@@ -117,6 +142,9 @@ const [stockItemResult] = await connection.query(
         bulk_unit_id || null,
         bulk_unit_value || null,
         bulk_base_value || null,
+
+        is_returnable || 0,
+returnable_percentage || null,
 
         maintain_in_batches || 0,
 
@@ -160,10 +188,9 @@ const [stockItemResult] = await connection.query(
                     taxability,
                     integrated_tax,
                     central_tax,
-                    state_tax,
-                    cess
+                    state_tax
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `,
                 [
                     stock_item_id,
@@ -175,7 +202,7 @@ const [stockItemResult] = await connection.query(
                     gst_details.integrated_tax || 0,
                     gst_details.central_tax || 0,
                     gst_details.state_tax || 0,
-                    gst_details.cess || 0
+                    // gst_details.cess || 0
                 ]
             );
         }
@@ -321,6 +348,9 @@ exports.updateStockItem = async (req, res) => {
             bulk_unit_value,
             bulk_base_value,
 
+              is_returnable,
+   returnable_percentage,
+
             maintain_in_batches,
             track_mfg_date,
             use_expiry_dates,
@@ -363,6 +393,11 @@ exports.updateStockItem = async (req, res) => {
                 bulk_unit_value = ?,
                 bulk_base_value = ?,
 
+                  is_returnable = ?,
+   returnable_percentage = ?,
+
+
+
                 maintain_in_batches = ?,
                 track_mfg_date = ?,
                 use_expiry_dates = ?,
@@ -394,6 +429,10 @@ exports.updateStockItem = async (req, res) => {
                 bulk_unit_id || null,
                 bulk_unit_value || null,
                 bulk_base_value || null,
+                
+        is_returnable || 0,
+returnable_percentage || null,
+
 
                 maintain_in_batches || 0,
                 track_mfg_date || 0,
@@ -439,11 +478,10 @@ exports.updateStockItem = async (req, res) => {
                     taxability,
                     integrated_tax,
                     central_tax,
-                    state_tax,
-                    cess
+                    state_tax
 
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `,
                 [
 
@@ -457,7 +495,7 @@ exports.updateStockItem = async (req, res) => {
                     gst_details.integrated_tax || 0,
                     gst_details.central_tax || 0,
                     gst_details.state_tax || 0,
-                    gst_details.cess || 0
+                    // gst_details.cess || 0
                 ]
             );
         }

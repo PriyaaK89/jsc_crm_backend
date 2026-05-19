@@ -16,6 +16,9 @@ const createStockItem = async (data) => {
         bulk_unit_value,
         bulk_base_value,
 
+         is_returnable,
+   returnable_percentage,
+
         maintain_in_batches,
         track_mfg_date,
         use_expiry_dates,
@@ -48,6 +51,9 @@ const createStockItem = async (data) => {
             bulk_unit_value,
             bulk_base_value,
 
+             is_returnable,
+   returnable_percentage,
+
             maintain_in_batches,
             track_mfg_date,
             use_expiry_dates,
@@ -62,7 +68,7 @@ const createStockItem = async (data) => {
             created_by
 
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
 
@@ -78,6 +84,9 @@ const createStockItem = async (data) => {
             bulk_unit_id || null,
             bulk_unit_value || null,
             bulk_base_value || null,
+
+            is_returnable || 0,
+returnable_percentage || null,
 
             maintain_in_batches || 0,
             track_mfg_date || 0,
@@ -108,7 +117,7 @@ const createGSTDetails = async (stock_item_id, data) => {
         integrated_tax,
         central_tax,
         state_tax,
-        cess
+       
     } = data;
 
     const [result] = await db.query(
@@ -122,10 +131,9 @@ const createGSTDetails = async (stock_item_id, data) => {
             taxability,
             integrated_tax,
             central_tax,
-            state_tax,
-            cess
+            state_tax
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ? )
         `,
         [
             stock_item_id,
@@ -137,7 +145,6 @@ const createGSTDetails = async (stock_item_id, data) => {
             integrated_tax,
             central_tax,
             state_tax,
-            cess
         ]
     );
 
@@ -235,6 +242,9 @@ const getStockItems = async (
 
             si.set_standard_rates,
             si.enable_cost_tracking,
+
+            si.is_returnable,
+si.returnable_percentage,
 
             si.description,
             si.created_at,

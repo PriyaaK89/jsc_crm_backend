@@ -204,6 +204,7 @@ exports.markAttendance = async (req, res) => {
       await Attendance.createAttendance([
         employee_id,
         "leave",
+         "leave",
         null, // work_type
         null, // field_work_type
         null, // travel_mode
@@ -258,6 +259,7 @@ exports.markAttendance = async (req, res) => {
       const attendanceId = await Attendance.createAttendance([
         employee_id,
         "present",
+        null,
         work_type,
         field_work_type,
         travel_mode,

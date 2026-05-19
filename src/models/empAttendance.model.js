@@ -12,8 +12,20 @@ exports.createAttendance = async (data) => {
   const [result] = await db.query(
     `
     INSERT INTO emp_attendance (
-      employee_id, attendance_date, status, work_type, field_work_type, travel_mode, vehicle_type, public_transport, odometer_reading, visit_location, check_in_time, leave_reason
-    ) VALUES (?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ employee_id,
+ attendance_date,
+ status,
+ attendance_unit,
+ work_type,
+ field_work_type,
+ travel_mode,
+ vehicle_type,
+ public_transport,
+ odometer_reading,
+ visit_location,
+ check_in_time,
+ leave_reason
+) VALUES (?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     data
   );

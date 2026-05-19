@@ -101,8 +101,8 @@ const createUser = async (user) => {
       user.pf || null,
       user.esi || null,
       user.profile_image || null,
-      user.reporting_under || null
-    ]
+      user.reporting_under || null,
+    ],
   );
 
   return { id: result.insertId };
@@ -121,7 +121,7 @@ const findUserByEmail = async (email) => {
     LEFT JOIN roles r ON r.id = u.role_id
     LEFT JOIN department d ON d.id = u.department_id
     WHERE u.email = ? `,
-    [email]
+    [email],
   );
   return rows[0];
 };
@@ -133,7 +133,7 @@ const updatePasswordByAdmin = async (userId, hashedPassword) => {
     SET password = ?, must_change_password = 0
     WHERE id = ?
     `,
-    [hashedPassword, userId]
+    [hashedPassword, userId],
   );
 };
 
@@ -143,15 +143,15 @@ const getAllUsers = async ({ search = "", page = 1, limit = 10 }) => {
   let whereClause = "";
   let params = [];
 
-if (search) {
-  whereClause = `
+  if (search) {
+    whereClause = `
     WHERE 
       u.name LIKE ? 
       OR u.email LIKE ? 
       OR u.contact_no LIKE ?
   `;
-  params.push(`%${search}%`, `%${search}%`, `%${search}%`);
-}
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+  }
 
   // Get paginated users
   const [rows] = await db.query(
@@ -216,7 +216,13 @@ approver.name AS approver_name,
   u.location_status,
   u.last_seen,
 
-  TIMESTAMPDIFF(MINUTE, u.last_seen, NOW()) AS minutes_offline
+  TIMESTAMPDIFF(MINUTE, u.last_seen, NOW()) AS minutes_offline,
+
+  CASE 
+  WHEN u.password IS NULL OR u.password = '' 
+  THEN 0
+  ELSE 1
+END AS password_set
     FROM users u
      JOIN roles r ON r.id = u.role_id
     LEFT JOIN department d ON d.id = u.department_id AND d.is_active = 1
@@ -228,7 +234,7 @@ approver.name AS approver_name,
     ORDER BY u.id DESC
     LIMIT ? OFFSET ?
     `,
-    [...params, Number(limit), Number(offset)]
+    [...params, Number(limit), Number(offset)],
   );
 
   // Get total count
@@ -238,12 +244,12 @@ approver.name AS approver_name,
     FROM users u
     ${whereClause}
     `,
-    params
+    params,
   );
 
   return {
     users: rows,
-    total: countResult[0].total
+    total: countResult[0].total,
   };
 };
 
@@ -321,13 +327,11 @@ const getUserById = async (id) => {
     LEFT JOIN users approver ON approver.id = u.approver_id
     WHERE u.id = ?
     `,
-    [id]
+    [id],
   );
 
   return rows[0];
 };
-
-
 
 const updateUserById = async (id, userData) => {
   const fields = [];
@@ -352,17 +356,16 @@ const updateUserById = async (id, userData) => {
     SET ${fields.join(", ")}
     WHERE id = ?
     `,
-    values
+    values,
   );
 
   return result.affectedRows > 0;
 };
 
-
 const updateUserStatus = async (userId, is_active) => {
   const [result] = await db.query(
     `UPDATE users SET is_active = ? WHERE id = ?`,
-    [is_active, userId]
+    [is_active, userId],
   );
 
   return result.affectedRows > 0;
@@ -403,7 +406,7 @@ SELECT
   must_change_password, week_off,
   NOW()
 FROM users WHERE id = ?;`,
-      [userId]
+      [userId],
     );
 
     if (rows.affectedRows === 0) {
@@ -415,7 +418,6 @@ FROM users WHERE id = ?;`,
 
     await conn.commit();
     return true;
-
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -457,7 +459,7 @@ FROM users WHERE id = ?;`,
 
 const getDeletedUsers = async () => {
   const [rows] = await db.query(
-    `SELECT * FROM deleted_users ORDER BY deleted_at DESC`
+    `SELECT * FROM deleted_users ORDER BY deleted_at DESC`,
   );
   return rows;
 };
@@ -467,17 +469,17 @@ const getUserDropdown = async () => {
     `SELECT id, name 
      FROM users
      WHERE is_active = 1
-     ORDER BY name ASC`
+     ORDER BY name ASC`,
   );
 
   return rows;
 };
 
 const updateProfileImage = async (userId, imagePath) => {
-  await db.query(
-    `UPDATE users SET profile_image = ? WHERE id = ?`,
-    [imagePath, userId]
-  );
+  await db.query(`UPDATE users SET profile_image = ? WHERE id = ?`, [
+    imagePath,
+    userId,
+  ]);
 };
 
 const getUsersUnderManager = async (managerId) => {
@@ -494,7 +496,7 @@ const getUsersUnderManager = async (managerId) => {
       INNER JOIN team t ON u.reporting_under = t.id
     )
     SELECT * FROM team`,
-    [managerId]
+    [managerId],
   );
 
   return rows;
@@ -518,11 +520,12 @@ const getSubordinateIds = async (userId) => {
 
   const [rows] = await db.query(query, [userId]);
 
-  return rows.map(row => row.id);
+  return rows.map((row) => row.id);
 };
 
 const getPermissionsByUser = async (userId) => {
-  const [rows] = await db.query(`
+  const [rows] = await db.query(
+    `
     SELECT 
       p.id,
       p.name,
@@ -534,21 +537,40 @@ const getPermissionsByUser = async (userId) => {
       ON p.id = up.permission_id 
       AND up.user_id = ?
     ORDER BY p.module
-  `, [userId]);
+  `,
+    [userId],
+  );
 
   return rows;
 };
 
 const saveUserPermissions = async (userId, permissions) => {
   for (const perm of permissions) {
-    await db.query(`
+    await db.query(
+      `
       INSERT INTO user_permissions (user_id, permission_id, is_allowed)
       VALUES (?, ?, ?)
       ON DUPLICATE KEY UPDATE is_allowed = ?
-    `, [userId, perm.permission_id, perm.is_allowed, perm.is_allowed]);
+    `,
+      [userId, perm.permission_id, perm.is_allowed, perm.is_allowed],
+    );
   }
 };
 
 module.exports = {
-  createUser, findUserByEmail, getAllUsers, getUserById, updateUserById, updatePasswordByAdmin, updateUserStatus, softDeleteUser, getDeletedUsers, getUserDropdown, updateProfileImage, getSubordinateIds, getUsersUnderManager, getPermissionsByUser, saveUserPermissions
+  createUser,
+  findUserByEmail,
+  getAllUsers,
+  getUserById,
+  updateUserById,
+  updatePasswordByAdmin,
+  updateUserStatus,
+  softDeleteUser,
+  getDeletedUsers,
+  getUserDropdown,
+  updateProfileImage,
+  getSubordinateIds,
+  getUsersUnderManager,
+  getPermissionsByUser,
+  saveUserPermissions,
 };

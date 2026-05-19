@@ -1,26 +1,47 @@
-const { createLedger, createLedgerBankDetails,  createLedgerOtherDetails, createLedgerInterestConfig, findLedgerByName, getLedgersModel,
-  getLedgerCountModel, } = require("../models/ledger.model");
-const { getGroupById, } = require("../models/accountGroup.model");
+const {
+  createLedger,
+  createLedgerBankDetails,
+  createLedgerOtherDetails,
+  createLedgerInterestConfigs,
+  findLedgerByName,
+  getLedgersModel,
+  getLedgerCountModel,
+  getLedgerByIdModel,
+  updateLedgerModel,
+  updateLedgerBankDetailsModel,
+  replaceLedgerInterestConfigsModel,
+  updateLedgerOtherDetailsModel,
+  deleteLedgerModel,
+} = require("../models/ledger.model");
+
+const { getGroupById } = require("../models/accountGroup.model");
+
+// FIX: import db so controllers can use getConnection()
+const db = require("../config/db");
 
 const isValidBoolean = (value) => {
   return value === 0 || value === 1;
 };
+
+
+// ===============================
+// CREATE LEDGER
+// ===============================
 
 const createLedgerController = async (req, res) => {
   try {
     const {
       ledger_name, group_id, employee_under,
       opening_balance, balance_type, opening_date,
-      mailing_name, location, country, state, pincode,
-      pan_no, gst_no,
+      mailing_name, location, country, state, pincode, pan_no, gst_no,
       maintain_bill_by_bill, default_credit_period, check_credit_days, credit_limit,
       inventory_values_affected, use_for_payroll, activate_interest_calculation, od_limit,
-      bank_details, interest_config, crm_details
-
+      bank_details, interest_configs, crm_details,
     } = req.body;
 
-    if (!ledger_name || !ledger_name.trim()) {
+    // --- Validations ---
 
+    if (!ledger_name || !ledger_name.trim()) {
       return res.status(400).json({
         success: false,
         message: "Ledger name is required",
@@ -28,7 +49,6 @@ const createLedgerController = async (req, res) => {
     }
 
     if (!group_id) {
-
       return res.status(400).json({
         success: false,
         message: "Group is required",
@@ -38,142 +58,56 @@ const createLedgerController = async (req, res) => {
     const group = await getGroupById(group_id);
 
     if (!group) {
-
       return res.status(404).json({
         success: false,
         message: "Group not found",
       });
     }
 
-    const existingLedger = await findLedgerByName(
-      ledger_name.trim()
-    );
+    const existingLedger = await findLedgerByName(ledger_name.trim());
 
     if (existingLedger) {
-
       return res.status(400).json({
         success: false,
         message: "Ledger already exists",
       });
     }
 
+    // Boolean field validation
     const booleanFields = [
-
       maintain_bill_by_bill,
       check_credit_days,
       inventory_values_affected,
       use_for_payroll,
       activate_interest_calculation,
-
       bank_details?.cheque_book_enabled,
       bank_details?.cheque_printing_enabled,
-
-      interest_config?.calculate_transaction_by_transaction,
-      interest_config?.amount_added,
-      interest_config?.amount_deducted,
-      interest_config?.security_enabled,
+      ...(interest_configs || []).flatMap((config) => [
+        config?.calculate_transaction_by_transaction,
+        config?.amount_added,
+        config?.amount_deducted,
+        config?.security_enabled,
+      ]),
     ];
 
     for (const value of booleanFields) {
-
-      if (
-        value !== undefined &&
-        value !== null &&
-        !isValidBoolean(value)
-      ) {
-
+      if (value !== undefined && value !== null && !isValidBoolean(value)) {
         return res.status(400).json({
           success: false,
-          message:
-            "Boolean fields must contain only 0 or 1",
+          message: "Boolean fields must contain only 0 or 1",
         });
       }
     }
 
-    if (
-      balance_type &&
-      !["Cr", "Dr"].includes(balance_type)
-    ) {
-
+    if (balance_type && !["Cr", "Dr"].includes(balance_type)) {
       return res.status(400).json({
         success: false,
-        message:
-          "Balance type must be either Cr or Dr",
+        message: "Balance type must be either Cr or Dr",
       });
     }
 
-    if (interest_config) {
-
-      if (
-        interest_config.interest_based_on &&
-        ![
-          "Bank/Reco date",
-          "Voucher date",
-        ].includes(
-          interest_config.interest_based_on
-        )
-      ) {
-
-        return res.status(400).json({
-          success: false,
-          message:
-            "Invalid interest_based_on value",
-        });
-      }
-
-      if (
-        interest_config.rate_per &&
-        ![
-          "Calendar Month",
-          "Calendar Year",
-        ].includes(
-          interest_config.rate_per
-        )
-      ) {
-
-        return res.status(400).json({
-          success: false,
-          message:
-            "Invalid rate_per value",
-        });
-      }
-
-      if (
-        interest_config.rate_on &&
-        ![
-          "Credit Balances Only",
-          "Debit Balances Only",
-        ].includes(
-          interest_config.rate_on
-        )
-      ) {
-
-        return res.status(400).json({
-          success: false,
-          message:
-            "Invalid rate_on value",
-        });
-      }
-
-      if (
-        interest_config.applicability &&
-        ![
-          "Always",
-          "Past Due Date",
-        ].includes(
-          interest_config.applicability
-        )
-      ) {
-
-        return res.status(400).json({
-          success: false,
-          message:
-            "Invalid applicability value",
-        });
-      }
-    }
-
-     if (crm_details) {
+    // CRM validation
+    if (crm_details) {
       if (
         crm_details.firm_type &&
         !["proprietor", "partner"].includes(crm_details.firm_type)
@@ -186,7 +120,9 @@ const createLedgerController = async (req, res) => {
 
       if (
         crm_details.firm_gstn_type &&
-        !["Composition", "Consumer", "Regular", "Unregistered"].includes(crm_details.firm_gstn_type)
+        !["Composition", "Consumer", "Regular", "Unregistered"].includes(
+          crm_details.firm_gstn_type
+        )
       ) {
         return res.status(400).json({
           success: false,
@@ -195,85 +131,81 @@ const createLedgerController = async (req, res) => {
       }
     }
 
-
-    // ===============================
-    // CREATE LEDGER
-    // ===============================
+    // --- Create Ledger ---
+    // FIX: ledgerId is now created FIRST before any sub-table inserts
 
     const ledgerId = await createLedger({
       ledger_name: ledger_name.trim(),
       group_id,
-
       employee_under: employee_under || null,
       opening_balance: opening_balance || 0,
       balance_type: balance_type || "Dr",
       opening_date: opening_date || null,
-      // MAILING
       mailing_name: mailing_name || null,
       location: location || null,
       country: country || null,
       state: state || null,
       pincode: pincode || null,
-      // TAX
       pan_no: pan_no || null,
       gst_no: gst_no || null,
-      // CREDIT
       maintain_bill_by_bill: maintain_bill_by_bill ?? 0,
       default_credit_period: default_credit_period || 0,
       check_credit_days: check_credit_days ?? 0,
       credit_limit: credit_limit || 0,
-      // FEATURES
       inventory_values_affected: inventory_values_affected ?? 0,
       use_for_payroll: use_for_payroll ?? 0,
       activate_interest_calculation: activate_interest_calculation ?? 0,
       od_limit: od_limit || 0,
       created_by: req.user?.id || null,
-    })
+    });
 
-
+    // --- Bank Details ---
 
     if (bank_details) {
-
-      await createLedgerBankDetails(
-        ledgerId,
-        {
-          account_holder_name: bank_details.account_holder_name || null,
-          account_number: bank_details.account_number || null,
-          ifsc_code: bank_details.ifsc_code || null,
-          bank_name: bank_details.bank_name || null,
-          branch_name: bank_details.branch_name || null,
-          cheque_book_enabled: bank_details.cheque_book_enabled ?? 0,
-          cheque_printing_enabled: bank_details.cheque_printing_enabled ?? 0,
-        }
-      );
+      await createLedgerBankDetails(ledgerId, {
+        account_holder_name: bank_details.account_holder_name || null,
+        account_number: bank_details.account_number || null,
+        ifsc_code: bank_details.ifsc_code || null,
+        bank_name: bank_details.bank_name || null,
+        branch_name: bank_details.branch_name || null,
+        cheque_book_enabled: bank_details.cheque_book_enabled ?? 0,
+        cheque_printing_enabled: bank_details.cheque_printing_enabled ?? 0,
+      });
     }
 
+    // --- Interest Configs ---
+    // FIX: removed the duplicate early block that used ledgerId before it existed.
+    // FIX: now correctly passes an array of config objects (not a plain object).
 
     if (
-      activate_interest_calculation === 1 &&
-      interest_config
+      Array.isArray(interest_configs) &&
+      interest_configs.length > 0 &&
+      activate_interest_calculation === 1
     ) {
-
-      await createLedgerInterestConfig(
+      await createLedgerInterestConfigs(
         ledgerId,
-        {
-          calculate_transaction_by_transaction:  interest_config.calculate_transaction_by_transaction ?? 0,
-          interest_based_on: interest_config.interest_based_on || null,
-          amount_added: interest_config.amount_added ?? 0,
-          amount_deducted: interest_config.amount_deducted ?? 0,
-          rate: interest_config.rate || 0,
-          rate_per: interest_config.rate_per || null,
-          rate_on: interest_config.rate_on || null,
-          applicability: interest_config.applicability || null,
-          applicability_days: interest_config.applicability_days || 0,
-          grace_period: interest_config.grace_period || 0,
-          security_enabled: interest_config.security_enabled ?? 0,
-          security_amount: interest_config.security_amount || 0,
-        }
+        interest_configs.map((config, index) => ({
+          slab_no: config.slab_no ?? index + 1,
+          calculate_transaction_by_transaction:
+            config.calculate_transaction_by_transaction ?? 0,
+          interest_based_on: config.interest_based_on ?? null,
+          amount_added: config.amount_added ?? 0,
+          amount_deducted: config.amount_deducted ?? 0,
+          rate: config.rate ?? 0,
+          rate_per: config.rate_per ?? null,
+          rate_on: config.rate_on ?? null,
+          applicability: config.applicability ?? null,
+          applicability_days: config.applicability_days ?? 0,
+          grace_period: config.grace_period ?? 0,
+          security_enabled: config.security_enabled ?? 0,
+          security_amount: config.security_amount ?? 0,
+        }))
       );
     }
 
-     if (crm_details) {
+    // --- CRM / Other Details ---
+
+    if (crm_details) {
       await createLedgerOtherDetails(ledgerId, {
         customer_name: crm_details.customer_name || null,
         customer_dob: crm_details.customer_dob || null,
@@ -311,7 +243,6 @@ const createLedgerController = async (req, res) => {
       });
     }
 
-
     return res.status(201).json({
       success: true,
       message: "Ledger created successfully",
@@ -319,11 +250,7 @@ const createLedgerController = async (req, res) => {
     });
 
   } catch (error) {
-    console.log(
-      "CREATE LEDGER ERROR:",
-      error
-    );
-
+    console.log("CREATE LEDGER ERROR:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -332,13 +259,13 @@ const createLedgerController = async (req, res) => {
   }
 };
 
-const getLedgers = async (
-  req,
-  res
-) => {
 
+// ===============================
+// GET LEDGERS
+// ===============================
+
+const getLedgers = async (req, res) => {
   try {
-
     let {
       page = 1,
       limit = 10,
@@ -351,8 +278,7 @@ const getLedgers = async (
     page = parseInt(page);
     limit = parseInt(limit);
 
-    const offset =
-      (page - 1) * limit;
+    const offset = (page - 1) * limit;
 
     const filters = {
       search,
@@ -361,55 +287,296 @@ const getLedgers = async (
       activate_interest_calculation,
     };
 
-    // GET TOTAL
-    const totalRecords =
-      await getLedgerCountModel(
-        filters
-      );
+    const totalRecords = await getLedgerCountModel(filters);
+    const rows = await getLedgersModel(filters, limit, offset);
 
-    // GET DATA
-    const rows =
-      await getLedgersModel(
-        filters,
-        limit,
-        offset
-      );
+    const formattedData = rows.map((row) => ({
+      id: row.id,
+      ledger_name: row.ledger_name,
+
+      group: {
+        id: row.group_id,
+        name: row.group_name,
+      },
+
+      basic_details: {
+        employee_under: row.employee_under,
+        opening_balance: Number(row.opening_balance || 0),
+        balance_type: row.balance_type,
+        opening_date: row.opening_date,
+      },
+
+      address_details: {
+        mailing_name: row.mailing_name,
+        location: row.location,
+        country: row.country,
+        state: row.state,
+        pincode: row.pincode,
+      },
+
+      tax_details: {
+        pan_no: row.pan_no,
+        gst_no: row.gst_no,
+      },
+
+      credit_details: {
+        maintain_bill_by_bill: row.maintain_bill_by_bill,
+        default_credit_period: row.default_credit_period,
+        check_credit_days: row.check_credit_days,
+        credit_limit: Number(row.credit_limit || 0),
+      },
+
+      payroll_and_inventory: {
+        inventory_values_affected: row.inventory_values_affected,
+        use_for_payroll: row.use_for_payroll,
+        activate_interest_calculation: row.activate_interest_calculation,
+        od_limit: Number(row.od_limit || 0),
+      },
+
+      bank_details: row.bank_detail_id
+        ? {
+            id: row.bank_detail_id,
+            account_holder_name: row.account_holder_name,
+            account_number: row.account_number,
+            ifsc_code: row.ifsc_code,
+            bank_name: row.bank_name,
+            branch_name: row.branch_name,
+            cheque_book_enabled: row.cheque_book_enabled,
+            cheque_printing_enabled: row.cheque_printing_enabled,
+          }
+        : null,
+
+      interest_configs: row.interest_configs
+        ? typeof row.interest_configs === "string"
+          ? JSON.parse(row.interest_configs)
+          : row.interest_configs
+        : [],
+
+      crm_details: row.crm_detail_id
+        ? {
+            id: row.crm_detail_id,
+            customer_name: row.customer_name,
+            customer_dob: row.customer_dob,
+
+            firm_details: {
+              firm_name: row.firm_name,
+              firm_type: row.firm_type,
+              firm_email: row.firm_email,
+              firm_since: row.firm_since,
+              firm_pan: row.firm_pan,
+              firm_aadhar: row.firm_aadhar,
+              firm_gstn_type: row.firm_gstn_type,
+              firm_annual_turnover: Number(row.firm_annual_turnover || 0),
+              expected_sale_per_year: Number(row.expected_sale_per_year || 0),
+              other_company_detail: row.other_company_detail,
+            },
+
+            address_details: {
+              address: row.address,
+              state: row.crm_state,
+              district: row.district,
+              tehsil: row.tehsil,
+              pincode: row.crm_pincode,
+              landmark: row.landmark,
+              branch: row.branch,
+            },
+
+            contact: row.contact,
+
+            responsible_person: {
+              name: row.responsible_person_name,
+              address: row.responsible_person_address,
+              contact: row.responsible_person_contact,
+            },
+
+            licence_details: {
+              seed_licence_no: row.seed_licence_no,
+              fert_licence_no: row.fert_licence_no,
+              pest_licence_no: row.pest_licence_no,
+            },
+
+            transport_name: row.transport_name,
+
+            bank_details: {
+              bank_name: row.crm_bank_name,
+              bank_acc_number: row.bank_acc_number,
+              bank_ifsc: row.bank_ifsc,
+              bank_branch: row.bank_branch,
+            },
+
+            security_cheques: {
+              cheque_1: row.security_cheque_no1,
+              cheque_2: row.security_cheque_no2,
+            },
+          }
+        : null,
+
+      created_by: row.created_by,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
 
     return res.status(200).json({
       success: true,
-
       pagination: {
-        total_records:
-          totalRecords,
-
+        total_records: totalRecords,
         current_page: page,
-
-        total_pages:
-          Math.ceil(
-            totalRecords / limit
-          ),
-
+        total_pages: Math.ceil(totalRecords / limit),
         per_page: limit,
       },
-
-      data: rows,
+      data: formattedData,
     });
 
   } catch (error) {
-
-    console.log(
-      "GET LEDGERS ERROR:",
-      error
-    );
-
+    console.log("GET LEDGERS ERROR:", error);
     return res.status(500).json({
       success: false,
-      message:
-        "Internal server error",
+      message: "Internal server error",
       error: error.message,
     });
   }
 };
 
 
-module.exports = {  createLedgerController, getLedgers };
+// ===============================
+// GET LEDGER BY ID
+// ===============================
+
+const getLedgerByIdController = async (req, res) => {
+  const connection = await db.getConnection();
+  try {
+    const { id } = req.params;
+
+    const ledger = await getLedgerByIdModel(connection, id);
+
+    if (!ledger) {
+      return res.status(404).json({
+        success: false,
+        message: "Ledger not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: ledger,
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch ledger",
+      error: error.message,
+    });
+  }
+};
+
+
+const updateLedgerController = async (req, res) => {
+  // FIX: db is now imported at the top, so getConnection() works correctly
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const { id } = req.params;
+    const { ledger, bank_details, interest_configs, other_details } = req.body;
+
+    const existingLedger = await getLedgerByIdModel(connection, id);
+
+    if (!existingLedger) {
+      await connection.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "Ledger not found",
+      });
+    }
+
+    if (ledger) {
+      await updateLedgerModel(connection, id, ledger);
+    }
+
+    if (bank_details) {
+      await updateLedgerBankDetailsModel(connection,id, bank_details);
+    }
+
+    if (interest_configs && Array.isArray(interest_configs)) {
+      await replaceLedgerInterestConfigsModel(connection, id, interest_configs);
+    }
+
+    if (other_details) {
+      await updateLedgerOtherDetailsModel(connection, id, other_details);
+    }
+
+    await connection.commit();
+
+    return res.status(200).json({
+      success: true,
+      message: "Ledger updated successfully",
+    });
+
+  } catch (error) {
+    await connection.rollback();
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update ledger",
+      error: error.message,
+    });
+
+  } finally {
+    connection.release();
+  }
+};
+
+
+// ===============================
+// DELETE LEDGER
+// ===============================
+
+const deleteLedgerController = async (req, res) => {
+  // FIX: db is now imported at the top, so getConnection() works correctly
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const { id } = req.params;
+
+    const ledger = await getLedgerByIdModel(connection, id);
+
+    if (!ledger) {
+      await connection.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "Ledger not found",
+      });
+    }
+
+    await deleteLedgerModel(connection, id);
+
+    await connection.commit();
+
+    return res.status(200).json({
+      success: true,
+      message: "Ledger deleted successfully",
+    });
+
+  } catch (error) {
+    await connection.rollback();
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete ledger",
+      error: error.message,
+    });
+
+  } finally {
+    connection.release();
+  }
+};
+
+module.exports = {
+  createLedgerController,
+  getLedgers,
+  getLedgerByIdController,
+  updateLedgerController,
+  deleteLedgerController,
+};

@@ -47,6 +47,7 @@ const unitOfMeasureRoute = require("../src/routes/unit.routes");
 const stockItemRoute = require("../src/routes/stockItem.routes");
 const accountGroupRoute = require("../src/routes/accountGroup.routes");
 const ledgerRoute = require("../src/routes/ledger.routes");
+const voucherRoute = require("../src/routes/voucherType.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -89,7 +90,9 @@ app.use(godownRoute);
 app.use(unitOfMeasureRoute);
 app.use(stockItemRoute);
 app.use(accountGroupRoute);
-app.use(ledgerRoute)
+app.use(ledgerRoute);
+app.use(voucherRoute);
+
 
 
 // 404 handler

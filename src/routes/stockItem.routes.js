@@ -4,12 +4,13 @@ const router = express.Router();
 
 const stockItemController =
 require("../controllers/stockItem.controller");
+const auth = require("../middleware/auth.middleware");
 
 
 
 // CREATE
 router.post(
-    "/create-stock-item",
+    "/create-stock-item", auth,
     stockItemController.createStockItem
 );
 
@@ -17,7 +18,7 @@ router.post(
 
 // GET LIST
 router.get(
-    "/get-stock-items",
+    "/get-stock-items", auth,
     stockItemController.getStockItems
 );
 
@@ -25,7 +26,7 @@ router.get(
 
 // GET DETAILS
 router.get(
-    "/getstockItemByID/:id",
+    "/getstockItemByID/:id", auth,
     stockItemController.getStockItemById
 );
 
@@ -33,7 +34,7 @@ router.get(
 
 // UPDATE
 router.put(
-    "/update-stock-item/:id",
+    "/update-stock-item/:id", auth,
     stockItemController.updateStockItem
 );
 
@@ -41,7 +42,7 @@ router.put(
 
 // DELETE
 router.delete(
-    "/delete-stock-item/:id",
+    "/delete-stock-item/:id", auth,
     stockItemController.deleteStockItem
 );
 

@@ -1198,6 +1198,54 @@ const deleteLedgerModel = async (connection, id) => {
   );
 };
 
+const getLedgerDropdownModel = async (search = "") => {
+
+  let whereCondition = "";
+  let queryParams = [];
+
+  if (search && search.trim() !== "") {
+
+    whereCondition = `
+      WHERE
+        l.ledger_name LIKE ?
+        OR l.mailing_name LIKE ?
+        OR l.gst_no LIKE ?
+    `;
+
+    const searchValue = `%${search.trim()}%`;
+
+    queryParams.push(
+      searchValue,
+      searchValue,
+      searchValue
+    );
+  }
+
+  const [rows] = await db.query(
+    `
+    SELECT
+      l.id,
+      l.ledger_name,
+      l.group_id,
+      ag.group_name,
+      l.state,
+      l.gst_no
+
+    FROM ledgers l
+
+    LEFT JOIN account_groups ag
+    ON ag.id = l.group_id
+
+    ${whereCondition}
+
+    ORDER BY l.ledger_name ASC
+    `,
+    queryParams
+  );
+
+  return rows;
+};
+
 module.exports = {
   createLedger,
   createLedgerBankDetails,
@@ -1211,5 +1259,5 @@ module.exports = {
   updateLedgerBankDetailsModel,
   replaceLedgerInterestConfigsModel,
   updateLedgerOtherDetailsModel,
-  deleteLedgerModel,
+  deleteLedgerModel, getLedgerDropdownModel
 };

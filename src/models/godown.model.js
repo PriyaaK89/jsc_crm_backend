@@ -35,13 +35,7 @@ const getAllGodowns = async ({
 }) => {
 
   const offset = (page - 1) * limit;
-
-  // ======================================
-  // SEARCH QUERY
-  // ======================================
-
   let searchQuery = "";
-
   let queryParams = [];
 
   if (search) {
@@ -56,10 +50,6 @@ const getAllGodowns = async ({
     queryParams.push(`%${search}%`);
     queryParams.push(`%${search}%`);
   }
-
-  // ======================================
-  // MAIN DATA QUERY
-  // ======================================
 
   const dataQuery = `
     SELECT

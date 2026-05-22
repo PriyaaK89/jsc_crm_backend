@@ -200,11 +200,6 @@ const getStockItems = async (
 
     const offset = (page - 1) * limit;
 
-    
-    // =========================
-    // GET TOTAL COUNT
-    // =========================
-
     const [countRows] = await db.query(
         `
         SELECT COUNT(*) AS total
@@ -215,12 +210,6 @@ const getStockItems = async (
     );
 
     const totalRecords = countRows[0].total;
-
-
-
-    // =========================
-    // GET DATA
-    // =========================
 
     const [rows] = await db.query(
         `

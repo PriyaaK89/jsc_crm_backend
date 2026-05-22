@@ -11,7 +11,7 @@ const {
   updateLedgerBankDetailsModel,
   replaceLedgerInterestConfigsModel,
   updateLedgerOtherDetailsModel,
-  deleteLedgerModel,
+  deleteLedgerModel, getLedgerDropdownModel
 } = require("../models/ledger.model");
 
 const { getGroupById } = require("../models/accountGroup.model");
@@ -573,10 +573,50 @@ const deleteLedgerController = async (req, res) => {
   }
 };
 
+const getLedgerDropdown = async (req, res) => {
+
+  try {
+
+    const { search = "" } = req.query;
+
+    const rows = await getLedgerDropdownModel(search);
+
+    const formattedData = rows.map((row) => ({
+      id: row.id,
+      ledger_name: row.ledger_name,
+
+      group: {
+        id: row.group_id,
+        name: row.group_name,
+      },
+
+      state: row.state,
+      gst_no: row.gst_no,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      total: formattedData.length,
+      data: formattedData,
+    });
+
+  } catch (error) {
+
+    console.log("GET LEDGER DROPDOWN ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+
 module.exports = {
   createLedgerController,
   getLedgers,
   getLedgerByIdController,
   updateLedgerController,
-  deleteLedgerController,
+  deleteLedgerController, getLedgerDropdown
 };

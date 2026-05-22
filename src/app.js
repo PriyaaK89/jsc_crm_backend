@@ -48,6 +48,8 @@ const stockItemRoute = require("../src/routes/stockItem.routes");
 const accountGroupRoute = require("../src/routes/accountGroup.routes");
 const ledgerRoute = require("../src/routes/ledger.routes");
 const voucherRoute = require("../src/routes/voucherType.routes");
+const materialManufacturingRoute = require("../src/routes/materialManufacturing.routes");
+const stockTransferRoute = require("../src/routes/stockTransfer.route");
 
 // Health check
 app.get('/', (req, res) => {
@@ -92,6 +94,8 @@ app.use(stockItemRoute);
 app.use(accountGroupRoute);
 app.use(ledgerRoute);
 app.use(voucherRoute);
+app.use(materialManufacturingRoute);
+app.use(stockTransferRoute)
 
 
 

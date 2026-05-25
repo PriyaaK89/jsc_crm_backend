@@ -221,7 +221,13 @@ exports.getEmployeeMonthlyReport = async (req, res) => {
 
         esd.basic_salary AS salary,
 
-        esd.total_reading,
+        CASE
+  WHEN ea.day_over_odometer_reading IS NOT NULL
+   AND ea.odometer_reading IS NOT NULL
+  THEN
+    ea.day_over_odometer_reading - ea.odometer_reading
+  ELSE 0
+END AS total_reading,
 
         esd.travelling_allowance AS ta,
 
@@ -254,6 +260,10 @@ exports.getEmployeeMonthlyReport = async (req, res) => {
 
       JOIN users u
         ON u.id = esd.employee_id
+
+        LEFT JOIN emp_attendance ea
+  ON ea.employee_id = esd.employee_id
+  AND ea.attendance_date = DATE(esd.salary_date)
 
       /* =========================
          HOTEL JOIN

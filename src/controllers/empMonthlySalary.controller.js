@@ -1,5 +1,60 @@
 const db = require("../config/db");
-const { getPresignedUrl } = require("../utils/fileUpload");
+const minioClient = require("../config/minio");
+const BUCKET = "jsc-crm";
+
+const getPresignedUrl = async (
+  objectPath,
+  expiry = 60 * 60
+) => {
+  try {
+    if (!objectPath) return null;
+
+    if (
+      objectPath.startsWith("http://") ||
+      objectPath.startsWith("https://")
+    ) {
+      const url = new URL(objectPath);
+
+      // pathname:
+      // /jsc-crm/employee/expenses/bills/test.jpg
+
+      objectPath = decodeURIComponent(
+        url.pathname
+      );
+
+      // remove bucket name
+      objectPath = objectPath.replace(
+        `/${BUCKET}/`,
+        ""
+      );
+
+      // remove leading slash
+      objectPath = objectPath.replace(/^\/+/, "");
+    }
+
+    console.log(
+      "FINAL OBJECT PATH =>",
+      objectPath
+    );
+
+    const url =
+      await minioClient.presignedGetObject(
+        BUCKET,
+        objectPath,
+        expiry
+      );
+
+    return url;
+  } catch (err) {
+    console.error(
+      "Presigned URL Error:",
+      err
+    );
+
+    return null;
+  }
+};
+
 
 exports.getEmployeeSalaryMonths = async (req, res) => {
   try {

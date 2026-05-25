@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const { getPresignedUrl } = require("../utils/fileUpload");
 
 exports.getEmployeeSalaryMonths = async (req, res) => {
   try {
@@ -97,8 +98,10 @@ exports.getEmployeeMonthlyReport = async (req, res) => {
     const currentPage = parseInt(page);
     const perPage = parseInt(limit);
     const offset = (currentPage - 1) * perPage;
+
     let searchCondition = "";
     const searchParams = [];
+
     if (search && search.trim() !== "") {
       searchCondition = `
         AND (
@@ -108,8 +111,16 @@ exports.getEmployeeMonthlyReport = async (req, res) => {
         )
       `;
 
-      searchParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      searchParams.push(
+        `%${search}%`,
+        `%${search}%`,
+        `%${search}%`
+      );
     }
+
+    /* =====================================================
+       COUNT QUERY
+    ===================================================== */
 
     const [countResult] = await db.query(
       `
@@ -120,213 +131,235 @@ exports.getEmployeeMonthlyReport = async (req, res) => {
       WHERE esd.employee_id = ?
       AND MONTH(esd.salary_date) = ?
       AND YEAR(esd.salary_date) = ?
-
       ${searchCondition}
       `,
-      [employee_id, month, year, ...searchParams],
+      [employee_id, month, year, ...searchParams]
     );
 
     const totalRecords = countResult[0].total;
-
     const totalPages = Math.ceil(totalRecords / perPage);
+
+    /* =====================================================
+       MAIN QUERY
+    ===================================================== */
 
     const [rows] = await db.query(
       `
-  SELECT
+      SELECT
 
-    esd.id,
+        esd.id,
 
-    DATE(esd.salary_date) AS date,
+        DATE(esd.salary_date) AS date,
 
-    u.name,
+        u.name,
 
-    CASE
+        CASE
+          WHEN esd.attendance_type = 'full' THEN 'P'
+          WHEN esd.attendance_type = 'half' THEN 'H'
+          WHEN esd.attendance_type = 'absent' THEN 'A'
+          WHEN esd.attendance_type = 'week_off' THEN 'W'
+          WHEN esd.attendance_type = 'leave' THEN 'L'
+          ELSE '-'
+        END AS attendance_type,
 
-      WHEN esd.attendance_type = 'full'
-        THEN 'P'
+        esd.working_hours,
 
-      WHEN esd.attendance_type = 'half'
-        THEN 'H'
+        esd.basic_salary AS salary,
 
-      WHEN esd.attendance_type = 'absent'
-        THEN 'A'
+        esd.total_reading,
 
-      WHEN esd.attendance_type = 'week_off'
-        THEN 'W'
+        esd.travelling_allowance AS ta,
 
-      WHEN esd.attendance_type = 'leave'
-        THEN 'L'
+        esd.daily_allowance AS da,
 
-      ELSE '-'
+        /* =========================
+           HOTEL
+        ========================= */
 
-    END AS attendance_type,
+        COALESCE(hotel.hotel_expense, 0) AS hotel_expense,
+        hotel.hotel_bill,
 
-    esd.working_hours,
+        /* =========================
+           OTHER
+        ========================= */
 
-    esd.basic_salary AS salary,
+        COALESCE(otherExp.other_expense, 0) AS other_expense,
+        otherExp.other_bill,
 
-    esd.total_reading,
+        /* =========================
+           BUS/TRAIN/TOLL
+        ========================= */
 
-    esd.travelling_allowance AS ta,
+        COALESCE(bt.bus_train_toll_expense, 0)
+          AS bus_train_toll_expense,
 
-    esd.daily_allowance AS da,
+        bt.bus_train_toll_bill
 
-    /* =========================
-       HOTEL
-    ========================= */
+      FROM emp_salary_daily esd
 
-    COALESCE(hotel.hotel_expense, 0)
-      AS hotel_expense,
+      JOIN users u
+        ON u.id = esd.employee_id
 
-    hotel.hotel_bill,
+      /* =========================
+         HOTEL JOIN
+      ========================= */
 
-    /* =========================
-       OTHER
-    ========================= */
+      LEFT JOIN (
 
-    COALESCE(otherExp.other_expense, 0)
-      AS other_expense,
+        SELECT
+          user_id,
+          DATE(expense_date) AS expense_day,
+          SUM(amount) AS hotel_expense,
+          MAX(bill_url) AS hotel_bill
 
-    otherExp.other_bill,
+        FROM employee_expense_entries
 
-    /* =========================
-       BUS/TRAIN/TOLL
-    ========================= */
+        WHERE expense_type = 'HOTEL'
+        AND status = 'PENDING'
 
-    COALESCE(bt.bus_train_toll_expense, 0)
-      AS bus_train_toll_expense,
+        GROUP BY
+          user_id,
+          DATE(expense_date)
 
-    bt.bus_train_toll_bill
+      ) hotel
 
-  FROM emp_salary_daily esd
+        ON hotel.user_id = esd.employee_id
+        AND hotel.expense_day = DATE(esd.salary_date)
 
-  JOIN users u
-    ON u.id = esd.employee_id
+      /* =========================
+         OTHER JOIN
+      ========================= */
 
-  /* =========================
-     HOTEL JOIN
-  ========================= */
+      LEFT JOIN (
 
-  LEFT JOIN (
+        SELECT
+          user_id,
+          DATE(expense_date) AS expense_day,
+          SUM(amount) AS other_expense,
+          MAX(bill_url) AS other_bill
 
-    SELECT
+        FROM employee_expense_entries
 
-      user_id,
+        WHERE expense_type = 'OTHER'
+        AND status = 'PENDING'
 
-      DATE(expense_date) AS expense_day,
+        GROUP BY
+          user_id,
+          DATE(expense_date)
 
-      SUM(amount) AS hotel_expense,
+      ) otherExp
 
-      MAX(bill_url) AS hotel_bill
+        ON otherExp.user_id = esd.employee_id
+        AND otherExp.expense_day = DATE(esd.salary_date)
 
-    FROM employee_expense_entries
+      /* =========================
+         BUS/TRAIN/TOLL JOIN
+      ========================= */
 
-    WHERE expense_type = 'HOTEL'
+      LEFT JOIN (
 
-    AND status = 'PENDING'
+        SELECT
+          user_id,
+          DATE(expense_date) AS expense_day,
+          SUM(amount) AS bus_train_toll_expense,
+          MAX(bill_url) AS bus_train_toll_bill
 
-    GROUP BY
-      user_id,
-      DATE(expense_date)
+        FROM employee_expense_entries
 
-  ) hotel
+        WHERE expense_type = 'BUS_TRAIN_TOLL'
+        AND status = 'PENDING'
 
-    ON hotel.user_id = esd.employee_id
+        GROUP BY
+          user_id,
+          DATE(expense_date)
 
-    AND hotel.expense_day
-      = DATE(esd.salary_date)
+      ) bt
 
-  /* =========================
-     OTHER JOIN
-  ========================= */
+        ON bt.user_id = esd.employee_id
+        AND bt.expense_day = DATE(esd.salary_date)
 
-  LEFT JOIN (
+      WHERE esd.employee_id = ?
+      AND MONTH(esd.salary_date) = ?
+      AND YEAR(esd.salary_date) = ?
 
-    SELECT
+      ${searchCondition}
 
-      user_id,
+      ORDER BY esd.salary_date ASC
 
-      DATE(expense_date) AS expense_day,
-
-      SUM(amount) AS other_expense,
-
-      MAX(bill_url) AS other_bill
-
-    FROM employee_expense_entries
-
-    WHERE expense_type = 'OTHER'
-
-    AND status = 'PENDING'
-
-    GROUP BY
-      user_id,
-      DATE(expense_date)
-
-  ) otherExp
-
-    ON otherExp.user_id = esd.employee_id
-
-    AND otherExp.expense_day
-      = DATE(esd.salary_date)
-
-  /* =========================
-     BUS/TRAIN/TOLL JOIN
-  ========================= */
-
-  LEFT JOIN (
-
-    SELECT
-
-      user_id,
-
-      DATE(expense_date) AS expense_day,
-
-      SUM(amount)
-        AS bus_train_toll_expense,
-
-      MAX(bill_url)
-        AS bus_train_toll_bill
-
-    FROM employee_expense_entries
-
-    WHERE expense_type = 'BUS_TRAIN_TOLL'
-
-    AND status = 'PENDING'
-
-    GROUP BY
-      user_id,
-      DATE(expense_date)
-
-  ) bt
-
-    ON bt.user_id = esd.employee_id
-
-    AND bt.expense_day
-      = DATE(esd.salary_date)
-
-  WHERE esd.employee_id = ?
-
-  AND MONTH(esd.salary_date) = ?
-
-  AND YEAR(esd.salary_date) = ?
-
-  ${searchCondition}
-
-  ORDER BY esd.salary_date ASC
-
-  LIMIT ?
-
-  OFFSET ?
-  `,
-      [employee_id, month, year, ...searchParams, perPage, offset],
+      LIMIT ? OFFSET ?
+      `,
+      [
+        employee_id,
+        month,
+        year,
+        ...searchParams,
+        perPage,
+        offset,
+      ]
     );
+
+    /* =====================================================
+       CONVERT BILL URL TO PRESIGNED URL
+    ===================================================== */
+
+    const updatedRows = await Promise.all(
+      rows.map(async (row) => {
+        let hotel_bill_url = null;
+        let other_bill_url = null;
+        let bus_train_toll_bill_url = null;
+
+        try {
+          if (row.hotel_bill) {
+            hotel_bill_url = await getPresignedUrl(
+              row.hotel_bill
+            );
+          }
+
+          if (row.other_bill) {
+            other_bill_url = await getPresignedUrl(
+              row.other_bill
+            );
+          }
+
+          if (row.bus_train_toll_bill) {
+            bus_train_toll_bill_url =
+              await getPresignedUrl(
+                row.bus_train_toll_bill
+              );
+          }
+        } catch (err) {
+          console.error("Presigned URL Error:", err);
+        }
+
+        return {
+          ...row,
+
+          hotel_bill: hotel_bill_url,
+
+          other_bill: other_bill_url,
+
+          bus_train_toll_bill:
+            bus_train_toll_bill_url,
+        };
+      })
+    );
+
+    /* =====================================================
+       TOTALS QUERY
+    ===================================================== */
 
     const [totalRows] = await db.query(
       `
       SELECT
-        COALESCE(SUM(esd.basic_salary),0) AS total_salary,
-        COALESCE(SUM(esd.travelling_allowance),0) AS total_ta,
-        COALESCE(SUM(esd.daily_allowance),0) AS total_da,
+
+        COALESCE(SUM(esd.basic_salary),0)
+          AS total_salary,
+
+        COALESCE(SUM(esd.travelling_allowance),0)
+          AS total_ta,
+
+        COALESCE(SUM(esd.daily_allowance),0)
+          AS total_da,
 
         /* HOTEL */
 
@@ -341,6 +374,7 @@ exports.getEmployeeMonthlyReport = async (req, res) => {
         ) AS total_hotel,
 
         /* OTHER */
+
         (
           SELECT COALESCE(SUM(amount),0)
           FROM employee_expense_entries
@@ -350,7 +384,9 @@ exports.getEmployeeMonthlyReport = async (req, res) => {
           AND expense_type = 'OTHER'
           AND status = 'PENDING'
         ) AS total_other,
+
         /* BUS/TRAIN/TOLL */
+
         (
           SELECT COALESCE(SUM(amount),0)
           FROM employee_expense_entries
@@ -360,7 +396,9 @@ exports.getEmployeeMonthlyReport = async (req, res) => {
           AND expense_type = 'BUS_TRAIN_TOLL'
           AND status = 'PENDING'
         ) AS total_toll
+
       FROM emp_salary_daily esd
+
       WHERE esd.employee_id = ?
       AND MONTH(esd.salary_date) = ?
       AND YEAR(esd.salary_date) = ?
@@ -369,16 +407,19 @@ exports.getEmployeeMonthlyReport = async (req, res) => {
         employee_id,
         month,
         year,
+
         employee_id,
         month,
         year,
+
         employee_id,
         month,
         year,
+
         employee_id,
         month,
         year,
-      ],
+      ]
     );
 
     const totals = {
@@ -392,17 +433,23 @@ exports.getEmployeeMonthlyReport = async (req, res) => {
 
     return res.status(200).json({
       success: true,
+
       pagination: {
         total_records: totalRecords,
         total_pages: totalPages,
         current_page: currentPage,
         per_page: perPage,
       },
+
       totals,
-      data: rows,
+
+      data: updatedRows,
     });
   } catch (error) {
-    console.error("Monthly Salary Report Error:", error);
+    console.error(
+      "Monthly Salary Report Error:",
+      error
+    );
 
     return res.status(500).json({
       success: false,

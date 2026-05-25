@@ -7,20 +7,12 @@ const createStockTransfer = async (req, res) => {
   try {
     const data = req.body;
 
-    // ==========================================
-    // BASIC VALIDATION
-    // ==========================================
-
     if (!data.transfer_date) {
       return res.status(400).json({
         success: false,
         message: "Transfer date is required",
       });
     }
-
-    // ==========================================
-    // SOURCE ITEMS VALIDATION
-    // ==========================================
 
     if (
       !data.source_items ||
@@ -223,6 +215,53 @@ const createStockTransfer = async (req, res) => {
   }
 };
 
+
+const getStockTransferReport = async ( req, res ) => {
+  try {
+    let {
+      item_id,
+      from_date,
+      to_date,
+      search = "",
+      page = 1,
+      limit = 10,
+    } = req.query;
+
+    page = Number(page) || 1;
+    limit = Number(limit) || 10;
+
+    if (page < 1) {
+      page = 1;
+    }
+
+    if (limit < 1) {
+      limit = 10;
+    }
+
+    const result =
+      await StockTransferModel.getStockTransferReport({ item_id, from_date, to_date, search, page, limit, });
+
+    return res.status(200).json({
+      success: true,
+      message: "Stock transfer report fetched successfully",
+      data: result.data,
+      pagination: result.pagination,
+    });
+
+  } catch (error) {
+    console.log(
+      "getStockTransferReport Error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
-  createStockTransfer,
+  createStockTransfer, getStockTransferReport
 };

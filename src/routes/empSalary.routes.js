@@ -1,16 +1,16 @@
 const express = require("express");
 const router = express.Router();
-const salaryController = require("../controllers/EmpSalary.controller");
+const salaryController = require("../controllers/empMonthlySalary.controller");
 const auth = require('../middleware/auth.middleware');
 
 router.get(
-  "/get-monthly-salary/:employeeId", auth,
-  salaryController.calculateMonthlySalary
+  "/get-monthly-salary", auth,
+  salaryController.getEmployeeMonthlyReport
 );
-router.post(
-  "/lock-monthly-salary/:employeeId",
-  auth,
-  salaryController.lockMonthlySalary
+
+router.get(
+  "/salary-months/:employee_id",
+  salaryController.getEmployeeSalaryMonths
 );
 
 module.exports = router;

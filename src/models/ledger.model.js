@@ -210,19 +210,6 @@ const createLedgerInterestConfigs = async (
   }
 };
 
-const findLedgerByName = async (ledger_name) => {
-
-  const [rows] = await db.query(
-    `
-    SELECT * FROM ledgers
-    WHERE ledger_name = ?
-    `,
-    [ledger_name]
-  );
-
-  return rows[0];
-};
-
 const createLedgerOtherDetails = async (ledger_id, crmData) => {
   const {
     customer_name, customer_dob,
@@ -294,10 +281,18 @@ const createLedgerOtherDetails = async (ledger_id, crmData) => {
   );
 };
 
+const findLedgerByName = async (ledger_name) => {
 
-// ===============================
-// GET LEDGERS
-// ===============================
+  const [rows] = await db.query(
+    `
+    SELECT * FROM ledgers
+    WHERE ledger_name = ?
+    `,
+    [ledger_name]
+  );
+
+  return rows[0];
+};
 
 const getLedgersModel = async (
   filters,
@@ -672,9 +667,6 @@ const getLedgerCountModel = async (filters) => {
 
 const getLedgerByIdModel = async (connection,id) => {
 
-  // FIX: replaced l.*, lbd.*, lod.* with explicit column aliases to prevent
-  // column name collisions (id, state, pincode) between tables silently
-  // overwriting each other in the result row.
   const [ledgerRows] = await connection.query(
     `
     SELECT
@@ -773,7 +765,7 @@ const getLedgerByIdModel = async (connection,id) => {
     return null;
   }
 
-  const [interestConfigs] = await db.query(
+  const [interestConfigs] = await connection.query(
     `
     SELECT
 
@@ -1210,11 +1202,13 @@ const getLedgerDropdownModel = async (search = "") => {
         l.ledger_name LIKE ?
         OR l.mailing_name LIKE ?
         OR l.gst_no LIKE ?
+        OR u.name LIKE ?
     `;
 
     const searchValue = `%${search.trim()}%`;
 
     queryParams.push(
+      searchValue,
       searchValue,
       searchValue,
       searchValue
@@ -1226,6 +1220,10 @@ const getLedgerDropdownModel = async (search = "") => {
     SELECT
       l.id,
       l.ledger_name,
+      l.employee_under,
+
+      COALESCE(u.name, '') AS employee_name,
+
       l.group_id,
       ag.group_name,
       l.state,
@@ -1236,6 +1234,9 @@ const getLedgerDropdownModel = async (search = "") => {
     LEFT JOIN account_groups ag
     ON ag.id = l.group_id
 
+    LEFT JOIN users u
+    ON u.id = l.employee_under
+
     ${whereCondition}
 
     ORDER BY l.ledger_name ASC
@@ -1244,6 +1245,64 @@ const getLedgerDropdownModel = async (search = "") => {
   );
 
   return rows;
+};
+
+const reassignLedgerEmployeeModel = async (
+  ledger_id,
+  employee_under
+) => {
+
+  console.log("MODEL ledger_id:", ledger_id);
+  console.log(
+    "MODEL employee_under:",
+    employee_under
+  );
+
+  const parsedLedgerId = Number(ledger_id);
+
+  const parsedEmployeeUnder =
+    employee_under !== undefined &&
+    employee_under !== null &&
+    employee_under !== ""
+      ? Number(employee_under)
+      : null;
+
+  console.log(
+    "parsedLedgerId:",
+    parsedLedgerId
+  );
+
+  console.log(
+    "parsedEmployeeUnder:",
+    parsedEmployeeUnder
+  );
+
+  if (Number.isNaN(parsedLedgerId)) {
+    throw new Error("Invalid ledger_id");
+  }
+
+  if (
+    parsedEmployeeUnder !== null &&
+    Number.isNaN(parsedEmployeeUnder)
+  ) {
+    throw new Error("Invalid employee_under");
+  }
+
+  const [result] = await db.query(
+    `
+    UPDATE ledgers
+    SET
+      employee_under = ?,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+    `,
+    [
+      parsedEmployeeUnder,
+      parsedLedgerId,
+    ]
+  );
+
+  return result;
 };
 
 module.exports = {
@@ -1259,5 +1318,5 @@ module.exports = {
   updateLedgerBankDetailsModel,
   replaceLedgerInterestConfigsModel,
   updateLedgerOtherDetailsModel,
-  deleteLedgerModel, getLedgerDropdownModel
+  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel
 };

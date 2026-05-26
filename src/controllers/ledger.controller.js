@@ -11,7 +11,7 @@ const {
   updateLedgerBankDetailsModel,
   replaceLedgerInterestConfigsModel,
   updateLedgerOtherDetailsModel,
-  deleteLedgerModel, getLedgerDropdownModel
+  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel
 } = require("../models/ledger.model");
 
 const { getGroupById } = require("../models/accountGroup.model");
@@ -589,6 +589,7 @@ const getLedgerDropdown = async (req, res) => {
         id: row.group_id,
         name: row.group_name,
       },
+      emp_name: row.employee_name,
 
       state: row.state,
       gst_no: row.gst_no,
@@ -612,11 +613,92 @@ const getLedgerDropdown = async (req, res) => {
   }
 };
 
+const reassignLedgerEmployee = async (
+  req,
+  res
+) => {
+
+  const connection = await db.getConnection();
+
+  try {
+
+    console.log("BODY:", req.body);
+
+    const {
+      ledger_id,
+      employee_under,
+    } = req.body;
+
+    console.log(
+      "CONTROLLER ledger_id:",
+      ledger_id
+    );
+
+    console.log(
+      "CONTROLLER employee_under:",
+      employee_under
+    );
+
+    if (
+      ledger_id === undefined ||
+      ledger_id === null ||
+      ledger_id === ""
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "ledger_id is required",
+      });
+    }
+
+    const ledger =
+      await getLedgerByIdModel(
+        connection,
+        Number(ledger_id)
+      );
+
+    if (!ledger) {
+      return res.status(404).json({
+        success: false,
+        message: "Ledger not found",
+      });
+    }
+
+    await reassignLedgerEmployeeModel(
+      ledger_id,
+      employee_under
+    );
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Ledger reassigned successfully",
+    });
+
+  } catch (error) {
+
+    console.log(
+      "Reassign Ledger Error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+
+  } finally {
+
+    connection.release();
+
+  }
+};
+
 
 module.exports = {
   createLedgerController,
   getLedgers,
   getLedgerByIdController,
   updateLedgerController,
-  deleteLedgerController, getLedgerDropdown
+  deleteLedgerController, getLedgerDropdown, reassignLedgerEmployee
 };

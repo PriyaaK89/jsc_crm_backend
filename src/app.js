@@ -52,6 +52,8 @@ const materialManufacturingRoute = require("../src/routes/materialManufacturing.
 const stockTransferRoute = require("../src/routes/stockTransfer.route");
 const retailerRoute = require("../src/routes/retailer.routes");
 const retailerAssignmentRoute = require("../src/routes/retailerAssignment.routes");
+const generateVoucherRoute = require("../src/routes/generateVoucher.routes");
+const purchaseTxnMasterRoute = require("../src/routes/purchaseTxnMaster.routes")
 
 // Health check
 app.get('/', (req, res) => {
@@ -100,6 +102,8 @@ app.use(materialManufacturingRoute);
 app.use(stockTransferRoute);
 app.use(retailerRoute);
 app.use(retailerAssignmentRoute);
+app.use(generateVoucherRoute);
+app.use(purchaseTxnMasterRoute);
 
 // 404 handler
 app.use((req, res) => {

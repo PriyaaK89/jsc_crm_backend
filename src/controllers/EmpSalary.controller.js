@@ -20,7 +20,7 @@ exports.calculateMonthlySalary = async (req, res) => {
       });
     }
 
-    // 🔹 Get totals from daily salary table
+    // Get totals from daily salary table
     const summary = await Salary.getMonthlySalarySummary(
       employeeId,
       month,

@@ -107,13 +107,15 @@ exports.getVisits = async (req, res) => {
     const loggedInUser = req.user;
 
     const filters = {
+       user_id: clean(req.query.user_id),
       visit_type: clean(req.query.visit_type),
       district: clean(req.query.district),
       from_date: clean(req.query.from_date),
       to_date: clean(req.query.to_date),
       search: clean(req.query.search),
       page: req.query.page || 1,
-      limit: req.query.limit || 10
+      limit: req.query.limit || 10,
+       
     };
 
     let userIds = null; //  default = no restriction
@@ -227,5 +229,45 @@ exports.getTodayVisitCount = async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getVisitReport = async (req, res) => {
+  try {
+
+    const filters = {
+      user_id: clean(req.query.user_id),
+      from_date: clean(req.query.from_date),
+      to_date: clean(req.query.to_date),
+      visit_type: clean(req.query.visit_type),
+
+      // NEW
+      search: clean(req.query.search),
+
+      // PAGINATION
+      page: clean(req.query.page),
+      limit: clean(req.query.limit),
+    };
+
+    const result = await visitModel.getVisitReportSummary(filters);
+
+    res.status(200).json({
+      success: true,
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
+      count: result.data.length,
+      data: result.data,
+    });
+
+  } catch (err) {
+
+    console.log("getVisitReport Error:", err);
+
+    res.status(500).json({
+      success: false,
+      error: err.message,
+    });
   }
 };

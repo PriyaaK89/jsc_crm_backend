@@ -59,10 +59,16 @@ exports.saveDailySalary = async (data) => {
       basic_salary,
       travelling_allowance,
       daily_allowance,
+
+       hotel_expense,
+      other_expense,
+      bus_train_toll_expense,
+      total_reading,
+
       gross_salary,
       net_salary
     )
-    VALUES (?,?,?,?,?,?,?,?,?,?)
+    VALUES (?,?,?,?,?,?,?,?,?,?, ?, ?, ?, ?)
     
     ON DUPLICATE KEY UPDATE
       attendance_type = VALUES(attendance_type),
@@ -71,6 +77,10 @@ exports.saveDailySalary = async (data) => {
       basic_salary = VALUES(basic_salary),
       travelling_allowance = VALUES(travelling_allowance),
       daily_allowance = VALUES(daily_allowance),
+      hotel_expense = VALUES(hotel_expense),
+      other_expense = VALUES(other_expense),
+      bus_train_toll_expense = VALUES(bus_train_toll_expense),
+      total_reading = VALUES(total_reading),
       gross_salary = VALUES(gross_salary),
       net_salary = VALUES(net_salary)
     `,

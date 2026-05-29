@@ -18,7 +18,7 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   const [[lockedRow]] = await require("../config/db").query(
     `SELECT salary_locked FROM emp_salary 
      WHERE employee_id = ? AND month = ? AND year = ?`,
-    [employeeId, month, year]
+    [employeeId, month, year],
   );
 
   if (lockedRow && lockedRow.salary_locked === 1) return;
@@ -46,16 +46,19 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   /* ---------- Travel & Daily Allowance ---------- */
   let travelAllowance = 0;
   let dailyAllowance = 0;
+  let totalReading = 0;
 
-  if (
-    attendance.check_out_time &&
-    attendance.work_type !== "wfh"
-  ) {
+  if (attendance.check_out_time && attendance.work_type !== "wfh") {
     const startKm = Number(attendance.odometer_reading) || 0;
     const endKm = Number(attendance.day_over_odometer_reading) || 0;
 
     let travelledKm = endKm - startKm;
-    if (travelledKm < 0) travelledKm = 0;
+
+if (travelledKm < 0) {
+  travelledKm = 0;
+}
+
+totalReading = travelledKm;
 
     // Normalize vehicle type (prevents mismatch bugs)
     const vehicleType = (attendance.vehicle_type || "").toLowerCase();
@@ -70,7 +73,9 @@ const generateDailySalaryInternal = async (employeeId, date) => {
     /* ---------- VALIDATION (No silent failure) ---------- */
     if (travelledKm > 0) {
       if (!vehicleType) {
-        console.error(` vehicle_type missing for employee ${employeeId} on ${date}`);
+        console.error(
+          ` vehicle_type missing for employee ${employeeId} on ${date}`,
+        );
       }
 
       if (!rateMap.hasOwnProperty(vehicleType)) {
@@ -107,8 +112,47 @@ const generateDailySalaryInternal = async (employeeId, date) => {
     });
   }
 
+  /* ---------- Expense Calculation ---------- */
+
+let hotelExpense = 0;
+let otherExpense = 0;
+let busTrainTollExpense = 0;
+
+const [expenses] = await db.query(
+  `
+  SELECT
+    expense_type,
+    SUM(amount) as total
+  FROM employee_expense_entries
+  WHERE user_id = ?
+    AND DATE(expense_date) = ?
+    AND status = 'APPROVED'
+  GROUP BY expense_type
+  `,
+  [employeeId, date]
+);
+
+for (const exp of expenses) {
+
+  const amount = Number(exp.total) || 0;
+
+  if (exp.expense_type === "HOTEL") {
+    hotelExpense = amount;
+  }
+
+  if (exp.expense_type === "OTHER") {
+    otherExpense = amount;
+  }
+
+  if (exp.expense_type === "BUS_TRAIN_TOLL") {
+    busTrainTollExpense = amount;
+  }
+}
+
   /* ---------- Final Salary ---------- */
-  const grossSalary = basicSalary + travelAllowance + dailyAllowance;
+  const grossSalary = basicSalary + travelAllowance + dailyAllowance + hotelExpense +
+  otherExpense +
+  busTrainTollExpense;
   const netSalary = grossSalary;
 
   await SalaryDaily.saveDailySalary([
@@ -120,6 +164,12 @@ const generateDailySalaryInternal = async (employeeId, date) => {
     basicSalary.toFixed(2),
     travelAllowance.toFixed(2),
     dailyAllowance.toFixed(2),
+
+     hotelExpense.toFixed(2),
+  otherExpense.toFixed(2),
+  busTrainTollExpense.toFixed(2),
+  totalReading.toFixed(2),
+
     grossSalary.toFixed(2),
     netSalary.toFixed(2),
   ]);
@@ -136,22 +186,14 @@ const autoClosePreviousDay = async (employeeId) => {
   if (
     attendance &&
     attendance.status === "present" &&
-    attendance.check_in_time &&   //  ADD THIS
+    attendance.check_in_time && //  ADD THIS
     !attendance.check_out_time
   ) {
-    await Attendance.updateDayOver([
-      0,
-      "half",
-      0,
-      null,
-      null,
-      attendance.id,
-    ]);
+    await Attendance.updateDayOver([0, "half", 0, null, null, attendance.id]);
 
     await generateDailySalaryInternal(employeeId, dateStr);
   }
 };
-// attendance.controller.js
 
 exports.getTodayAttendance = async (req, res) => {
   try {
@@ -191,7 +233,6 @@ exports.markAttendance = async (req, res) => {
     // await autoClosePreviousDay(employee_id);
     const todayAttendance = await Attendance.getTodayAttendance(employee_id);
 
-    /* ======================= LEAVE ======================= */
     if (status === "leave") {
       if (!req.body.leave_reason) {
         return res.status(400).json({ message: "Leave reason required" });
@@ -204,7 +245,7 @@ exports.markAttendance = async (req, res) => {
       await Attendance.createAttendance([
         employee_id,
         "leave",
-         "leave",
+        "leave",
         null, // work_type
         null, // field_work_type
         null, // travel_mode
@@ -216,6 +257,10 @@ exports.markAttendance = async (req, res) => {
         req.body.leave_reason,
       ]);
 
+      await generateDailySalaryInternal(
+        employee_id,
+        new Date().toISOString().split("T")[0],
+      );
       return res.json({ message: "Leave marked successfully" });
     }
 
@@ -301,10 +346,10 @@ exports.markAttendance = async (req, res) => {
       }
 
       if (!todayAttendance.check_in_time) {
-  return res.status(400).json({
-    message: "Invalid attendance: check-in missing",
-  });
-}
+        return res.status(400).json({
+          message: "Invalid attendance: check-in missing",
+        });
+      }
 
       if (todayAttendance.check_out_time) {
         return res.status(400).json({ message: "Day over already marked" });

@@ -19,6 +19,12 @@ exports.getVisits = async (filters) => {
 
   //  Filters
 
+if (filters.user_id) {
+  baseQuery += ` AND v.user_id = ?`;
+  params.push(filters.user_id);
+}
+
+// Hierarchy filter for non-admin
 if (filters.user_ids && filters.user_ids.length > 0) {
   baseQuery += ` AND v.user_id IN (${filters.user_ids.map(() => "?").join(",")})`;
   params.push(...filters.user_ids);
@@ -102,5 +108,179 @@ if (filters.user_ids && filters.user_ids.length > 0) {
     limit,
     totalPages: Math.ceil(total / limit),
     data: rows
+  };
+};
+
+exports.getVisitReportSummary = async (filters) => {
+
+  let baseQuery = `
+    FROM visits v
+    LEFT JOIN customers c ON v.customer_id = c.id
+    LEFT JOIN users u ON v.user_id = u.id
+    WHERE 1=1
+  `;
+
+  const params = [];
+
+  // =========================
+  // FILTERS
+  // =========================
+
+  if (filters.user_id) {
+    baseQuery += ` AND v.user_id = ?`;
+    params.push(filters.user_id);
+  }
+
+  if (filters.visit_type) {
+    baseQuery += ` AND v.visit_type = ?`;
+    params.push(filters.visit_type);
+  }
+
+  if (filters.district) {
+    baseQuery += ` AND c.district = ?`;
+    params.push(filters.district);
+  }
+
+  if (filters.from_date && filters.to_date) {
+    baseQuery += ` AND DATE(v.created_at) BETWEEN ? AND ?`;
+    params.push(filters.from_date, filters.to_date);
+  }
+
+  // =========================
+  // SEARCH FILTER
+  // =========================
+
+  if (filters.search) {
+
+    baseQuery += `
+      AND (
+        u.name LIKE ?
+        OR c.name LIKE ?
+        OR c.firm_name LIKE ?
+        OR c.contact_number LIKE ?
+        OR c.district LIKE ?
+        OR v.comment LIKE ?
+        OR v.visit_purpose LIKE ?
+      )
+    `;
+
+    const searchValue = `%${filters.search}%`;
+
+    params.push(
+      searchValue,
+      searchValue,
+      searchValue,
+      searchValue,
+      searchValue,
+      searchValue,
+      searchValue
+    );
+  }
+
+  // =========================
+  // TOTAL COUNT
+  // =========================
+
+  const countQuery = `
+    SELECT COUNT(*) as total
+    FROM (
+      SELECT 
+        v.user_id,
+        v.customer_id,
+        v.visit_purpose
+
+      ${baseQuery}
+
+      GROUP BY 
+        v.user_id,
+        v.customer_id,
+        v.visit_purpose
+    ) x
+  `;
+
+  const [countResult] = await db.query(countQuery, params);
+
+  const total = countResult[0].total;
+
+  // =========================
+  // PAGINATION
+  // =========================
+
+  const limit = Math.min(parseInt(filters.limit) || 10, 100);
+
+  const page = parseInt(filters.page) || 1;
+
+  const offset = (page - 1) * limit;
+
+  // =========================
+  // MAIN QUERY
+  // =========================
+
+  const dataQuery = `
+
+    SELECT
+
+      MAX(v.id) AS id,
+
+      v.user_id,
+
+      MAX(u.name) AS employee_name,
+
+      MAX(v.visit_type) AS visit_type,
+
+      MAX(v.customer_type) AS customer_type,
+
+      MAX(v.visit_purpose) AS visit_purpose,
+
+      MAX(v.comment) AS comment,
+
+      MAX(v.reminder_date) AS reminder_date,
+
+      MAX(v.image_path) AS image_path,
+
+      MAX(v.created_at) AS created_at,
+
+      v.customer_id,
+
+      MAX(c.name) AS customer_name,
+
+      MAX(c.firm_name) AS firm_name,
+
+      MAX(c.contact_number) AS contact_number,
+
+      MAX(c.address) AS address,
+
+      MAX(c.area) AS area,
+
+      MAX(c.district) AS district,
+
+      MAX(c.pincode) AS pincode,
+
+      COUNT(v.id) AS number_of_visits
+
+    ${baseQuery}
+
+    GROUP BY
+
+      v.user_id,
+      v.customer_id,
+      v.visit_purpose
+
+    ORDER BY MAX(v.id) DESC
+
+    LIMIT ? OFFSET ?
+  `;
+
+  const [rows] = await db.query(
+    dataQuery,
+    [...params, limit, offset]
+  );
+
+  return {
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+    data: rows,
   };
 };

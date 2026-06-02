@@ -8,6 +8,5 @@ router.post( "/create-payment",  upload.single("attachment"), auth, paymentContr
 router.get( "/bank-ledger-dropdown", auth, paymentController.getPaymentAccountDropdown );
 router.get( "/bill-references/:ledgerId", auth, paymentController.getBillReferences);
 router.get("/payment-invoice/print/:id",  paymentController.getPaymentVoucher );
-router.get( "/payment/pdf/:id",  paymentController.generatePaymentPdf);
 
 module.exports = router;

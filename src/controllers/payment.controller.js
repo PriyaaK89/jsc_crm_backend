@@ -2,7 +2,7 @@ const db = require("../config/db");
 const paymentModel = require("../models/payment.model");
 const generateVoucherNo = require("../utils/generateVoucherNo");
 const { uploadFileToMinio } = require("../utils/fileUpload");
-const puppeteer = require("puppeteer-core");
+
 
 exports.getPaymentAccountDropdown = async (req, res) => {
   try {
@@ -188,69 +188,5 @@ async (req, res) => {
             success: false,
             message: error.message
         });
-    }
-};
-
-exports.generatePaymentPdf = async (req, res) => {
-    let browser;
-
-    try {
-        const { id } = req.params;
-
-        browser = await puppeteer.launch({
-            executablePath: process.env.CHROME_PATH,
-            headless: true,
-            args: [
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-            ],
-        });
-
-        const page = await browser.newPage();
-
-        const url =
-            `${process.env.FRONTEND_URL}/print/payment/${id}?pdf=true`;
-
-        console.log("Opening URL:", url);
-
-        await page.goto(url, {
-            waitUntil: "networkidle0",
-        });
-
-        console.log("Page loaded");
-
-        const pdfBuffer = await page.pdf({
-            format: "A4",
-            printBackground: true,
-            margin: {
-                top: "10mm",
-                bottom: "10mm",
-                left: "10mm",
-                right: "10mm",
-            },
-        });
-
-        res.setHeader(
-            "Content-Type",
-            "application/pdf"
-        );
-
-        res.setHeader(
-            "Content-Disposition",
-            `inline; filename=payment_${id}.pdf`
-        );
-
-        res.send(pdfBuffer);
-
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({
-            success: false,
-            message: error.message,
-        });
-    } finally {
-        if (browser) {
-            await browser.close();
-        }
     }
 };

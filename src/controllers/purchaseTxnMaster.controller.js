@@ -1,7 +1,6 @@
 const db = require("../config/db");
 const purchaseModel = require("../models/purchaseTxnMaster.model");
 const generateVoucherNo = require("../utils/generateVoucherNo");
-const puppeteer = require("puppeteer-core");
 const getBrowser = require("../utils/browser");
 
 exports.getPurchaseLedgerDropdown = async (req, res) => {
@@ -286,56 +285,4 @@ exports.getPurchaseInvoice = async (
             message: error.message
         });
     }
-};
-
-exports.generatePurchasePdf = async (req, res) => {
-  let page;
-
-  try {
-    const { id } = req.params;
-    const browser = await getBrowser();
-    page = await browser.newPage();
-    const url = `${process.env.FRONTEND_URL}/print/purchase/${id}?pdf=true`;
-
-    await page.goto(url, {
-       waitUntil: "networkidle0",
-      timeout: 30000,
-    });
-
-    const pdfBuffer = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      margin: {
-        top: "10mm",
-        bottom: "10mm",
-        left: "10mm",
-        right: "10mm",
-      },
-    });
-
-    res.setHeader(
-      "Content-Type",
-      "application/pdf"
-    );
-
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename=purchase_${id}.pdf`
-    );
-
-    res.send(pdfBuffer);
-
-  } catch (error) {
-    console.error(error);
-
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-
-  } finally {
-    if (page) {
-      await page.close();
-    }
-  }
 };

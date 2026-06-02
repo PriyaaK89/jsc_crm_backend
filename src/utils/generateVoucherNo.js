@@ -20,7 +20,6 @@ const generateVoucherNo = async (voucherType) => {
     // VALIDATION
 
     if (!voucherRows.length) {
-
         throw new Error(
             `Active voucher not found for ${voucherType}`
         );
@@ -34,13 +33,13 @@ const generateVoucherNo = async (voucherType) => {
         suffix,
         numbering_method,
         current_sequence,
-        starting_number
+        starting_number,
+        decimal_digit
     } = voucher;
 
     // MANUAL NUMBERING
 
     if (numbering_method === "MANUAL") {
-
         return {
             voucher_no: null,
             voucher_type_id: id,
@@ -52,20 +51,14 @@ const generateVoucherNo = async (voucherType) => {
 
     /*
     =====================================
-    ERP / TALLY STYLE LOGIC
+    FIRST ENTRY
     =====================================
 
-    FIRST ENTRY:
-        starting_number = 101
-        current_sequence = 0
+    starting_number = 1
+    current_sequence = 0
 
-        NEXT = 101
+    nextSequence = 1
 
-    AFTER FIRST SAVE:
-        current_sequence = 101
-
-    NEXT PREVIEW:
-        102
     =====================================
     */
 
@@ -73,31 +66,36 @@ const generateVoucherNo = async (voucherType) => {
         current_sequence &&
         current_sequence >= starting_number
     ) {
-
-        // NORMAL FLOW
-
-        nextSequence =
-            current_sequence + 1;
-
+        nextSequence = current_sequence + 1;
     } else {
-
-        // FIRST ENTRY
-
-        nextSequence =
-            starting_number || 1;
+        nextSequence = starting_number || 1;
     }
 
-    // FINAL VOUCHER NUMBER
+    // FORMAT NUMBER WITH LEADING ZEROS
 
-    const voucher_no =
-        `${prefix || ""}${suffix || ""}${nextSequence}`;
+    const formattedSequence =
+    "0".repeat(decimal_digit || 0) +
+    nextSequence;
+
+    // BUILD VOUCHER NUMBER
+
+    const parts = [];
+
+    if (prefix?.trim()) {
+        parts.push(prefix.trim());
+    }
+
+    if (suffix?.trim()) {
+        parts.push(suffix.trim());
+    }
+
+    parts.push(formattedSequence);
+
+    const voucher_no = parts.join("/");
 
     return {
-
         voucher_no,
-
         voucher_type_id: id,
-
         nextSequence
     };
 };

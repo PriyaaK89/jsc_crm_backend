@@ -10,9 +10,5 @@ router.post( "/create-purchase-order", auth, purchaseController.createPurchase);
 router.get( "/get-purchaseOrders-list", auth, purchaseController.getPurchaseList);
 router.get( "/getPurchaseOrderDetails/:id", auth, purchaseController.getPurchaseById);
 router.get( "/purchase-invoice/print/:id",  purchaseController.getPurchaseInvoice );
-router.get(
-  "/purchase/pdf/:id",
-  purchaseController.generatePurchasePdf
-);
 
 module.exports = router;

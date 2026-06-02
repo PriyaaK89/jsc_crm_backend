@@ -11,7 +11,7 @@ const {
   updateLedgerBankDetailsModel,
   replaceLedgerInterestConfigsModel,
   updateLedgerOtherDetailsModel,
-  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel
+  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance
 } = require("../models/ledger.model");
 
 const { getGroupById } = require("../models/accountGroup.model");
@@ -437,11 +437,6 @@ const getLedgers = async (req, res) => {
   }
 };
 
-
-// ===============================
-// GET LEDGER BY ID
-// ===============================
-
 const getLedgerByIdController = async (req, res) => {
   const connection = await db.getConnection();
   try {
@@ -455,6 +450,14 @@ const getLedgerByIdController = async (req, res) => {
         message: "Ledger not found",
       });
     }
+        const currentBalance =
+      await getCurrentLedgerBalance(
+        connection,
+        id
+      );
+
+    ledger.current_balance = currentBalance;
+
 
     return res.status(200).json({
       success: true,

@@ -19,17 +19,8 @@ exports.getPurchaseLedgerDropdown = async () => {
     return rows;
 };
 
-// ==========================================
-// CREATE PURCHASE
-// ==========================================
-
-exports.createPurchase = async (
-    connection,
-    purchaseData
-) => {
-
+exports.createPurchase = async ( connection, purchaseData) => {
     const {
-
         voucher_type_id,
         voucher_no,
         purchase_date,
@@ -63,9 +54,7 @@ exports.createPurchase = async (
         total_amount,
 
         narration,
-
         created_by
-
     } = purchaseData;
 
     const [result] = await connection.query(
@@ -105,9 +94,7 @@ exports.createPurchase = async (
             total_amount,
 
             narration,
-
             created_by
-
         )
         VALUES (
     ?, ?, ?, ?, ?, ?,
@@ -151,18 +138,12 @@ exports.createPurchase = async (
             total_amount,
 
             narration,
-
             created_by
         ]
     );
 
     return result.insertId;
 };
-
-
-// ==========================================
-// INSERT PURCHASE ITEMS
-// ==========================================
 
 exports.insertPurchaseItem = async (
     connection,
@@ -213,32 +194,22 @@ exports.insertPurchaseItem = async (
             purchaseId,
             item.stock_item_id,
             item.godown_id,
-
             item.batch_no,
             item.mfg_date,
             item.expiry_date,
-
             item.available_qty,
             item.billed_qty,
-
             item.rate,
-
             item.unit_id,
-
             item.alt_unit_id,
             item.alt_unit_qty,
-
             item.amount,
-
             item.igst_percent,
             item.igst_amount,
-
             item.cgst_percent,
             item.cgst_amount,
-
             item.sgst_percent,
             item.sgst_amount,
-
             item.total_amount
         ]
     );
@@ -366,10 +337,6 @@ async (
     );
 };
 
-// ==========================================
-// GET PURCHASE LIST
-// ==========================================
-
 exports.getPurchaseList = async () => {
 
     const [rows] = await db.query(`
@@ -393,11 +360,6 @@ exports.getPurchaseList = async () => {
     return rows;
 };
 
-
-// ==========================================
-// GET PURCHASE BY ID
-// ==========================================
-
 exports.getPurchaseById = async (id) => {
 
     const [purchaseRows] = await db.query(`
@@ -418,12 +380,7 @@ exports.getPurchaseById = async (id) => {
     };
 };
 
-// ==========================================
-// GET SUPPLIER DROPDOWN
-// ==========================================
-
 exports.getSupplierDropdown = async () => {
-
     const [rows] = await db.query(`
         SELECT
             l.id,
@@ -438,20 +395,161 @@ exports.getSupplierDropdown = async () => {
     return rows;
 };
 
-exports.getLedgerByName = async (
-    connection,
-    ledgerName
-) => {
-
+exports.getLedgerByName = async ( connection, ledgerName ) => {
     const [rows] = await connection.query(
-        `
-        SELECT id
+        `  SELECT id
         FROM ledgers
         WHERE ledger_name = ?
         LIMIT 1
         `,
         [ledgerName]
     );
-
     return rows[0];
 };
+
+exports.insertPurchaseBillReference = async (
+    connection,
+    data
+) => {
+
+    const [result] = await connection.query(
+        `
+        INSERT INTO purchase_bill_references (
+            purchase_id,
+            ledger_id,
+            reference_type,
+            reference_no,
+            bill_amount,
+            pending_amount,
+            due_date
+
+        )
+        VALUES (
+            ?,?,?,?,?,?,?
+        )
+        `,
+        [
+            data.purchase_id,
+            data.ledger_id,
+            data.reference_type,
+            data.reference_no,
+            data.bill_amount,
+            data.pending_amount,
+            data.due_date
+        ]
+    );
+
+    return result.insertId;
+};
+
+exports.getLedgerById = async (connection, ledgerId) => {
+  const [rows] = await connection.query(
+    `
+    SELECT
+      id,
+      maintain_bill_by_bill
+    FROM ledgers
+    WHERE id = ?
+    `,
+    [ledgerId]
+  );
+
+  return rows[0];
+};
+
+exports.getPurchaseInvoice = async (purchaseId) => {
+    const [purchaseRows] = await db.query(
+        ` SELECT
+            p.*,
+
+            supplier.ledger_name AS supplier_name,
+            supplier.gst_no AS supplier_gst,
+
+            purchaseLedger.ledger_name
+            AS purchase_ledger_name,
+
+            assignUser.name
+            AS assign_employee_name,
+
+            underUser.name
+            AS employee_under_name
+
+        FROM purchases p
+
+        LEFT JOIN ledgers supplier
+            ON supplier.id = p.supplier_ledger_id
+
+        LEFT JOIN ledgers purchaseLedger
+            ON purchaseLedger.id = p.purchase_ledger_id
+
+        LEFT JOIN users assignUser
+            ON assignUser.id = p.assign_employee_id
+
+        LEFT JOIN users underUser
+            ON underUser.id = p.employee_under_id
+
+        WHERE p.id = ?
+        `,
+        [purchaseId]
+    );
+
+    if (!purchaseRows.length) {
+        return null;
+    }
+
+    const purchase = purchaseRows[0];
+
+    const [itemRows] = await db.query(
+        `
+        SELECT
+
+            pi.id,
+
+            pi.stock_item_id,
+
+            pi.batch_no,
+            pi.mfg_date,
+            pi.expiry_date,
+
+            pi.available_qty,
+            pi.billed_qty,
+
+            pi.rate,
+            pi.amount,
+
+            pi.igst_percent,
+            pi.igst_amount,
+
+            pi.cgst_percent,
+            pi.cgst_amount,
+
+            pi.sgst_percent,
+            pi.sgst_amount,
+
+            pi.total_amount,
+
+            si.item_name,
+
+            u.symbol
+
+        FROM purchase_items pi
+
+        LEFT JOIN stock_items si
+            ON si.id = pi.stock_item_id
+
+        LEFT JOIN units u
+            ON u.id = pi.unit_id
+
+        WHERE pi.purchase_id = ?
+
+        ORDER BY pi.id ASC
+        `,
+        [purchaseId]
+    );
+
+    return {
+        purchase,
+        items: itemRows
+    };
+};
+

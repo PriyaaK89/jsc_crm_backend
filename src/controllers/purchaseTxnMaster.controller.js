@@ -1,6 +1,8 @@
 const db = require("../config/db");
 const purchaseModel = require("../models/purchaseTxnMaster.model");
 const generateVoucherNo = require("../utils/generateVoucherNo");
+const puppeteer = require("puppeteer-core");
+const getBrowser = require("../utils/browser");
 
 exports.getPurchaseLedgerDropdown = async (req, res) => {
   try {
@@ -171,6 +173,28 @@ exports.createPurchase = async (req, res) => {
       created_by: req.user.id,
     });
 
+    // BILL REFERENCE ENTRY
+
+const supplierLedger = await purchaseModel.getLedgerById(
+  connection,
+  data.supplier_ledger_id
+);
+
+if (supplierLedger?.maintain_bill_by_bill) {
+  await purchaseModel.insertPurchaseBillReference(
+    connection,
+    {
+      purchase_id: purchaseId,
+      ledger_id: data.supplier_ledger_id,
+      reference_type: data.reference_type || "NEW REF",
+      reference_no: data.reference_no || data.supplier_invoice_no || voucher_no,
+      bill_amount: data.total_amount,
+      pending_amount: data.total_amount,
+      due_date: data.due_date || null,
+    }
+  );
+}
+
     await connection.query(
       `
   UPDATE voucher_types
@@ -227,5 +251,91 @@ exports.getPurchaseById = async (req, res) => {
       success: false,
       message: error.message,
     });
+  }
+};
+
+exports.getPurchaseInvoice = async (
+    req,
+    res
+) => {
+    try {
+
+        const { id } = req.params;
+
+        const data =
+            await purchaseModel.getPurchaseInvoice(id);
+
+        if (!data) {
+            return res.status(404).json({
+                success: false,
+                message: "Purchase invoice not found"
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            data
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+exports.generatePurchasePdf = async (req, res) => {
+  let page;
+
+  try {
+    const { id } = req.params;
+    const browser = await getBrowser();
+    page = await browser.newPage();
+    const url = `${process.env.FRONTEND_URL}/print/purchase/${id}?pdf=true`;
+
+    await page.goto(url, {
+       waitUntil: "networkidle0",
+      timeout: 30000,
+    });
+
+    const pdfBuffer = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      margin: {
+        top: "10mm",
+        bottom: "10mm",
+        left: "10mm",
+        right: "10mm",
+      },
+    });
+
+    res.setHeader(
+      "Content-Type",
+      "application/pdf"
+    );
+
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename=purchase_${id}.pdf`
+    );
+
+    res.send(pdfBuffer);
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+
+  } finally {
+    if (page) {
+      await page.close();
+    }
   }
 };

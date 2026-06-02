@@ -90,7 +90,7 @@ const generateVoucherNo = async (voucherType) => {
     // FINAL VOUCHER NUMBER
 
     const voucher_no =
-        `${prefix || ""}${nextSequence}${suffix || ""}`;
+        `${prefix || ""}${suffix || ""}${nextSequence}`;
 
     return {
 

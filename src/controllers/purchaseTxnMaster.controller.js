@@ -1,7 +1,7 @@
 const db = require("../config/db");
 const purchaseModel = require("../models/purchaseTxnMaster.model");
 const generateVoucherNo = require("../utils/generateVoucherNo");
-const getBrowser = require("../utils/browser");
+
 
 exports.getPurchaseLedgerDropdown = async (req, res) => {
   try {

@@ -53,6 +53,8 @@ exports.createPurchase = async ( connection, purchaseData) => {
         tax_total,
         total_amount,
 
+        tax_mode,
+
         narration,
         created_by
     } = purchaseData;
@@ -92,6 +94,7 @@ exports.createPurchase = async ( connection, purchaseData) => {
             sgst_total,
             tax_total,
             total_amount,
+            tax_mode,
 
             narration,
             created_by
@@ -101,7 +104,7 @@ exports.createPurchase = async ( connection, purchaseData) => {
     ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?,
-    ?, ?, ?, ?
+    ?, ?, ?, ?, ?
 )
         `,
         [
@@ -136,6 +139,8 @@ exports.createPurchase = async ( connection, purchaseData) => {
             sgst_total,
             tax_total,
             total_amount,
+
+            tax_mode,
 
             narration,
             created_by

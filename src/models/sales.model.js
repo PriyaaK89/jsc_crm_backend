@@ -76,6 +76,8 @@ exports.createSales = async (connection, salesData) => {
     tax_total,
     total_amount,
 
+    tax_mode,
+
     narration,
     created_by,
   } = salesData;
@@ -127,6 +129,7 @@ exports.createSales = async (connection, salesData) => {
             sgst_total,
             tax_total,
             total_amount,
+            tax_mode,
 
             narration,
             created_by
@@ -144,7 +147,7 @@ exports.createSales = async (connection, salesData) => {
             ?,?,?,
             ?,
             ?,?,?,?,?,?,
-            ?,?
+            ?,?,?
         )
         `,
     [
@@ -191,6 +194,8 @@ exports.createSales = async (connection, salesData) => {
       sgst_total,
       tax_total,
       total_amount,
+
+      tax_mode,
 
       narration,
       created_by,

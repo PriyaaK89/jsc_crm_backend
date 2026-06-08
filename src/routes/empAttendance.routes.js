@@ -29,5 +29,15 @@ router.get( "/get-attendance-images/:employeeId", auth, attendanceController.get
 router.get( "/my-attendance", auth, attendanceController.getMyAttendance);
 router.get("/daily-summary", auth, attendanceController.getDailyAttendanceSummary);
 router.get( "/today-attendance/:employee_id", auth, attendanceController.getTodayAttendance);
+const { generateDailySalaryInternal } = require("../controllers/empAttendance.controller");
+
+router.get("/test-sunday-salary", async (req, res) => {
+  try {
+    await attendanceController.generateDailySalaryInternal(1, "2026-05-31"); // real employee id, last sunday
+    res.json({ message: "done, check console logs" });
+  } catch(err) {
+    res.json({ error: err.message });
+  }
+});
 
 module.exports = router;

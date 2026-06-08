@@ -58,6 +58,8 @@ const partyLedgerReportRoute = require("../src/routes/partyLedgerReport.routes")
 const paymentTxnRoute = require("../src/routes/payment.route");
 const salesTxnRoute = require("../src/routes/sales.routes");
 const receiptTxnRoute = require("../src/routes/receipt.routes");
+const creditNoteTxnRoute = require("../src/routes/creditNote.routes");
+const debitNoteTxnRoute = require("../src/routes/debitNote.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -112,6 +114,8 @@ app.use(partyLedgerReportRoute);
 app.use(paymentTxnRoute);
 app.use(salesTxnRoute);
 app.use(receiptTxnRoute);
+app.use(creditNoteTxnRoute);
+app.use(debitNoteTxnRoute);
 
 // 404 handler
 app.use((req, res) => {

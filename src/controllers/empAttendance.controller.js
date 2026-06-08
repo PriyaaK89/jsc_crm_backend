@@ -4,11 +4,14 @@ const { calculateAttendanceUnit } = require("../utils/attendanceCalculator");
 const SalaryDaily = require("../models/empDailySalary.model");
 const db = require("../config/db");
 
+
 const generateDailySalaryInternal = async (employeeId, date) => {
   const user = await SalaryDaily.getUserSalaryInfo(employeeId);
+  console.log("USER =>", employeeId, user ? "found" : "NOT FOUND");
   if (!user) return;
 
   const attendance = await SalaryDaily.getAttendanceByDate(employeeId, date);
+  console.log("ATTENDANCE =>", employeeId, date, attendance);
   if (!attendance) return;
 
   const year = new Date(date).getFullYear();
@@ -35,7 +38,10 @@ const generateDailySalaryInternal = async (employeeId, date) => {
     basicSalary = perDaySalary;
   } else if (attendance.attendance_unit === "half") {
     basicSalary = perDaySalary * 0.5;
-  }
+  } else if (["week_off", "absent", "leave"].includes(attendance.attendance_unit)) {
+  basicSalary = 0;
+  // Still continue — don't return early — so a ₹0 row gets saved
+}
 
   /* ---------- Working Hours Format ---------- */
   const totalMinutes = attendance.working_minutes || 0;
@@ -155,7 +161,8 @@ for (const exp of expenses) {
   busTrainTollExpense;
   const netSalary = grossSalary;
 
-  await SalaryDaily.saveDailySalary([
+  try{
+     await SalaryDaily.saveDailySalary([
     employeeId,
     date,
     attendance.attendance_unit,
@@ -173,6 +180,13 @@ for (const exp of expenses) {
     grossSalary.toFixed(2),
     netSalary.toFixed(2),
   ]);
+  console.log("SAVED OK =>", employeeId, date);
+
+  }catch(error){
+// console.error("SAVE FAILED =>", employeeId, date, err.sqlMessage);
+console.error("SAVE FAILED =>", employeeId, date, error.sqlMessage, error.message);
+  }
+ 
 };
 
 const autoClosePreviousDay = async (employeeId) => {

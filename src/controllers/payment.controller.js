@@ -156,34 +156,23 @@ exports.createPayment = async (req, res) => {
   }
 };
 
-exports.getPaymentVoucher =
-async (req, res) => {
-
+exports.getPaymentVoucher = async (req, res) => {
     try {
-
         const { id } = req.params;
-
-        const data =
-            await paymentModel
-            .getPaymentVoucher(id);
+        const data = await paymentModel.getPaymentVoucher(id);
 
         if (!data) {
             return res.status(404).json({
                 success: false,
-                message:
-                    "Payment voucher not found"
-            });
+                message: "Payment voucher not found" });
         }
-
         return res.status(200).json({
             success: true,
             data
         });
 
     } catch (error) {
-
-        console.error(error);
-
+        console.error(error);ai
         return res.status(500).json({
             success: false,
             message: error.message

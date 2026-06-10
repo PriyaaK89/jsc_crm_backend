@@ -594,3 +594,25 @@ exports.getPurchaseItemsById = async (
 
   return rows;
 };
+
+exports.getPurchaseBillReferencesByPurchaseId = async (
+  connection,
+  purchaseId
+) => {
+  const [rows] = await connection.query(
+    `
+    SELECT
+      id,
+      reference_no,
+      bill_amount,
+      pending_amount
+    FROM purchase_bill_references
+    WHERE purchase_id = ?
+      AND pending_amount > 0
+    ORDER BY id ASC
+    `,
+    [purchaseId]
+  );
+
+  return rows;
+};

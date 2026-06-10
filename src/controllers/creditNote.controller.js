@@ -293,3 +293,44 @@ exports.getSaleItemsById = async (
 
   }
 };
+exports.getSalesBillReferences = async (req, res) => {
+  try {
+    const { sale_id } = req.query;
+    console.log("sale_id received:", sale_id);
+
+    if (!sale_id) {
+      return res.status(400).json({
+        success: false,
+        message: "sale_id is required",
+      });
+    }
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        id,
+        reference_no,
+        reference_amount,
+        pending_amount,
+        due_date
+      FROM sales_bill_references
+      WHERE sale_id = ?
+      AND pending_amount > 0
+      ORDER BY id DESC
+      `,
+      [sale_id]
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: rows,
+    });
+  } catch (error) {
+    console.log(error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};

@@ -1,0 +1,11 @@
+const express = require("express");
+const router = express.Router();
+const contraController = require("../controllers/contra.controller");
+const auth = require("../middleware/auth.middleware");
+
+router.post( "/create-contra-entry", auth , contraController.createContra);
+router.get("/get-contra-account-dropdown", auth , contraController.getContraAccountDropdown);
+router.get("/get-contra-voucher", contraController.getContraVoucher);
+
+
+module.exports = router;

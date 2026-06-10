@@ -6,5 +6,9 @@ const auth = require("../middleware/auth.middleware");
 router.post( "/create-credit-note", auth, creditNoteController.createCreditNote);
 router.get("/get-sales-by-customer", auth, creditNoteController.getSalesByCustomer);
 router.get( "/get-sales-item/:saleId/items", creditNoteController.getSaleItemsById );
+router.get(
+    "/sales-bill-references",
+    creditNoteController.getSalesBillReferences
+);
 
 module.exports = router;

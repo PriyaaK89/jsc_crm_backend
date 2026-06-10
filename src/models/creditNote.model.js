@@ -431,42 +431,78 @@ exports.getAvailableStock = async (
   return rows[0]?.available_stock || 0;
 };
 
+// exports.getSoldQtyByInvoice = async (
+//   connection,
+//   saleId,
+//   stockItemId,
+//   godownId,
+//   batchNo = null,
+// ) => {
+//   let sql = `
+//         SELECT
+//             COALESCE(SUM(si.billed_qty), 0) AS sold_qty
+//         FROM sales_items si
+//         INNER JOIN sales s
+//             ON s.id = si.sale_id
+//         WHERE s.id = ?
+//         AND si.stock_item_id = ?
+//         AND si.godown_id = ?
+//     `;
+
+//   const params = [saleId, stockItemId, godownId];
+
+//   // if (batchNo) {
+//   //   sql += ` AND si.batch_no = ?`;
+//   //   params.push(batchNo);
+//   // }
+
+//   // if (batchNo) {
+//   //   sql += ` AND ( ? = 'NOT_APPLICABLE' OR .batch_no = ? ) `;
+
+//   //   params.push(batchNo, batchNo);
+//   // }
+//   if (batchNo && batchNo !== "NOT_APPLICABLE") {
+//   sql += ` AND si.batch_no = ? `;
+//   params.push(batchNo);
+// }
+
+//   const [rows] = await connection.query(sql, params);
+
+//   return Number(rows[0]?.sold_qty || 0);
+// };
+
+
 exports.getSoldQtyByInvoice = async (
   connection,
   saleId,
   stockItemId,
   godownId,
-  batchNo = null,
+  batchNo = null
 ) => {
   let sql = `
-        SELECT
-            COALESCE(SUM(si.billed_qty), 0) AS sold_qty
-        FROM sales_items si
-        INNER JOIN sales s
-            ON s.id = si.sale_id
-        WHERE s.id = ?
-        AND si.stock_item_id = ?
-        AND si.godown_id = ?
-    `;
+    SELECT
+      COALESCE(SUM(si.billed_qty),0) AS sold_qty
+    FROM sales_items si
+    WHERE si.sale_id = ?
+      AND si.stock_item_id = ?
+      AND si.godown_id = ?
+  `;
 
-  const params = [saleId, stockItemId, godownId];
+  const params = [
+    saleId,
+    stockItemId,
+    godownId
+  ];
 
-  // if (batchNo) {
-  //   sql += ` AND si.batch_no = ?`;
-  //   params.push(batchNo);
-  // }
-
-  if (batchNo) {
-    sql += ` AND ( ? = 'NOT_APPLICABLE' OR cni.batch_no = ? ) `;
-
-    params.push(batchNo, batchNo);
+  if (batchNo && batchNo !== "NOT_APPLICABLE") {
+    sql += ` AND si.batch_no = ? `;
+    params.push(batchNo);
   }
 
   const [rows] = await connection.query(sql, params);
 
   return Number(rows[0]?.sold_qty || 0);
 };
-
 exports.getReturnedQtyByInvoice = async (
   connection,
   saleId,
@@ -567,6 +603,34 @@ exports.getSaleItemsById = async (connection, saleId) => {
   );
 
   return rows;
+};
+
+exports.getSalesBillReferences = async (
+    customerLedgerId,
+    saleId
+) => {
+
+    const [rows] = await db.query(
+        `
+        SELECT
+            id,
+            reference_no,
+            bill_amount,
+            pending_amount,
+            status,
+            due_date
+        FROM sales_bill_references
+        WHERE ledger_id = ?
+        AND sale_id = ?
+        ORDER BY id DESC
+        `,
+        [
+            customerLedgerId,
+            saleId
+        ]
+    );
+
+    return rows;
 };
 
 // exports.getSaleItemsById = async (

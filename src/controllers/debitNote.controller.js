@@ -22,19 +22,11 @@ exports.createDebitNote = async (req, res) => {
 
     for (const item of data.items) {
       const purchasedQty = await debitNoteModel.getPurchasedQtyByInvoice(
-        
         connection,
         data.original_purchase_id,
         item.stock_item_id,
         item.godown_id,
         item.batch_no || null,
-
-        console.log("Purchase Validation", {
-  purchaseId: data.original_purchase_id,
-  stockItemId: item.stock_item_id,
-  godownId: item.godown_id,
-  batchNo: item.batch_no,
-})
       );
 
       const alreadyReturnedQty = await debitNoteModel.getReturnedQtyByInvoice(
@@ -221,24 +213,35 @@ Trying To Return: ${item.return_qty}`,
     =================================
     */
 
-    if (Array.isArray(data.bill_references)) {
-      for (const billRef of data.bill_references) {
-        await debitNoteModel.insertDebitNoteBillReference(connection, {
-          debit_note_id: debitNoteId,
+      const billRefs = await debitNoteModel.getPurchaseBillReferencesByPurchaseId(
+      connection,
+      data.original_purchase_id,
+    );
 
-          supplier_ledger_id: data.supplier_ledger_id,
+    let remainingAmount = Number(data.total_amount);
 
-          purchase_bill_reference_id: billRef.purchase_bill_reference_id,
+    for (const bill of billRefs) {
+      if (remainingAmount <= 0) break;
 
-          amount: billRef.amount,
-        });
+      const adjustAmount = Math.min(
+        remainingAmount,
+        Number(bill.pending_amount),
+      );
 
-        await debitNoteModel.updatePurchaseBillReference(
-          connection,
-          billRef.purchase_bill_reference_id,
-          billRef.amount,
-        );
-      }
+      await debitNoteModel.insertDebitNoteBillReference(connection, {
+        debit_note_id: debitNoteId,
+        supplier_ledger_id: data.supplier_ledger_id,
+        purchase_bill_reference_id: bill.id,
+        amount: adjustAmount,
+      });
+
+      await debitNoteModel.updatePurchaseBillReference(
+        connection,
+        bill.id,
+        adjustAmount,
+      );
+
+      remainingAmount -= adjustAmount;
     }
 
     /*
@@ -304,12 +307,15 @@ exports.getPurchasesBySupplier = async (req, res) => {
   }
 };
 
-exports.getPurchaseItemsById = async ( req, res ) => {
+exports.getPurchaseItemsById = async (req, res) => {
   const connection = await db.getConnection();
   try {
     const { purchaseId } = req.params;
 
-    const data = await debitNoteModel.getPurchaseItemsById( connection, purchaseId );
+    const data = await debitNoteModel.getPurchaseItemsById(
+      connection,
+      purchaseId,
+    );
 
     return res.status(200).json({
       success: true,

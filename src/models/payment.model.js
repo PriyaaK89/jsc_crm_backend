@@ -339,11 +339,8 @@ exports.getPaymentVoucher = async (
 
             pbr.reference_type,
             pbr.reference_no,
-
             pbr.reference_amount,
-
             pbr.due_date,
-
             pbr.dr_cr
 
         FROM payment_bill_references pbr

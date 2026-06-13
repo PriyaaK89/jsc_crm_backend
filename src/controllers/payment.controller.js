@@ -51,14 +51,11 @@ exports.createPayment = async (req, res) => {
 
     if (req.file) {
       const uploadedFile = await uploadFileToMinio(req.file, "txn_payments");
-
       attachment = uploadedFile.object_path;
     }
 
     const voucherData = await generateVoucherNo("PAYMENT");
-
     const { voucher_no, voucher_type_id, nextSequence } = voucherData;
-
     const paymentId = await paymentModel.createPayment(connection, {
       ...data,
       attachment,

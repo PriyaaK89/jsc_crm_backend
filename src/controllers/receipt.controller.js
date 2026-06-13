@@ -140,3 +140,31 @@ exports.getPendingBills = async (req, res) => {
     });
   }
 };
+
+exports.getReceiptInvoice = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const receipt =
+      await receiptModel.getReceiptInvoice(id);
+
+    if (!receipt) {
+      return res.status(404).json({
+        success: false,
+        message: "Receipt not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: receipt,
+    });
+  } catch (error) {
+    console.error("Get Receipt Invoice Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};

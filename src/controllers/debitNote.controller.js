@@ -14,12 +14,6 @@ exports.createDebitNote = async (req, res) => {
 
     const { voucher_no, voucher_type_id, nextSequence } = voucherData;
 
-    /*
-    =================================
-    RETURN QTY VALIDATION
-    =================================
-    */
-
     for (const item of data.items) {
       const purchasedQty = await debitNoteModel.getPurchasedQtyByInvoice(
         connection,
@@ -78,12 +72,6 @@ Trying To Return: ${item.return_qty}`,
       created_by: req.user.id,
     });
 
-    /*
-    =================================
-    ITEMS + STOCK
-    =================================
-    */
-
     for (const item of data.items) {
       await debitNoteModel.insertDebitNoteItem(connection, item, debitNoteId);
 
@@ -95,12 +83,6 @@ Trying To Return: ${item.return_qty}`,
         req.user.id,
       );
     }
-
-    /*
-    =================================
-    SUPPLIER DR
-    =================================
-    */
 
     await debitNoteModel.insertLedgerTransaction(connection, {
       transaction_type: "DEBIT_NOTE",
@@ -328,5 +310,33 @@ exports.getPurchaseItemsById = async (req, res) => {
     });
   } finally {
     connection.release();
+  }
+};
+
+exports.getDebitNoteInvoice = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const debitNote =
+      await debitNoteModel.getDebitNoteInvoice(id);
+
+    if (!debitNote) {
+      return res.status(404).json({
+        success: false,
+        message: "Debit Note not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: debitNote,
+    });
+  } catch (error) {
+    console.error("Get Debit Note Invoice Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };

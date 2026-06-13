@@ -10,5 +10,7 @@ router.get(
     "/sales-bill-references",
     creditNoteController.getSalesBillReferences
 );
-
+router.get(
+    "/get-credit-note-invoice/:id", auth, creditNoteController.getCreditNoteInvoice
+);
 module.exports = router;

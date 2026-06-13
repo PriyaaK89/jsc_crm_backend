@@ -1,10 +1,11 @@
 const db = require("../config/db");
 const salesModel = require("../models/sales.model");
 const generateVoucherNo = require("../utils/generateVoucherNo");
-const purchaseModal = require("../models/purchaseTxnMaster.model")
+const purchaseModal = require("../models/purchaseTxnMaster.model");
+const { uploadFileToMinio } = require("../utils/fileUpload");
 
-exports.getSalesLedgerList = async (req, res)=>{
-     try{
+exports.getSalesLedgerList = async (req, res) => {
+    try {
         const data = await salesModel.getSalesLedgerDropdown();
 
         res.status(200).json({
@@ -12,12 +13,12 @@ exports.getSalesLedgerList = async (req, res)=>{
             data,
         });
 
-     }catch(error){
+    } catch (error) {
         res.status(500).json({
             success: false,
             message: error.message
         })
-     }
+    }
 }
 
 exports.createSales = async (req, res) => {
@@ -25,14 +26,20 @@ exports.createSales = async (req, res) => {
     try {
         await connection.beginTransaction();
         const data = req.body;
-        const voucherData =
-        await generateVoucherNo("SALES");
 
-        const {
-            voucher_no,
-            voucher_type_id,
-            nextSequence
-        } = voucherData;
+        data.items =
+          JSON.parse(
+            data.items || "[]"
+          );
+        
+        data.extra_ledgers =
+          JSON.parse(
+            data.extra_ledgers || "[]"
+          );
+        const voucherData =
+            await generateVoucherNo("SALES");
+
+        const { voucher_no, voucher_type_id, nextSequence } = voucherData;
 
         /*
         ===========================
@@ -41,7 +48,6 @@ exports.createSales = async (req, res) => {
         */
 
         for (const item of data.items) {
-
             const availableStock =
                 await salesModel.getAvailableStock(
                     connection,
@@ -63,6 +69,33 @@ exports.createSales = async (req, res) => {
             }
         }
 
+        let dispatchDocImage = null;
+        let billTImage = null;
+
+        if (req.files?.dispatch_doc_image?.[0]) {
+            const uploaded =
+                await uploadFileToMinio(
+                    req.files.dispatch_doc_image[0],
+                    "txn_sales"
+                );
+
+            dispatchDocImage =
+                uploaded.object_path;
+        }
+
+        if (
+            req.files?.bill_t_image?.[0]
+        ) {
+            const uploaded =
+                await uploadFileToMinio(
+                    req.files.bill_t_image[0],
+                    "txn_sales"
+                );
+
+            billTImage =
+                uploaded.object_path;
+        }
+
         /*
         ===========================
         CREATE SALES MASTER
@@ -70,14 +103,16 @@ exports.createSales = async (req, res) => {
         */
 
         const saleId =
-        await salesModel.createSales(
-            connection,
-            {
-                ...data,
-                voucher_no,
-                created_by: req.user.id
-            }
-        );
+            await salesModel.createSales(
+                connection,
+                {
+                    ...data,
+                    dispatch_doc_image: dispatchDocImage,
+                    bill_t_image: billTImage,
+                    voucher_no,
+                    created_by: req.user.id
+                }
+            );
 
         /*
         ===========================
@@ -88,11 +123,11 @@ exports.createSales = async (req, res) => {
         for (const item of data.items) {
 
             const salesItemId =
-            await salesModel.insertSalesItem(
-                connection,
-                item,
-                saleId
-            );
+                await salesModel.insertSalesItem(
+                    connection,
+                    item,
+                    saleId
+                );
 
             if (item.batch_no) {
 
@@ -117,6 +152,43 @@ exports.createSales = async (req, res) => {
         CUSTOMER DR
         ===========================
         */
+        if (
+            data.extra_ledgers?.length
+        ) {
+
+            for (
+                const ledger
+                of data.extra_ledgers
+            ) {
+
+                await salesModel.insertExtraLedger(
+                    connection,
+                    {
+                        sale_id: saleId,
+                        ledger_id: ledger.ledger_id,
+                        amount: ledger.amount,
+                        operation: ledger.operation,
+                        comments: ledger.comments
+                    }
+                );
+
+                await salesModel.insertLedgerTransaction(
+                    connection,
+                    {
+                        transaction_type: "SALES",
+                        reference_id: saleId,
+                        voucher_no,
+                        voucher_type_id,
+                        transaction_date: data.sales_date,
+                        ledger_id: ledger.ledger_id,
+                        entry_type: ledger.operation === "PLUS" ? "Cr" : "Dr",
+                        amount: ledger.amount,
+                        remarks: ledger.comments,
+                        created_by: req.user.id
+                    }
+                );
+            }
+        }
 
         await salesModel.insertLedgerTransaction(
             connection,
@@ -162,24 +234,9 @@ exports.createSales = async (req, res) => {
         ===========================
         */
 
-        const cgstLedger =
-        await purchaseModal.getLedgerByName(
-            connection,
-            "CGST"
-        );
-
-        const sgstLedger =
-        await purchaseModal.getLedgerByName(
-            connection,
-            "SGST"
-        );
-
-        const igstLedger =
-        await purchaseModal.getLedgerByName(
-            connection,
-            "IGST"
-        );
-
+        const cgstLedger = await purchaseModal.getLedgerByName(connection, "CGST");
+        const sgstLedger = await purchaseModal.getLedgerByName(connection, "SGST");
+        const igstLedger = await purchaseModal.getLedgerByName(connection, "IGST");
         /*
         IGST CR
         */
@@ -246,40 +303,28 @@ exports.createSales = async (req, res) => {
         }
 
         const customerLedger =
-        await purchaseModal.getLedgerById(
-            connection,
-            data.customer_ledger_id
-        );
+            await purchaseModal.getLedgerById(
+                connection,
+                data.customer_ledger_id
+            );
 
         if (
             customerLedger?.maintain_bill_by_bill
         ) {
 
-await salesModel.insertSalesBillReference(
-  connection,
-  {
-    sale_id: saleId,
-    ledger_id: data.customer_ledger_id,
-
-    reference_type:
-      data.reference_type || "NEW REF",
-
-    reference_no:
-      data.reference_no || voucher_no,
-
-    reference_amount:
-      data.total_amount,
-
-    bill_amount:
-      data.total_amount,
-
-    pending_amount:
-      data.total_amount,
-
-    due_date:
-      data.due_date || null
-  }
-);
+            await salesModel.insertSalesBillReference(
+                connection,
+                {
+                    sale_id: saleId,
+                    ledger_id: data.customer_ledger_id,
+                    reference_type: data.reference_type || "NEW REF",
+                    reference_no: data.reference_no || voucher_no,
+                    reference_amount: data.total_amount,
+                    bill_amount: data.total_amount,
+                    pending_amount: data.total_amount,
+                    due_date: data.due_date || null
+                }
+            );
         }
 
         await connection.query(
@@ -305,11 +350,8 @@ await salesModel.insertSalesBillReference(
         });
 
     } catch (error) {
-
         await connection.rollback();
-
         console.log(error);
-
         return res.status(500).json({
             success: false,
             message: error.message
@@ -317,5 +359,31 @@ await salesModel.insertSalesBillReference(
 
     } finally {
         connection.release();
+    }
+};
+
+exports.getSalesInvoice = async (req, res) => {
+    try {
+        const saleId = req.params.id;
+        const invoice = await salesModel.getSalesInvoice(saleId);
+
+        if (!invoice) {
+            return res.status(404).json({
+                success: false,
+                message: "Sales invoice not found"
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: invoice
+        });
+
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };

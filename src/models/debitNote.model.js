@@ -254,68 +254,32 @@ exports.insertDebitNoteStockTransaction = async (
   createdBy,
 ) => {
   await connection.query(
-    `
-    INSERT INTO stock_transactions (
-
+    ` INSERT INTO stock_transactions (
       transaction_type,
       reference_type,
       reference_id,
       transaction_date,
-
       stock_item_id,
       godown_id,
       batch_no,
-
       unit_id,
-
       qty_in,
       qty_out,
-
       rate,
       amount,
-
       created_by
-
     )
-    VALUES (
-
-      'PURCHASE_RETURN',
-      'DEBIT_NOTE',
-
-      ?,
-
-      ?,
-
-      ?,
-      ?,
-      ?,
-
-      ?,
-
-      0,
-      ?,
-
-      ?,
-      ?,
-
-      ?
-    )
-    `,
+    VALUES ('PURCHASE_RETURN', 'DEBIT_NOTE', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ? ) `,
     [
       debitNoteId,
       debitNoteDate,
-
       item.stock_item_id,
       item.godown_id,
       item.batch_no,
-
       item.unit_id,
-
       item.return_qty,
-
       item.rate,
       item.total_amount,
-
       createdBy,
     ],
   );
@@ -615,4 +579,143 @@ exports.getPurchaseBillReferencesByPurchaseId = async (
   );
 
   return rows;
+};
+
+exports.getDebitNoteInvoice = async (debitNoteId) => {
+  // Debit Note Master
+
+  const [debitNoteRows] = await db.query(
+    `
+    SELECT
+
+      dn.*,
+
+      supplier.ledger_name AS supplier_name,
+      supplier.gst_no AS supplier_gst,
+
+      supplierDetails.contact AS supplier_mobile,
+      supplierDetails.address AS supplier_address,
+
+      purchaseReturnLedger.ledger_name AS purchase_return_ledger_name,
+
+      assignUser.name AS assign_employee_name,
+      underUser.name AS employee_under_name
+
+    FROM debit_notes dn
+
+    LEFT JOIN ledgers supplier
+      ON supplier.id = dn.supplier_ledger_id
+
+    LEFT JOIN ledger_other_details supplierDetails
+      ON supplierDetails.ledger_id = dn.supplier_ledger_id
+
+    LEFT JOIN ledgers purchaseReturnLedger
+      ON purchaseReturnLedger.id = dn.purchase_return_ledger_id
+
+    LEFT JOIN users assignUser
+      ON assignUser.id = dn.assign_employee_id
+
+    LEFT JOIN users underUser
+      ON underUser.id = dn.employee_under_id
+
+    WHERE dn.id = ?
+    `,
+    [debitNoteId]
+  );
+
+  if (!debitNoteRows.length) {
+    return null;
+  }
+
+  const debitNote = debitNoteRows[0];
+
+  // Debit Note Items
+
+  const [items] = await db.query(
+    `
+    SELECT
+
+      dni.id,
+      dni.stock_item_id,
+      dni.godown_id,
+
+      dni.batch_no,
+
+      gst.hsn_sac AS hsn_code,
+
+      dni.available_qty,
+      dni.return_qty,
+
+      dni.rate,
+
+      dni.amount,
+
+      dni.igst_percent,
+      dni.igst_amount,
+
+      dni.cgst_percent,
+      dni.cgst_amount,
+
+      dni.sgst_percent,
+      dni.sgst_amount,
+
+      dni.total_amount,
+
+      stock.item_name,
+
+      unit.symbol AS unit_name,
+
+      altUnit.symbol AS alt_unit_name
+
+    FROM debit_note_items dni
+
+    LEFT JOIN stock_items stock
+      ON stock.id = dni.stock_item_id
+
+    LEFT JOIN units unit
+      ON unit.id = dni.unit_id
+
+    LEFT JOIN units altUnit
+      ON altUnit.id = dni.alt_unit_id
+
+    LEFT JOIN stock_item_gst_details gst
+      ON gst.stock_item_id = stock.id
+
+    WHERE dni.debit_note_id = ?
+
+    ORDER BY dni.id ASC
+    `,
+    [debitNoteId]
+  );
+
+  // Bill References
+
+  const [billReferences] = await db.query(
+    `
+    SELECT
+
+      dbr.*,
+
+      pbr.reference_no,
+      pbr.bill_amount,
+      pbr.pending_amount,
+      pbr.due_date
+
+    FROM debit_note_bill_references dbr
+
+    LEFT JOIN purchase_bill_references pbr
+      ON pbr.id = dbr.purchase_bill_reference_id
+
+    WHERE dbr.debit_note_id = ?
+
+    ORDER BY dbr.id ASC
+    `,
+    [debitNoteId]
+  );
+
+  return {
+    debitNote,
+    items,
+    billReferences,
+  };
 };

@@ -334,3 +334,26 @@ exports.getSalesBillReferences = async (req, res) => {
     });
   }
 };
+
+exports.getCreditNoteInvoice = async (req, res) => {
+  try {
+      const creditNoteId = req.params.id;
+      const invoice = await creditNoteModel.getCreditNoteInvoice( creditNoteId  );
+      if (!invoice) {
+          return res.status(404).json({
+              success: false,
+              message: "Credit Note Invoice not found"
+          });
+      }
+      return res.status(200).json({
+          success: true,
+          data: invoice
+      });
+  } catch (error) {
+      console.error(error);
+      return res.status(500).json({
+          success: false,
+          message: error.message
+      });
+  }
+};

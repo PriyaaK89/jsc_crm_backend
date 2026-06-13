@@ -61,6 +61,7 @@ const receiptTxnRoute = require("../src/routes/receipt.routes");
 const creditNoteTxnRoute = require("../src/routes/creditNote.routes");
 const debitNoteTxnRoute = require("../src/routes/debitNote.routes");
 const contraTxnRoute = require("../src/routes/contra.routes");
+const journalTxnRoute = require("../src/routes/journal.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -118,6 +119,7 @@ app.use(receiptTxnRoute);
 app.use(creditNoteTxnRoute);
 app.use(debitNoteTxnRoute);
 app.use(contraTxnRoute);
+app.use(journalTxnRoute);
 
 // 404 handler
 app.use((req, res) => {

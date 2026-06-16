@@ -3,6 +3,7 @@ const debitNoteModel = require("../models/debitNote.model");
 const purchaseModel = require("../models/purchaseTxnMaster.model");
 const generateVoucherNo = require("../utils/generateVoucherNo");
 const creditNoteModal = require("../models/creditNote.model");
+const { uploadFileToMinio } = require("../utils/fileUpload");
 
 exports.createDebitNote = async (req, res) => {
   const connection = await db.getConnection();
@@ -10,10 +11,41 @@ exports.createDebitNote = async (req, res) => {
   try {
     await connection.beginTransaction();
     const data = req.body;
+    data.assign_employee_id =
+  data.assign_employee_id || null;
+
+data.employee_under_id =
+  data.employee_under_id || null;
+
+    if (typeof data.items === "string") {
+      data.items = JSON.parse(data.items);
+    }
+
+    let bill_t_image = null;
+
+    if (req.files?.bill_t_image?.[0]) {
+      const uploadedBill = await uploadFileToMinio(
+        req.files.bill_t_image[0],
+        "txn_debitNote"
+      );
+
+      bill_t_image = uploadedBill.object_path;
+    }
+
+    // Upload Dispatch Document File
+    let dispatch_doc_image = null;
+
+    if (req.files?.dispatch_doc_image?.[0]) {
+      const uploadedDispatch = await uploadFileToMinio(
+        req.files.dispatch_doc_image[0],
+        "txn_debitNote"
+      );
+
+      dispatch_doc_image = uploadedDispatch.object_path;
+    }
+
     const voucherData = await generateVoucherNo("DEBIT_NOTE");
-
     const { voucher_no, voucher_type_id, nextSequence } = voucherData;
-
     for (const item of data.items) {
       const purchasedQty = await debitNoteModel.getPurchasedQtyByInvoice(
         connection,
@@ -36,10 +68,10 @@ exports.createDebitNote = async (req, res) => {
       if (Number(item.return_qty) > Number(availableToReturn)) {
         throw new Error(
           `Return Qty exceeds purchased qty for Item ID ${item.stock_item_id}.
-Purchased Qty: ${purchasedQty},
-Already Returned: ${alreadyReturnedQty},
-Available To Return: ${availableToReturn},
-Trying To Return: ${item.return_qty}`,
+           Purchased Qty: ${purchasedQty},
+           Already Returned: ${alreadyReturnedQty},
+           Available To Return: ${availableToReturn},
+           Trying To Return: ${item.return_qty}`,
         );
       }
 
@@ -68,6 +100,10 @@ Trying To Return: ${item.return_qty}`,
     const debitNoteId = await debitNoteModel.createDebitNote(connection, {
       ...data,
       voucher_no,
+      assign_employee_id: data.assign_employee_id || null,
+  employee_under_id: data.employee_under_id || null,
+      bill_t_image,
+      dispatch_doc_image,
       voucher_type_id,
       created_by: req.user.id,
     });
@@ -195,7 +231,7 @@ Trying To Return: ${item.return_qty}`,
     =================================
     */
 
-      const billRefs = await debitNoteModel.getPurchaseBillReferencesByPurchaseId(
+    const billRefs = await debitNoteModel.getPurchaseBillReferencesByPurchaseId(
       connection,
       data.original_purchase_id,
     );
@@ -316,9 +352,7 @@ exports.getPurchaseItemsById = async (req, res) => {
 exports.getDebitNoteInvoice = async (req, res) => {
   try {
     const { id } = req.params;
-
-    const debitNote =
-      await debitNoteModel.getDebitNoteInvoice(id);
+    const debitNote = await debitNoteModel.getDebitNoteInvoice(id);
 
     if (!debitNote) {
       return res.status(404).json({
@@ -333,7 +367,6 @@ exports.getDebitNoteInvoice = async (req, res) => {
     });
   } catch (error) {
     console.error("Get Debit Note Invoice Error:", error);
-
     return res.status(500).json({
       success: false,
       message: error.message,

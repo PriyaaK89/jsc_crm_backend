@@ -19,20 +19,10 @@ exports.getContraAccountDropdown = async () => {
 };
 
 exports.createContra = async (connection, contraData) => {
-  const {
-    voucher_type_id,
-    voucher_no,
-    contra_date,
-    account_ledger_id,
-    employee_under_id,
-    total_amount,
-    narration,
-    created_by,
-  } = contraData;
+  const { voucher_type_id, voucher_no, contra_date, account_ledger_id, employee_under_id, total_amount, narration, created_by, } = contraData;
 
   const [result] = await connection.query(
-    `
-        INSERT INTO contra_master (
+    ` INSERT INTO contra_master (
 
             voucher_type_id,
             voucher_no,
@@ -47,10 +37,7 @@ exports.createContra = async (connection, contraData) => {
             created_by
 
         )
-        VALUES (
-            ?,?,?,?,?,?,?,?
-        )
-        `,
+        VALUES ( ?,?,?,?,?,?,?,? ) `,
     [
       voucher_type_id,
       voucher_no,
@@ -75,11 +62,12 @@ exports.insertContraEntry = async (connection, contraId, entry) => {
             amount,
             transaction_type,
             bank_name,
+            entry_type,
             remarks
 
         )
         VALUES (
-            ?,?,?,?,?,?
+            ?,?,?,?,?,?,?
         )
         `,
     [
@@ -88,6 +76,7 @@ exports.insertContraEntry = async (connection, contraId, entry) => {
       entry.amount,
       entry.transaction_type,
       entry.bank_name || null,
+      entry.entry_type,
       entry.remarks || null,
     ],
   );
@@ -220,4 +209,63 @@ exports.validateContraLedger = async (connection, ledgerId) => {
   );
 
   return rows.length > 0;
+};
+
+exports.getContraInvoice = async (contraId) => {
+
+    const [contraRows] = await db.query(
+        ` SELECT
+            cm.*,
+            accountLedger.ledger_name AS account_ledge_name,
+            accountLedger.gst_no AS account_ledger_gst,
+            accountDetails.contact AS account_mobile,
+            accountDetails.address AS account_address,
+            underUser.name AS employee_under_name,
+            createdUser.name AS created_by_name
+
+        FROM contra_master cm
+
+        LEFT JOIN ledgers accountLedger ON accountLedger.id = cm.account_ledger_id
+        LEFT JOIN ledger_other_details accountDetails ON accountDetails.ledger_id = cm.account_ledger_id
+        LEFT JOIN users underUser ON underUser.id = cm.employee_under_id
+        LEFT JOIN users createdUser ON createdUser.id = cm.created_by
+        WHERE cm.id = ?
+        `,
+        [contraId]
+    );
+
+    if (!contraRows.length) { return null; }
+
+    const contra = contraRows[0];
+
+    const [entries] = await db.query(
+        ` SELECT
+            ce.id,
+            ce.contra_id,
+
+            ce.ledger_id,
+            l.ledger_name,
+            l.gst_no,
+
+            ce.amount,
+            ce.transaction_type,
+            ce.bank_name,
+            ce.entry_type,
+            ce.remarks
+
+        FROM contra_entries ce
+
+        LEFT JOIN ledgers l
+            ON l.id = ce.ledger_id
+
+        WHERE ce.contra_id = ?
+        ORDER BY ce.id ASC
+        `,
+        [contraId]
+    );
+
+    return {
+        contra,
+        entries
+    };
 };

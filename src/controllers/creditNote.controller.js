@@ -2,16 +2,56 @@ const db = require("../config/db");
 const creditNoteModel = require("../models/creditNote.model");
 const purchaseModel = require("../models/purchaseTxnMaster.model");
 const generateVoucherNo = require("../utils/generateVoucherNo");
+const { uploadFileToMinio } = require("../utils/fileUpload");
 
 exports.createCreditNote = async (req, res) => {
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
+  const data = {
+  ...req.body,
+  items: JSON.parse(req.body.items || "[]"),
+  bill_references: JSON.parse(
+    req.body.bill_references || "[]"
+  ),
+    assign_employee_id:
+    req.body.assign_employee_id &&
+    req.body.assign_employee_id !== "null"
+      ? Number(req.body.assign_employee_id)
+      : null,
 
-    const data = req.body;
+  employee_under_id:
+    req.body.employee_under_id &&
+    req.body.employee_under_id !== "null"
+      ? Number(req.body.employee_under_id)
+      : null,
+};
+
+    let bill_t_image = null;
+
+if (req.files?.bill_t_image?.[0]) {
+  const uploadedBill = await uploadFileToMinio(
+    req.files.bill_t_image[0],
+    "txn_creditNote"
+  );
+
+  bill_t_image = uploadedBill.object_path;
+}
+
+// Upload Dispatch Document File
+let dispatch_doc_image = null;
+
+if (req.files?.dispatch_doc_image?.[0]) {
+  const uploadedDispatch = await uploadFileToMinio(
+    req.files.dispatch_doc_image[0],
+    "txn_creditNote"
+  );
+
+  dispatch_doc_image = uploadedDispatch.object_path;
+}
+
 
     const voucherData = await generateVoucherNo("CREDIT_NOTE");
-
     const { voucher_no, voucher_type_id, nextSequence } = voucherData;
 
         /*
@@ -53,6 +93,10 @@ RETURN QTY VALIDATION
     const creditNoteId = await creditNoteModel.createCreditNote(connection, {
       ...data,
       voucher_no,
+      bill_t_image,
+      assign_employee_id: data.assign_employee_id || null,
+employee_under_id: data.employee_under_id || null,
+    dispatch_doc_image,
       voucher_type_id,
       created_by: req.user.id,
     });

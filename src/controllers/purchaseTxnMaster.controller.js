@@ -1,6 +1,7 @@
 const db = require("../config/db");
 const purchaseModel = require("../models/purchaseTxnMaster.model");
 const generateVoucherNo = require("../utils/generateVoucherNo");
+const { uploadFileToMinio } = require("../utils/fileUpload");
 
 
 exports.getPurchaseLedgerDropdown = async (req, res) => {
@@ -38,7 +39,54 @@ exports.createPurchase = async (req, res) => {
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
-    const data = req.body;
+  const data = {
+  ...req.body,
+
+  items: JSON.parse(req.body.items || "[]"),
+  extra_ledgers: JSON.parse(req.body.extra_ledgers || "[]"),
+
+  employee_under_id:
+    req.body.employee_under_id === ""
+      ? null
+      : req.body.employee_under_id,
+
+  purchase_ledger_id:
+    req.body.purchase_ledger_id === ""
+      ? null
+      : req.body.purchase_ledger_id,
+
+  supplier_ledger_id:
+    req.body.supplier_ledger_id === ""
+      ? null
+      : req.body.supplier_ledger_id,
+};
+console.log("items =", data.items);
+console.log("first item =", data.items[0]);
+    // const data = req.body;
+
+    let bill_t_image = null;
+
+if (req.files?.bill_t_image?.[0]) {
+  const uploadedBill = await uploadFileToMinio(
+    req.files.bill_t_image[0],
+    "txn_purchase"
+  );
+
+  bill_t_image = uploadedBill.object_path;
+}
+
+// Upload Dispatch Document File
+let dispatch_doc_image = null;
+
+if (req.files?.dispatch_doc_image?.[0]) {
+  const uploadedDispatch = await uploadFileToMinio(
+    req.files.dispatch_doc_image[0],
+    "txn_purchase"
+  );
+
+  dispatch_doc_image = uploadedDispatch.object_path;
+}
+
 
     const voucherData = await generateVoucherNo("PURCHASE");
 
@@ -47,6 +95,8 @@ exports.createPurchase = async (req, res) => {
     const purchaseId = await purchaseModel.createPurchase(connection, {
       ...data,
       voucher_no,
+      bill_t_image,
+  dispatch_doc_image,
       created_by: req.user.id,
     });
 

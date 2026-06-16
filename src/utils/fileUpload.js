@@ -17,6 +17,9 @@ const folderMap = {
   txn_payments: "txn-master/payment",
   txn_receipt: "txn-master/receipt",
   txn_sales: "txn-master/sales",
+  txn_purchase: "txn-master/purchase",
+  txn_debitNote: "txn-master/debitNote",
+  txn_creditNote: "txn-master/creditNote"
 };
 
 const uploadFileToMinio = async (file, type, options = {}) => {

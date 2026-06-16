@@ -45,7 +45,8 @@ exports.createCreditNote = async (connection, creditNoteData) => {
     subtotal,
 
     igst_total, cgst_total, sgst_total,
-    tax_total, total_amount,
+    tax_total, total_amount,  bill_t_image,
+    dispatch_doc_image,
     narration,
 
     created_by,
@@ -72,13 +73,14 @@ exports.createCreditNote = async (connection, creditNoteData) => {
       eway_number, transporter_gst, delivery_place,
       subtotal,
       igst_total, cgst_total, sgst_total,
-      tax_total, total_amount,
+      tax_total, total_amount,  bill_t_image,
+    dispatch_doc_image,
       narration,
       created_by
 
     )
     VALUES (
-      ?,?,?, ?, ?,?, ?,?, ?,?,?, ?,?, ?, ?,?,?, ?, ?,?,?, ?,?, ?, ?
+      ?,?,?, ?, ?,?, ?,?, ?,?,?, ?,?, ?, ?,?,?, ?, ?,?,?, ?,?, ?, ?, ?, ?
     )  `,
     [
       voucher_type_id,
@@ -104,7 +106,8 @@ exports.createCreditNote = async (connection, creditNoteData) => {
       cgst_total,
       sgst_total,
       tax_total,
-      total_amount,
+      total_amount,  bill_t_image,
+    dispatch_doc_image,
       narration,
       created_by,
     ]

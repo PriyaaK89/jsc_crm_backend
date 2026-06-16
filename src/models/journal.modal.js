@@ -1,7 +1,6 @@
 const db = require("../config/db");
 
 exports.getJournalLedgerDropdown = async () => {
-
     const [rows] = await db.query(`
         SELECT
             l.id,
@@ -12,31 +11,16 @@ exports.getJournalLedgerDropdown = async () => {
         LEFT JOIN account_groups ag
             ON ag.id = l.group_id
         WHERE l.status = 'ACTIVE'
-        ORDER BY l.ledger_name ASC
-    `);
+        ORDER BY l.ledger_name ASC `);
 
     return rows;
 };
 
-exports.createJournal = async (
-    connection,
-    journalData
-) => {
-
-    const {
-        voucher_type_id,
-        voucher_no,
-        journal_date,
-        employee_under_id,
-        total_debit,
-        total_credit,
-        narration,
-        created_by
-    } = journalData;
+exports.createJournal = async ( connection, journalData ) => {
+    const { voucher_type_id, voucher_no, journal_date, employee_under_id, total_debit, total_credit, narration, created_by } = journalData;
 
     const [result] = await connection.query(
-        `
-        INSERT INTO journal_master
+        ` INSERT INTO journal_master
         (
             voucher_type_id,
             voucher_no,
@@ -48,10 +32,7 @@ exports.createJournal = async (
             created_by
         )
         VALUES
-        (
-            ?,?,?,?,?,?,?,?
-        )
-        `,
+        ( ?,?,?,?,?,?,?,? ) `,
         [
             voucher_type_id,
             voucher_no,
@@ -67,15 +48,9 @@ exports.createJournal = async (
     return result.insertId;
 };
 
-exports.insertJournalEntry = async (
-    connection,
-    journalId,
-    entry
-) => {
-
+exports.insertJournalEntry = async ( connection, journalId, entry ) => {
     const [result] = await connection.query(
-        `
-        INSERT INTO journal_entries
+        ` INSERT INTO journal_entries
         (
             journal_id,
             ledger_id,
@@ -100,16 +75,9 @@ exports.insertJournalEntry = async (
     return result.insertId;
 };
 
-exports.insertJournalBillReference = async (
-    connection,
-    journalEntryId,
-    ledgerId,
-    bill
-) => {
-
+exports.insertJournalBillReference = async ( connection, journalEntryId, ledgerId, bill ) => {
     await connection.query(
-        `
-        INSERT INTO journal_bill_references
+        ` INSERT INTO journal_bill_references
         (
             journal_entry_id,
             ledger_id,
@@ -136,14 +104,9 @@ exports.insertJournalBillReference = async (
     );
 };
 
-exports.insertLedgerTransaction = async (
-    connection,
-    data
-) => {
-
+exports.insertLedgerTransaction = async ( connection, data ) => {
     await connection.query(
-        `
-        INSERT INTO ledger_transactions
+        ` INSERT INTO ledger_transactions
         (
             transaction_type,
             reference_id,
@@ -337,6 +300,80 @@ exports.getJournalVoucher = async (
             ON je.id = jbr.journal_entry_id
         WHERE je.journal_id = ?
         ORDER BY jbr.id
+        `,
+        [journalId]
+    );
+
+    return {
+        journal,
+        entries,
+        billReferences
+    };
+};
+exports.getJournalInvoice = async (journalId) => {
+    const [journalRows] = await db.query(
+        ` SELECT
+            jm.*,
+            assignUser.name AS created_by_name,
+            underUser.name AS employee_under_name
+
+        FROM journal_master jm
+
+        LEFT JOIN users assignUser
+            ON assignUser.id = jm.created_by
+
+        LEFT JOIN users underUser
+            ON underUser.id = jm.employee_under_id
+
+        WHERE jm.id = ?
+        `,
+        [journalId]
+    );
+
+    if (!journalRows.length) {
+        return null;
+    }
+
+    const journal = journalRows[0];
+
+    const [entries] = await db.query(
+        `
+        SELECT
+            je.*,
+
+            l.ledger_name,
+            l.gst_no
+
+        FROM journal_entries je
+
+        LEFT JOIN ledgers l
+            ON l.id = je.ledger_id
+
+        WHERE je.journal_id = ?
+
+        ORDER BY je.id ASC
+        `,
+        [journalId]
+    );
+
+    const [billReferences] = await db.query(
+        `
+        SELECT
+
+            jbr.*,
+
+            l.ledger_name
+
+        FROM journal_bill_references jbr
+
+        LEFT JOIN ledgers l
+            ON l.id = jbr.ledger_id
+
+        INNER JOIN journal_entries je
+            ON je.id = jbr.journal_entry_id
+
+        WHERE je.journal_id = ?
+        ORDER BY jbr.id ASC
         `,
         [journalId]
     );

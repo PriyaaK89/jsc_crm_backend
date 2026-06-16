@@ -62,6 +62,7 @@ const creditNoteTxnRoute = require("../src/routes/creditNote.routes");
 const debitNoteTxnRoute = require("../src/routes/debitNote.routes");
 const contraTxnRoute = require("../src/routes/contra.routes");
 const journalTxnRoute = require("../src/routes/journal.routes");
+const partyTransactionReportRoute = require("./routes/partyTransactionReport.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -120,6 +121,7 @@ app.use(creditNoteTxnRoute);
 app.use(debitNoteTxnRoute);
 app.use(contraTxnRoute);
 app.use(journalTxnRoute);
+app.use(partyTransactionReportRoute);
 
 // 404 handler
 app.use((req, res) => {

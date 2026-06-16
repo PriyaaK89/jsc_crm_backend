@@ -60,6 +60,8 @@ exports.createDebitNote = async (connection, debitNoteData) => {
 
     tax_total,
     total_amount,
+     bill_t_image,
+    dispatch_doc_image,
 
     narration,
 
@@ -103,6 +105,8 @@ exports.createDebitNote = async (connection, debitNoteData) => {
 
       tax_total,
       total_amount,
+       bill_t_image,
+    dispatch_doc_image,
 
       narration,
 
@@ -122,7 +126,7 @@ exports.createDebitNote = async (connection, debitNoteData) => {
       ?,?,?,
       ?,?,
       ?,
-      ?
+      ?,?,?
     )
     `,
     [
@@ -159,6 +163,8 @@ exports.createDebitNote = async (connection, debitNoteData) => {
 
       tax_total,
       total_amount,
+    bill_t_image,
+    dispatch_doc_image,
 
       narration,
 
@@ -582,14 +588,10 @@ exports.getPurchaseBillReferencesByPurchaseId = async (
 };
 
 exports.getDebitNoteInvoice = async (debitNoteId) => {
-  // Debit Note Master
 
   const [debitNoteRows] = await db.query(
-    `
-    SELECT
-
+    ` SELECT
       dn.*,
-
       supplier.ledger_name AS supplier_name,
       supplier.gst_no AS supplier_gst,
 
@@ -640,14 +642,12 @@ exports.getDebitNoteInvoice = async (debitNoteId) => {
       dni.godown_id,
 
       dni.batch_no,
-
       gst.hsn_sac AS hsn_code,
 
       dni.available_qty,
       dni.return_qty,
 
       dni.rate,
-
       dni.amount,
 
       dni.igst_percent,
@@ -658,13 +658,9 @@ exports.getDebitNoteInvoice = async (debitNoteId) => {
 
       dni.sgst_percent,
       dni.sgst_amount,
-
       dni.total_amount,
-
       stock.item_name,
-
       unit.symbol AS unit_name,
-
       altUnit.symbol AS alt_unit_name
 
     FROM debit_note_items dni
@@ -682,9 +678,7 @@ exports.getDebitNoteInvoice = async (debitNoteId) => {
       ON gst.stock_item_id = stock.id
 
     WHERE dni.debit_note_id = ?
-
-    ORDER BY dni.id ASC
-    `,
+    ORDER BY dni.id ASC `,
     [debitNoteId]
   );
 

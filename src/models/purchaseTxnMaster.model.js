@@ -53,6 +53,8 @@ exports.createPurchase = async (connection, purchaseData) => {
     total_amount,
 
     tax_mode,
+    bill_t_image,
+    dispatch_doc_image,
 
     narration,
     created_by,
@@ -94,6 +96,8 @@ exports.createPurchase = async (connection, purchaseData) => {
             tax_total,
             total_amount,
             tax_mode,
+            bill_t_image,
+    dispatch_doc_image,
 
             narration,
             created_by
@@ -103,7 +107,7 @@ exports.createPurchase = async (connection, purchaseData) => {
     ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?,
-    ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?,?,?
 )
         `,
     [
@@ -140,6 +144,8 @@ exports.createPurchase = async (connection, purchaseData) => {
       total_amount,
 
       tax_mode,
+      bill_t_image,
+    dispatch_doc_image,
 
       narration,
       created_by,
@@ -481,8 +487,7 @@ exports.getPurchaseInvoice = async (purchaseId) => {
             pi.sgst_amount,
             pi.total_amount,
             si.item_name,
-             gst.hsn_sac AS hsn_code,
-
+            gst.hsn_sac AS hsn_code,
             u.symbol
 
         FROM purchase_items pi

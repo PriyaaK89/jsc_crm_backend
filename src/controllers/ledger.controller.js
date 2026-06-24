@@ -11,7 +11,7 @@ const {
   updateLedgerBankDetailsModel,
   replaceLedgerInterestConfigsModel,
   updateLedgerOtherDetailsModel,
-  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance
+  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel
 } = require("../models/ledger.model");
 
 const { getGroupById } = require("../models/accountGroup.model");
@@ -698,10 +698,42 @@ const reassignLedgerEmployee = async (
 };
 
 
+const getMyAssignedLedgers = async (req, res) => {
+    try {
+      const employeeId = req.user.id;
+
+      const ledgers =
+        await getMyAssignedLedgersModel(
+          employeeId
+        );
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Assigned ledgers fetched successfully",
+        count: ledgers.length,
+        data: ledgers,
+      });
+    } catch (error) {
+      console.error(
+        "getMyAssignedLedgers Error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Failed to fetch assigned ledgers",
+        error: error.message,
+      });
+    }
+  };
+
+
 module.exports = {
   createLedgerController,
   getLedgers,
   getLedgerByIdController,
   updateLedgerController,
-  deleteLedgerController, getLedgerDropdown, reassignLedgerEmployee
+  deleteLedgerController, getLedgerDropdown, reassignLedgerEmployee, getMyAssignedLedgers
 };

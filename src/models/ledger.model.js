@@ -1,7 +1,6 @@
 const db = require("../config/db");
 
 const createLedger = async (ledgerData) => {
-
   const {
     ledger_name, group_id, employee_under,
     opening_balance, balance_type, opening_date,
@@ -1350,6 +1349,39 @@ const getCurrentLedgerBalance = async (
 
   return balance;
 };
+
+const getMyAssignedLedgersModel = async (employeeId) => {
+  const [rows] = await db.query(
+    `
+    SELECT
+      l.id,
+      l.ledger_name,
+      l.group_id,
+      l.employee_under,
+      l.opening_balance,
+      l.balance_type,
+      l.mailing_name,
+      l.location,
+      l.country,
+      l.state,
+      l.pincode,
+      l.pan_no,
+      l.gst_no,
+      l.credit_limit,
+      lic.security_amount,
+      l.created_at
+    FROM ledgers l
+    LEFT JOIN ledger_interest_config lic
+      ON lic.ledger_id = l.id
+    WHERE l.employee_under = ?
+    ORDER BY l.ledger_name ASC
+    `,
+    [employeeId]
+  );
+
+  return rows;
+};
+
 module.exports = {
   createLedger,
   createLedgerBankDetails,
@@ -1363,5 +1395,5 @@ module.exports = {
   updateLedgerBankDetailsModel,
   replaceLedgerInterestConfigsModel,
   updateLedgerOtherDetailsModel,
-  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance
+  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel
 };

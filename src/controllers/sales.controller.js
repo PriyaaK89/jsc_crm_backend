@@ -4,48 +4,18 @@ const generateVoucherNo = require("../utils/generateVoucherNo");
 const purchaseModal = require("../models/purchaseTxnMaster.model");
 const { uploadFileToMinio } = require("../utils/fileUpload");
 
-exports.getSalesLedgerList = async (req, res) => {
-    try {
-        const data = await salesModel.getSalesLedgerDropdown();
-
-        res.status(200).json({
-            success: true,
-            data,
-        });
-
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message
-        })
-    }
-}
-
 exports.createSales = async (req, res) => {
     const connection = await db.getConnection();
     try {
         await connection.beginTransaction();
         const data = req.body;
+        data.items = JSON.parse( data.items || "[]" );
+        data.extra_ledgers = JSON.parse( data.extra_ledgers || "[]" );
 
-        data.items =
-          JSON.parse(
-            data.items || "[]"
-          );
-        
-        data.extra_ledgers =
-          JSON.parse(
-            data.extra_ledgers || "[]"
-          );
-        const voucherData =
-            await generateVoucherNo("SALES");
-
+        const voucherData = await generateVoucherNo("SALES");
         const { voucher_no, voucher_type_id, nextSequence } = voucherData;
 
-        /*
-        ===========================
-        STOCK VALIDATION
-        ===========================
-        */
+        /* STOCK VALIDATION */
 
         for (const item of data.items) {
             const availableStock =
@@ -56,11 +26,7 @@ exports.createSales = async (req, res) => {
                     item.batch_no || null
                 );
 
-            if (
-                Number(availableStock) <
-                Number(item.billed_qty)
-            ) {
-
+            if (  Number(availableStock) < Number(item.billed_qty) ) {
                 throw new Error(
                     `Insufficient stock for Item ID ${item.stock_item_id}.
                     Available: ${availableStock},
@@ -73,38 +39,18 @@ exports.createSales = async (req, res) => {
         let billTImage = null;
 
         if (req.files?.dispatch_doc_image?.[0]) {
-            const uploaded =
-                await uploadFileToMinio(
-                    req.files.dispatch_doc_image[0],
-                    "txn_sales"
-                );
-
-            dispatchDocImage =
-                uploaded.object_path;
+            const uploaded = await uploadFileToMinio( req.files.dispatch_doc_image[0], "txn_sales" );
+            dispatchDocImage = uploaded.object_path;
         }
 
-        if (
-            req.files?.bill_t_image?.[0]
-        ) {
-            const uploaded =
-                await uploadFileToMinio(
-                    req.files.bill_t_image[0],
-                    "txn_sales"
-                );
-
-            billTImage =
-                uploaded.object_path;
+        if ( req.files?.bill_t_image?.[0] ) {
+            const uploaded = await uploadFileToMinio( req.files.bill_t_image[0], "txn_sales" );
+            billTImage = uploaded.object_path;
         }
 
-        /*
-        ===========================
-        CREATE SALES MASTER
-        ===========================
-        */
+        /* CREATE SALES MASTER */
 
-        const saleId =
-            await salesModel.createSales(
-                connection,
+        const saleId = await salesModel.createSales( connection,
                 {
                     ...data,
                     dispatch_doc_image: dispatchDocImage,
@@ -114,29 +60,12 @@ exports.createSales = async (req, res) => {
                 }
             );
 
-        /*
-        ===========================
-        SALES ITEMS
-        ===========================
-        */
+        /* SALES ITEMS */
 
         for (const item of data.items) {
+            const salesItemId = await salesModel.insertSalesItem( connection, item, saleId );
 
-            const salesItemId =
-                await salesModel.insertSalesItem(
-                    connection,
-                    item,
-                    saleId
-                );
-
-            if (item.batch_no) {
-
-                await salesModel.insertSalesBatch(
-                    connection,
-                    item,
-                    salesItemId
-                );
-            }
+            if (item.batch_no) { await salesModel.insertSalesBatch( connection, item, salesItemId); }
 
             await salesModel.insertSalesStockTransaction(
                 connection,
@@ -147,20 +76,9 @@ exports.createSales = async (req, res) => {
             );
         }
 
-        /*
-        ===========================
-        CUSTOMER DR
-        ===========================
-        */
-        if (
-            data.extra_ledgers?.length
-        ) {
-
-            for (
-                const ledger
-                of data.extra_ledgers
-            ) {
-
+        /* CUSTOMER DR */
+        if (  data.extra_ledgers?.length ) {
+            for ( const ledger of data.extra_ledgers ) {
                 await salesModel.insertExtraLedger(
                     connection,
                     {
@@ -206,11 +124,7 @@ exports.createSales = async (req, res) => {
             }
         );
 
-        /*
-        ===========================
-        SALES ACCOUNT CR
-        ===========================
-        */
+        /* SALES ACCOUNT CR */
 
         await salesModel.insertLedgerTransaction(
             connection,
@@ -228,21 +142,13 @@ exports.createSales = async (req, res) => {
             }
         );
 
-        /*
-        ===========================
-        GST LEDGERS
-        ===========================
-        */
-
+        /* GST LEDGERS */
         const cgstLedger = await purchaseModal.getLedgerByName(connection, "CGST");
         const sgstLedger = await purchaseModal.getLedgerByName(connection, "SGST");
         const igstLedger = await purchaseModal.getLedgerByName(connection, "IGST");
-        /*
-        IGST CR
-        */
 
+        /*  IGST CR  */
         if (Number(data.igst_total) > 0) {
-
             await salesModel.insertLedgerTransaction(
                 connection,
                 {
@@ -260,12 +166,8 @@ exports.createSales = async (req, res) => {
             );
         }
 
-        /*
-        CGST CR
-        */
-
+        /* CGST CR */
         if (Number(data.cgst_total) > 0) {
-
             await salesModel.insertLedgerTransaction(
                 connection,
                 {
@@ -282,7 +184,6 @@ exports.createSales = async (req, res) => {
                 }
             );
         }
-
 
         if (Number(data.sgst_total) > 0) {
             await salesModel.insertLedgerTransaction(
@@ -302,16 +203,9 @@ exports.createSales = async (req, res) => {
             );
         }
 
-        const customerLedger =
-            await purchaseModal.getLedgerById(
-                connection,
-                data.customer_ledger_id
-            );
+        const customerLedger = await purchaseModal.getLedgerById( connection, data.customer_ledger_id );
 
-        if (
-            customerLedger?.maintain_bill_by_bill
-        ) {
-
+        if ( customerLedger?.maintain_bill_by_bill ) {
             await salesModel.insertSalesBillReference(
                 connection,
                 {
@@ -328,15 +222,8 @@ exports.createSales = async (req, res) => {
         }
 
         await connection.query(
-            `
-            UPDATE voucher_types
-            SET current_sequence = ?
-            WHERE id = ?
-            `,
-            [
-                nextSequence,
-                voucher_type_id
-            ]
+            ` UPDATE voucher_types SET current_sequence = ? WHERE id = ? `,
+            [ nextSequence, voucher_type_id ]
         );
 
         await connection.commit();
@@ -361,6 +248,25 @@ exports.createSales = async (req, res) => {
         connection.release();
     }
 };
+
+
+
+exports.getSalesLedgerList = async (req, res) => {
+    try {
+        const data = await salesModel.getSalesLedgerDropdown();
+
+        res.status(200).json({
+            success: true,
+            data,
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        })
+    }
+}
 
 exports.getSalesInvoice = async (req, res) => {
     try {

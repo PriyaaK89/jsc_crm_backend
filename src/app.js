@@ -11,6 +11,8 @@ app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+
+
 const departmentRoute = require("../src/routes/department.routes");
 const jobRoleRoute = require("../src/routes/jobRole.routes");
 const authRoutes = require('../src/routes/auth.routes');
@@ -63,6 +65,9 @@ const debitNoteTxnRoute = require("../src/routes/debitNote.routes");
 const contraTxnRoute = require("../src/routes/contra.routes");
 const journalTxnRoute = require("../src/routes/journal.routes");
 const partyTransactionReportRoute = require("./routes/partyTransactionReport.routes");
+const transactionApprovalConfig = require("../src/routes/transaction-flow/transactionApprovalConfig.routes")
+// for sales order request in apk
+const transactionApproval = require("../src/routes/transaction-flow/transactionApproval.routes")
 
 // Health check
 app.get('/', (req, res) => {
@@ -122,6 +127,8 @@ app.use(debitNoteTxnRoute);
 app.use(contraTxnRoute);
 app.use(journalTxnRoute);
 app.use(partyTransactionReportRoute);
+app.use(transactionApprovalConfig);
+app.use(transactionApproval)
 
 // 404 handler
 app.use((req, res) => {

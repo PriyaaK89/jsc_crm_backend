@@ -32,57 +32,22 @@ exports.getCustomerDropdown = async () => {
 
 exports.createSales = async (connection, salesData) => {
   const {
-    voucher_type_id,
-    voucher_no,
-    sales_date,
-    reference_no,
-
-    customer_ledger_id,
-    sales_ledger_id,
-
-    assign_employee_id,
-    employee_under_id,
-
+    voucher_type_id, voucher_no, sales_date, reference_no,
+    customer_ledger_id, sales_ledger_id,
+    assign_employee_id, employee_under_id,
     is_consignee,
 
-    dealer_name,
-    proprietor_name,
-    consignee_contact_no,
-    consignee_address,
-    consignee_gstn_no,
+    dealer_name, proprietor_name, consignee_contact_no, consignee_address, consignee_gstn_no,
 
-    dispatch_doc_no,
-    transport_name,
-    destination,
-
-    bill_t_no,
-    vehicle_no,
-
-    transport_freight,
-    local_freight,
-    load_freight,
-    unload_freight,
-
-    eway_number,
-    transporter_gst,
-    delivery_place,
-
+    dispatch_doc_no, transport_name, destination, bill_t_no, vehicle_no,
+    
+    transport_freight, local_freight, load_freight, unload_freight,
+    eway_number, transporter_gst, delivery_place,
     is_supercash_sale,
-
-    subtotal,
-    igst_total,
-    cgst_total,
-    sgst_total,
-    tax_total,
-    total_amount,
-
+    subtotal, igst_total, cgst_total, sgst_total, tax_total, total_amount,
     tax_mode,
-
-    dispatch_doc_image,
-    bill_t_image,
-
-    narration,
-    created_by,
+    dispatch_doc_image, bill_t_image,
+    narration, created_by,
   } = salesData;
 
   const [result] = await connection.query(
@@ -233,17 +198,9 @@ exports.insertSalesItem = async (connection, item, saleId) => {
   return result.insertId;
 };
 
-exports.insertSalesStockTransaction = async (
-  connection,
-  item,
-  saleId,
-  salesDate,
-  createdBy,
-) => {
+exports.insertSalesStockTransaction = async ( connection, item, saleId, salesDate, createdBy, ) => {
   await connection.query(
-    `
-        INSERT INTO stock_transactions ( transaction_type, reference_type, reference_id, transaction_date, stock_item_id, godown_id, batch_no, unit_id, qty_in, qty_out, rate, amount, created_by
-        )
+    ` INSERT INTO stock_transactions ( transaction_type, reference_type, reference_id, transaction_date, stock_item_id, godown_id, batch_no, unit_id, qty_in, qty_out, rate, amount, created_by )
         VALUES (
             'SALE',
             'SALES', ?, ?,
@@ -309,15 +266,10 @@ exports.insertLedgerTransaction = async (connection, data) => {
     ],
   );
 };
-exports.insertSalesBillReference = async (
-  connection,
-  data
-) => {
+exports.insertSalesBillReference = async ( connection, data) => {
 
   const [result] = await connection.query(
-    `
-    INSERT INTO sales_bill_references (
-
+    ` INSERT INTO sales_bill_references (
       sale_id,
       ledger_id,
       reference_type,
@@ -327,12 +279,10 @@ exports.insertSalesBillReference = async (
       pending_amount,
        status,
       due_date
-
     )
     VALUES (
       ?,?,?,?,?,?,?,?,?
-    )
-    `,
+    ) `,
     [
       data.sale_id,
       data.ledger_id,
@@ -347,12 +297,7 @@ exports.insertSalesBillReference = async (
   return result.insertId;
 };
 
-exports.getAvailableStock = async (
-    connection,
-    stockItemId,
-    godownId,
-    batchNo = null
-) => {
+exports.getAvailableStock = async ( connection, stockItemId, godownId, batchNo = null ) => {
 
     let sql = `
         SELECT

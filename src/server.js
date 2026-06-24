@@ -17,6 +17,14 @@ const db = require('./config/db');
 
 const http = require("http");
 const app = require('./app');
+app.disable("etag");
+// app.use((req, res, next) => {
+//   res.setHeader(
+//     "Cache-Control",
+//     "no-store, no-cache, must-revalidate, private"
+//   );
+//   next();
+// });
 
 const { Server } = require("socket.io");
 

@@ -451,12 +451,9 @@ const getLedgerByIdController = async (req, res) => {
       });
     }
         const currentBalance =
-      await getCurrentLedgerBalance(
-        connection,
-        id
-      );
-
-    ledger.current_balance = currentBalance;
+      await getCurrentLedgerBalance( connection, id );
+ledger.current_balance = Number(currentBalance.toFixed(2));
+    // ledger.current_balance = currentBalance;
 
 
     return res.status(200).json({

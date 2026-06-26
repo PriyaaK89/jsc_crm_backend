@@ -1,16 +1,23 @@
 const salesModel = require("../../models/sales.model");
 const purchaseModal = require("../../models/purchaseTxnMaster.model");
 const generateVoucherNo = require("../../utils/generateVoucherNo");
+const validateVoucherDate = require("../../utils/validateVoucherDate");
 
 exports.executeApprovedSales = async (connection, payload, createdBy) => {
 
   const data = typeof payload === "string" ? JSON.parse(payload) : payload;
   data.items = typeof data.items === "string" ? JSON.parse(data.items) : data.items || [];
   data.extra_ledgers = typeof data.extra_ledgers === "string" ? JSON.parse(data.extra_ledgers) : data.extra_ledgers || [];
+  
   const dispatchDocImage = data.dispatch_doc_image || null;
   const billTImage = data.bill_t_image || null;
 
   /* VOUCHER */
+  await validateVoucherDate(
+  connection,
+  "SALES",
+  data.sales_date
+);
   const voucherData = await generateVoucherNo("SALES");
   const { voucher_no, voucher_type_id, nextSequence } = voucherData;
 

@@ -2,6 +2,7 @@ const db = require("../config/db");
 const paymentModel = require("../models/payment.model");
 const generateVoucherNo = require("../utils/generateVoucherNo");
 const { uploadFileToMinio } = require("../utils/fileUpload");
+const validateVoucherDate = require("../utils/validateVoucherDate");
 
 
 exports.getPaymentAccountDropdown = async (req, res) => {
@@ -53,6 +54,11 @@ exports.createPayment = async (req, res) => {
       const uploadedFile = await uploadFileToMinio(req.file, "txn_payments");
       attachment = uploadedFile.object_path;
     }
+    await validateVoucherDate(
+  connection,
+  "PAYMENT",
+  data.payment_date
+);
 
     const voucherData = await generateVoucherNo("PAYMENT");
     const { voucher_no, voucher_type_id, nextSequence } = voucherData;

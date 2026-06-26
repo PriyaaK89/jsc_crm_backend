@@ -11,16 +11,24 @@ exports.getNextVoucherNo = async (req, res) => {
       });
     }
 
-    const data = await generateVoucherNo(voucher_type);
+    // if (!transaction_date) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "transaction_date is required",
+    //   });
+    // }
 
-    res.status(200).json({
+    const data = await generateVoucherNo( voucher_type );
+
+    return res.status(200).json({
       success: true,
       ...data,
     });
+
   } catch (error) {
     console.log(error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });

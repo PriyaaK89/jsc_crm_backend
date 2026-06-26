@@ -49,6 +49,8 @@ exports.createSales = async (connection, salesData) => {
     dispatch_doc_image, bill_t_image,
     narration, created_by,
   } = salesData;
+    const sanitized_assign_employee_id = assign_employee_id || null;
+  const sanitized_employee_under_id  = employee_under_id  || null;
 
   const [result] = await connection.query(
     `
@@ -122,7 +124,9 @@ exports.createSales = async (connection, salesData) => {
     [
       voucher_type_id, voucher_no, sales_date, reference_no,
       customer_ledger_id, sales_ledger_id,
-      assign_employee_id, employee_under_id,
+      // assign_employee_id, employee_under_id,
+       sanitized_assign_employee_id,  // ← use sanitized
+      sanitized_employee_under_id, 
       is_consignee,
       dealer_name, proprietor_name, consignee_contact_no, consignee_address, consignee_gstn_no,
       dispatch_doc_no, transport_name, destination,

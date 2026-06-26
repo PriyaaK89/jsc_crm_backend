@@ -1,6 +1,7 @@
 const db = require("../config/db");
 const contraModel = require("../models/contra.modal");
 const generateVoucherNo = require("../utils/generateVoucherNo");
+const validateVoucherDate = require("../utils/validateVoucherDate");
 
 exports.getContraAccountDropdown = async (req, res) => {
   try {
@@ -26,6 +27,11 @@ exports.createContra = async (req, res) => {
 
     const data = req.body;
 
+    await validateVoucherDate(
+  connection,
+  "CONTRA",
+  data.contra_date
+);
     const voucherData = await generateVoucherNo("CONTRA");
 
     const {

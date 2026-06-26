@@ -4,6 +4,7 @@ const purchaseModel = require("../models/purchaseTxnMaster.model");
 const generateVoucherNo = require("../utils/generateVoucherNo");
 const creditNoteModal = require("../models/creditNote.model");
 const { uploadFileToMinio } = require("../utils/fileUpload");
+const validateVoucherDate = require("../utils/validateVoucherDate");
 
 exports.createDebitNote = async (req, res) => {
   const connection = await db.getConnection();
@@ -43,6 +44,11 @@ data.employee_under_id =
 
       dispatch_doc_image = uploadedDispatch.object_path;
     }
+    await validateVoucherDate(
+  connection,
+  "DEBIT_NOTE",
+  data.debit_note_date
+);
 
     const voucherData = await generateVoucherNo("DEBIT_NOTE");
     const { voucher_no, voucher_type_id, nextSequence } = voucherData;

@@ -3,12 +3,18 @@ const receiptModel = require("../models/receipt.model");
 const { uploadFileToMinio } = require("../utils/fileUpload");
 const paymentModal = require("../models/payment.model");
 const generateVoucherNo = require("../utils/generateVoucherNo");
+const validateVoucherDate = require("../utils/validateVoucherDate");
 
 exports.createReceipt = async (req, res) => {
   const connection = await db.getConnection();
 
   try {
     await connection.beginTransaction();
+    await validateVoucherDate(
+  connection,
+  "RECEIPT",
+  data.receipt_date
+);
 
     const voucherData = await generateVoucherNo("RECEIPT");
 

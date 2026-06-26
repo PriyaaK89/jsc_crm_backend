@@ -3,15 +3,28 @@ const salesModel = require("../models/sales.model");
 const generateVoucherNo = require("../utils/generateVoucherNo");
 const purchaseModal = require("../models/purchaseTxnMaster.model");
 const { uploadFileToMinio } = require("../utils/fileUpload");
+const validateVoucherDate = require("../utils/validateVoucherDate");
 
 exports.createSales = async (req, res) => {
     const connection = await db.getConnection();
     try {
         await connection.beginTransaction();
         const data = req.body;
+      
         data.items = JSON.parse( data.items || "[]" );
-        data.extra_ledgers = JSON.parse( data.extra_ledgers || "[]" );
-
+        // data.extra_ledgers = JSON.parse( data.extra_ledgers || "[]" );
+        data.extra_ledgers = JSON.parse(data.extra_ledgers || "[]")
+    .filter(
+        ledger =>
+            ledger.ledger_id !== "" &&
+            ledger.ledger_id !== null &&
+            ledger.ledger_id !== undefined
+    );
+await validateVoucherDate(
+  connection,
+  "SALES",
+  data.sales_date
+);
         const voucherData = await generateVoucherNo("SALES");
         const { voucher_no, voucher_type_id, nextSequence } = voucherData;
 
@@ -79,6 +92,9 @@ exports.createSales = async (req, res) => {
         /* CUSTOMER DR */
         if (  data.extra_ledgers?.length ) {
             for ( const ledger of data.extra_ledgers ) {
+                 if (!ledger.ledger_id) {
+            continue;
+        }
                 await salesModel.insertExtraLedger(
                     connection,
                     {

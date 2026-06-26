@@ -2,6 +2,7 @@ const db = require("../config/db");
 const purchaseModel = require("../models/purchaseTxnMaster.model");
 const generateVoucherNo = require("../utils/generateVoucherNo");
 const { uploadFileToMinio } = require("../utils/fileUpload");
+const validateVoucherDate = require("../utils/validateVoucherDate");
 
 
 exports.getPurchaseLedgerDropdown = async (req, res) => {
@@ -87,6 +88,11 @@ if (req.files?.dispatch_doc_image?.[0]) {
   dispatch_doc_image = uploadedDispatch.object_path;
 }
 
+await validateVoucherDate(
+  connection,
+  "PURCHASE",
+  data.purchase_date
+);
 
     const voucherData = await generateVoucherNo("PURCHASE");
 

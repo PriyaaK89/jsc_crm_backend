@@ -1,6 +1,7 @@
 const db = require("../config/db");
 const journalModel = require("../models/journal.modal");
 const generateVoucherNo = require("../utils/generateVoucherNo");
+const validateVoucherDate = require("../utils/validateVoucherDate");
 
 exports.getJournalLedgerDropdown = async (req, res) => {
     try {
@@ -77,6 +78,12 @@ exports.createJournal = async (req, res) => {
         if (Number(totalDebit) !== Number(totalCredit)) {
             throw new Error("Total Debit and Total Credit must be equal");
         }
+
+        await validateVoucherDate(
+  connection,
+  "JOURNAL",
+  data.journal_date
+);
 
         const voucherData = await generateVoucherNo("JOURNAL");
 

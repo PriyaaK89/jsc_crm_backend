@@ -10,10 +10,11 @@ exports.createReceipt = async (req, res) => {
 
   try {
     await connection.beginTransaction();
+    const { receipt_date } = req.body;
     await validateVoucherDate(
   connection,
   "RECEIPT",
-  data.receipt_date
+  receipt_date
 );
 
     const voucherData = await generateVoucherNo("RECEIPT");

@@ -97,8 +97,8 @@ const oldPayload = JSON.parse(JSON.stringify(approval.payload_json));
       nextLevel = "DISPATCHER";
 
       // employeeMessage = "Sales Order approved by Junior Accountant. Pending at Dispatcher.";
-      employeeMessage = `Sales Order approved by ${approval.junior_name}. Pending at ${approval.dispatcher_name}.`;
-      approverMessage = "Sales Order approved by Junior Accountant. Pending for your approval.";
+      employeeMessage = `Sales Order approved by ${approval.junior_name} (Junior Accountant). Pending at ${approval.dispatcher_name} (Dispatcher).`;
+      approverMessage = `Sales Order approved by Junior Accountant (${approval.junior_name}). Pending for your approval.`;
 
       await transactionApprovalModel.updateApproval(connection, approvalId, {
         ...modificationData,
@@ -119,8 +119,8 @@ const oldPayload = JSON.parse(JSON.stringify(approval.payload_json));
       nextLevel = "SENIOR";
 
       // employeeMessage = "Sales Order approved by Dispatcher. Pending at Senior Accountant.";
-      employeeMessage = `Sales Order approved by ${approval.dispatcher_name}. Pending at ${approval.senior_name}.`;
-      approverMessage = "Sales Order approved by Dispatcher. Pending for your approval.";
+      employeeMessage = `Sales Order approved by ${approval.dispatcher_name} (Dispatcher). Pending at ${approval.senior_name}.`;
+      approverMessage = `Sales Order approved by Dispatcher (${approval.dispatcher_name}). Pending for your approval.`;
       await transactionApprovalModel.updateApproval(connection, approvalId, {
         ...modificationData,
         current_approver_id: nextApprover,
@@ -147,7 +147,7 @@ const oldPayload = JSON.parse(JSON.stringify(approval.payload_json));
         approved_at: new Date(),
         final_transaction_id: result.saleId,
       });
-      employeeMessage = `Sales Order approved by ${approval.senior_name}. Sales Voucher ${result.voucher_no} generated successfully.`;
+      employeeMessage = `Sales Order approved by ${approval.senior_name} (Senior Accountant). Sales Voucher ${result.voucher_no} generated successfully.`;
       await transactionApprovalModel.updateStatusNotification( connection, approvalId, employeeMessage );
       // employeeMessage = `Sales Order approved successfully. Sales ID: ${result.saleId}`;
     }

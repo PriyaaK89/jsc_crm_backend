@@ -329,17 +329,13 @@ const getStockItemById = async (id) => {
             si.bulk_base_value
         FROM stock_items si
 
-        LEFT JOIN stock_groups sg
-            ON si.stock_group_id = sg.id
+        LEFT JOIN stock_groups sg ON si.stock_group_id = sg.id
 
-        LEFT JOIN stock_categories sc
-            ON si.stock_category_id = sc.id
+        LEFT JOIN stock_categories sc ON si.stock_category_id = sc.id
 
-        LEFT JOIN units u
-            ON si.unit_id = u.id
+        LEFT JOIN units u ON si.unit_id = u.id
 
-        LEFT JOIN units au
-            ON si.alternative_unit_id = au.id
+        LEFT JOIN units au ON si.alternative_unit_id = au.id
 
         LEFT JOIN units bu
             ON si.bulk_unit_id = bu.id

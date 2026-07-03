@@ -229,6 +229,76 @@ exports.getAttendanceImagesByDate = async (employeeId, date) => {
   return rows;
 };
 
+exports.getMyTeamAttendance = async ({
+  hierarchyIds,
+  date,
+  level,
+  user_id
+}) => {
+
+  let query = `
+    SELECT
+      ea.id,
+      ea.attendance_date,
+      ea.status,
+      ea.attendance_unit,
+      ea.working_minutes,
+
+      TIME(ea.check_in_time) AS check_in_time,
+      TIME(ea.check_out_time) AS check_out_time,
+
+      ea.odometer_reading,
+      ea.day_over_odometer_reading,
+      ea.visit_location,
+
+      ea.travel_mode,
+      ea.work_type,
+      ea.field_work_type,
+      ea.vehicle_type,
+      ea.leave_reason,
+
+      u.id AS employee_id,
+      u.name AS employee_name,
+      u.contact_no,
+
+      jr.level,
+      jr.name AS role_name
+
+    FROM emp_attendance ea
+
+    JOIN users u
+      ON u.id = ea.employee_id
+
+    JOIN job_roles jr
+      ON jr.id = u.job_role_id
+
+    WHERE ea.employee_id IN (${hierarchyIds.map(() => "?").join(",")})
+  `;
+
+  const params = [...hierarchyIds];
+
+  if (date) {
+    query += ` AND ea.attendance_date = ?`;
+    params.push(date);
+  }
+
+  if (level) {
+    query += ` AND jr.level = ?`;
+    params.push(level);
+  }
+
+  if (user_id) {
+    query += ` AND ea.employee_id = ?`;
+    params.push(user_id);
+  }
+
+  query += ` ORDER BY u.name`;
+
+  const [rows] = await db.query(query, params);
+
+  return rows;
+};
+
 exports.getDailyAttendanceSummary = async (date) => {
   const [rows] = await db.query(
     `

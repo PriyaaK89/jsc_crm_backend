@@ -9,6 +9,13 @@ exports.createJobRole = async (req, res) => {
         message: 'Department ID and job role name are required'
       });
     }
+    const exists = await jobRoleModel.checkJobRoleExists(department_id, name);
+
+    if (exists) {
+  return res.status(409).json({
+    message: "Job role already exists in this department."
+  });
+}
 
     const id = await jobRoleModel.createJobRole(department_id, name);
 

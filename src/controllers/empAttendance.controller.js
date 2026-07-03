@@ -3,6 +3,8 @@ const uploadToS3 = require("../utils/S3Upload");
 const { calculateAttendanceUnit } = require("../utils/attendanceCalculator");
 const SalaryDaily = require("../models/empDailySalary.model");
 const db = require("../config/db");
+const { getHierarchyIds } = require("../controllers/rollingUser.controller");
+
 
 
 const generateDailySalaryInternal = async (employeeId, date) => {
@@ -532,6 +534,47 @@ exports.getDayWiseAttendance = async (req, res) => {
   }
 };
 
+exports.getAttendanceImagesByDate = async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({
+        message: "Date is required (YYYY-MM-DD)",
+      });
+    }
+
+    const rows = await Attendance.getAttendanceImagesByDate(employeeId, date);
+
+    if (!rows.length) {
+      return res.status(404).json({
+        message: "No attendance found for this date",
+      });
+    }
+
+    // Format response properly
+    const response = {
+      employee_id: employeeId,
+      attendance_date: date,
+      images: {},
+    };
+
+    rows.forEach((row) => {
+      if (row.image_type && row.s3_url) {
+        response.images[row.image_type] = row.s3_url;
+      }
+    });
+
+    return res.json(response);
+  } catch (error) {
+    console.error("Get Attendance Images Error:", error);
+    return res.status(500).json({
+      message: "Server error",
+    });
+  }
+};
+
 exports.getMyAttendance = async (req, res) => {
   try {
     const employeeId = req.user?.id; // from token
@@ -615,46 +658,7 @@ exports.getMonthlyAttendanceSummary = async (req, res) => {
   }
 };
 
-exports.getAttendanceImagesByDate = async (req, res) => {
-  try {
-    const { employeeId } = req.params;
-    const { date } = req.query;
 
-    if (!date) {
-      return res.status(400).json({
-        message: "Date is required (YYYY-MM-DD)",
-      });
-    }
-
-    const rows = await Attendance.getAttendanceImagesByDate(employeeId, date);
-
-    if (!rows.length) {
-      return res.status(404).json({
-        message: "No attendance found for this date",
-      });
-    }
-
-    // Format response properly
-    const response = {
-      employee_id: employeeId,
-      attendance_date: date,
-      images: {},
-    };
-
-    rows.forEach((row) => {
-      if (row.image_type && row.s3_url) {
-        response.images[row.image_type] = row.s3_url;
-      }
-    });
-
-    return res.json(response);
-  } catch (error) {
-    console.error("Get Attendance Images Error:", error);
-    return res.status(500).json({
-      message: "Server error",
-    });
-  }
-};
 
 exports.getDailyAttendanceSummary = async (req, res) => {
   try {
@@ -692,4 +696,29 @@ exports.getDailyAttendanceSummary = async (req, res) => {
     });
   }
 };
+
+exports.getMyTeamAttendance = async (req, res) => {
+  try {
+    const loginUserId = req.user.id;
+    const hierarchyIds = await getHierarchyIds(loginUserId);
+    const data = await Attendance.getMyTeamAttendance({
+      hierarchyIds,
+      date: req.query.date,
+      level: req.query.level,
+      user_id: req.query.user_id
+    });
+
+    return res.status(200).json({
+      success: true,
+      data
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports.generateDailySalaryInternal = generateDailySalaryInternal;

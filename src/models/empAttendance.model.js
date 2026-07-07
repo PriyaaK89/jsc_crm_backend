@@ -51,14 +51,25 @@ exports.updateDayOver = async (data) => {
 };
 
 
+// exports.saveAttendanceImage = async (data) => {
+//   return db.query(
+//     `INSERT INTO emp_attendance_images
+//     (attendance_id, image_type, s3_bucket, s3_key, s3_url, mime_type, file_size_kb)
+//     VALUES (?, ?, ?, ?, ?, ?, ?)
+//     `,
+//     data
+//   );
+// };
+
 exports.saveAttendanceImage = async (data) => {
-  return db.query(
-    `INSERT INTO emp_attendance_images
-    (attendance_id, image_type, s3_bucket, s3_key, s3_url, mime_type, file_size_kb)
+  const query = `
+    INSERT INTO emp_attendance_images
+    ( attendance_id, image_type, storage_bucket, object_path, file_url, mime_type, file_size_kb )
     VALUES (?, ?, ?, ?, ?, ?, ?)
-    `,
-    data
-  );
+  `;
+
+  const [result] = await db.query(query, data);
+  return result.insertId;
 };
 
 exports.getDayWiseAttendance = async ({
@@ -216,7 +227,7 @@ exports.getAttendanceImagesByDate = async (employeeId, date) => {
       ea.id AS attendance_id,
       ea.attendance_date,
       eai.image_type,
-      eai.s3_url
+      eai.file_url
     FROM emp_attendance ea
     LEFT JOIN emp_attendance_images eai 
       ON ea.id = eai.attendance_id

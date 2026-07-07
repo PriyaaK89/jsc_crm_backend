@@ -67,7 +67,8 @@ const journalTxnRoute = require("../src/routes/journal.routes");
 const partyTransactionReportRoute = require("./routes/partyTransactionReport.routes");
 const transactionApprovalConfig = require("../src/routes/transaction-flow/transactionApprovalConfig.routes")
 // for sales order request in apk
-const transactionApproval = require("../src/routes/transaction-flow/transactionApproval.routes")
+const transactionApproval = require("../src/routes/transaction-flow/transactionApproval.routes");
+const visitTargetTemplate = require("../src/routes/visitTargetTemplate.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -128,7 +129,8 @@ app.use(contraTxnRoute);
 app.use(journalTxnRoute);
 app.use(partyTransactionReportRoute);
 app.use(transactionApprovalConfig);
-app.use(transactionApproval)
+app.use(transactionApproval);
+app.use(visitTargetTemplate);
 
 // 404 handler
 app.use((req, res) => {

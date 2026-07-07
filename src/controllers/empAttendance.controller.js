@@ -1,11 +1,9 @@
 const Attendance = require("../models/empAttendance.model");
-const uploadToS3 = require("../utils/S3Upload");
 const { calculateAttendanceUnit } = require("../utils/attendanceCalculator");
 const SalaryDaily = require("../models/empDailySalary.model");
 const db = require("../config/db");
 const { getHierarchyIds } = require("../controllers/rollingUser.controller");
-
-
+const { uploadFileToMinio,} = require("../utils/fileUpload");
 
 const generateDailySalaryInternal = async (employeeId, date) => {
   const user = await SalaryDaily.getUserSalaryInfo(employeeId);
@@ -336,17 +334,18 @@ exports.markAttendance = async (req, res) => {
         for (const field in req.files) {
           const file = req.files[field][0];
 
-          const s3Data = await uploadToS3(file, employee_id, "attendance");
+          const upload = await uploadFileToMinio(
+  file,
+  "attendance_photo"
+);
 
-          await Attendance.saveAttendanceImage([
-            attendanceId,
-            field,
-            s3Data.bucket,
-            s3Data.key,
-            s3Data.url,
-            s3Data.mimeType,
-            s3Data.sizeKb,
-          ]);
+await Attendance.saveAttendanceImage([
+  attendanceId,
+  field,
+  upload.object_path,
+  file.mimetype,
+  Math.ceil(file.size / 1024),
+]);
         }
       }
 
@@ -452,17 +451,18 @@ exports.markAttendance = async (req, res) => {
       for (const field in req.files) {
         const file = req.files[field][0];
 
-        const s3Data = await uploadToS3(file, employee_id, "attendance");
+        const upload = await uploadFileToMinio(
+  file,
+  "attendance_photo"
+);
 
-        await Attendance.saveAttendanceImage([
-          todayAttendance.id,
-          field,
-          s3Data.bucket,
-          s3Data.key,
-          s3Data.url,
-          s3Data.mimeType,
-          s3Data.sizeKb,
-        ]);
+await Attendance.saveAttendanceImage([
+  todayAttendance.id,
+  field,
+  upload.object_path,
+  file.mimetype,
+  Math.ceil(file.size / 1024),
+]);
       }
 
       return res.json({
@@ -561,8 +561,8 @@ exports.getAttendanceImagesByDate = async (req, res) => {
     };
 
     rows.forEach((row) => {
-      if (row.image_type && row.s3_url) {
-        response.images[row.image_type] = row.s3_url;
+      if (row.image_type && row.file_url) {
+        response.images[row.image_type] = row.file_url;
       }
     });
 

@@ -17,6 +17,7 @@ router.get("/visit-targets/templates/dropdown", auth, visitTargetController.temp
 router.get("/visit-targets/templates/:id", auth, visitTargetController.getTemplate);
 router.put("/visit-targets/templates/:id", auth, visitTargetController.updateTemplate);
 router.delete("/visit-targets/templates/:id", auth, visitTargetController.deleteTemplate);
+router.patch("/visit-targets/templates/:id/reactivate", auth, visitTargetController.reactivateTemplate);
 
 /**
  * Assignments

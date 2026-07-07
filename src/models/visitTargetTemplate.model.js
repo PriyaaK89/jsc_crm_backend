@@ -833,3 +833,224 @@ exports.getAssignmentHistory = async (filters = {}) => {
  
   return { rows: rowsWithProgress, total };
 };
+
+/**
+ * ============================================================
+ * ADD THESE FUNCTIONS TO visitTarget.model.js
+ * (paste anywhere after the existing exports — order doesn't matter)
+ * ============================================================
+ */
+
+/**
+ * Get ALL active assignments for a template, scoped to a specific
+ * set of employee_ids. Used to expire / sync only the relevant rows
+ * during an update, instead of touching every ACTIVE row blindly.
+ */
+exports.getActiveAssignmentsForEmployees = async (templateId, employeeIds) => {
+  if (!employeeIds || employeeIds.length === 0) {
+    return [];
+  }
+
+  const [rows] = await db.query(
+    `
+      SELECT *
+      FROM visit_target_assignments
+      WHERE template_id = ?
+        AND status = 'ACTIVE'
+        AND employee_id IN (${employeeIds.map(() => "?").join(",")})
+    `,
+    [templateId, ...employeeIds]
+  );
+
+  return rows;
+};
+
+
+
+/**
+ * Expire ACTIVE assignments for a specific set of employees under a
+ * specific template. Used when employees are removed from a template
+ * during an edit — history (COMPLETED/EXPIRED rows) is left untouched,
+ * only the currently ACTIVE row (if any) flips to EXPIRED.
+ */
+exports.expireAssignmentsForEmployees = async (connection, templateId, employeeIds) => {
+  if (!employeeIds || employeeIds.length === 0) {
+    return 0;
+  }
+
+  const [result] = await connection.query(
+    `
+      UPDATE visit_target_assignments
+      SET status = 'EXPIRED'
+      WHERE template_id = ?
+        AND status = 'ACTIVE'
+        AND employee_id IN (${employeeIds.map(() => "?").join(",")})
+    `,
+    [templateId, ...employeeIds]
+  );
+
+  return result.affectedRows;
+};
+
+/**
+ * Expire every ACTIVE assignment tied to a template. Used by
+ * deleteTemplate() — once a template is soft-deactivated, none of its
+ * assignments should remain ACTIVE (otherwise checkDuplicateTemplate
+ * would keep blocking those employees from getting a new assignment
+ * elsewhere, and dashboards would keep showing a "live" target for a
+ * dead template).
+ */
+exports.expireAllActiveAssignmentsForTemplate = async (connection, templateId) => {
+  const [result] = await connection.query(
+    `
+      UPDATE visit_target_assignments
+      SET status = 'EXPIRED'
+      WHERE template_id = ?
+        AND status = 'ACTIVE'
+    `,
+    [templateId]
+  );
+
+  return result.affectedRows;
+};
+
+/**
+ * Update period_start / period_end on the ACTIVE assignments of a
+ * specific set of employees under a template. Used when the template's
+ * start_date/end_date change during an edit, so existing (kept)
+ * employees' current assignment window moves with it.
+ *
+ * Does NOT touch COMPLETED/EXPIRED rows (status = 'ACTIVE' guard).
+ */
+exports.updateActiveAssignmentsPeriodForEmployees = async (
+  connection,
+  templateId,
+  employeeIds,
+  periodStart,
+  periodEnd
+) => {
+  if (!employeeIds || employeeIds.length === 0) {
+    return 0;
+  }
+
+  const [result] = await connection.query(
+    `
+      UPDATE visit_target_assignments
+      SET period_start = ?, period_end = ?
+      WHERE template_id = ?
+        AND status = 'ACTIVE'
+        AND employee_id IN (${employeeIds.map(() => "?").join(",")})
+    `,
+    [periodStart, periodEnd, templateId, ...employeeIds]
+  );
+
+  return result.affectedRows;
+};
+
+/**
+ * Synchronize visit_target_assignment_details for the ACTIVE assignments
+ * of a specific set of employees to match a new target list (normally
+ * the just-updated template targets). Upserts on (assignment_id,
+ * visit_type) and removes visit_types no longer present.
+ *
+ * ASSUMPTION: visit_target_assignment_details has a UNIQUE KEY on
+ * (assignment_id, visit_type) — mirroring visit_target_template_details.
+ * If that unique key doesn't exist yet, add it:
+ *   ALTER TABLE visit_target_assignment_details
+ *     ADD UNIQUE KEY uniq_assignment_visit_type (assignment_id, visit_type);
+ */
+exports.syncActiveAssignmentDetailsForEmployees = async (
+  connection,
+  templateId,
+  employeeIds,
+  targets
+) => {
+  if (!employeeIds || employeeIds.length === 0 || !targets || targets.length === 0) {
+    return;
+  }
+
+  const [assignments] = await connection.query(
+    `
+      SELECT id
+      FROM visit_target_assignments
+      WHERE template_id = ?
+        AND status = 'ACTIVE'
+        AND employee_id IN (${employeeIds.map(() => "?").join(",")})
+    `,
+    [templateId, ...employeeIds]
+  );
+
+  if (assignments.length === 0) {
+    return;
+  }
+
+  const incomingTypes = targets.map((t) => t.visit_type);
+
+  for (const assignment of assignments) {
+    const [existingDetailRows] = await connection.query(
+      `SELECT visit_type FROM visit_target_assignment_details WHERE assignment_id = ?`,
+      [assignment.id]
+    );
+
+    const toRemove = existingDetailRows
+      .map((r) => r.visit_type)
+      .filter((vt) => !incomingTypes.includes(vt));
+
+    if (toRemove.length > 0) {
+      await connection.query(
+        `
+          DELETE FROM visit_target_assignment_details
+          WHERE assignment_id = ? AND visit_type IN (${toRemove.map(() => "?").join(",")})
+        `,
+        [assignment.id, ...toRemove]
+      );
+    }
+
+    const values = targets.map((t) => [assignment.id, t.visit_type, t.target_value]);
+
+    await connection.query(
+      `
+        INSERT INTO visit_target_assignment_details (assignment_id, visit_type, target_value)
+        VALUES ?
+        ON DUPLICATE KEY UPDATE target_value = VALUES(target_value)
+      `,
+      [values]
+    );
+  }
+};
+exports.reactivateTemplate = async (connection, templateId, periodStart, periodEnd) => {
+  const [result] = await connection.query(
+    `
+      UPDATE visit_target_templates
+      SET status = 'ACTIVE', start_date = ?, end_date = ?
+      WHERE id = ? AND status = 'INACTIVE'
+    `,
+    [periodStart, periodEnd, templateId]
+  );
+ 
+  return result.affectedRows > 0;
+};
+exports.getAssignmentForPeriod = async (templateId, employeeId, periodStart, periodEnd) => {
+  const [rows] = await db.query(
+    `SELECT * FROM visit_target_assignments
+     WHERE template_id=? AND employee_id=? AND period_start=? AND period_end=?
+     LIMIT 1`,
+    [templateId, employeeId, periodStart, periodEnd]
+  );
+  return rows[0];
+};
+
+exports.reactivateAssignment = async (connection, assignmentId) => {
+  const [result] = await connection.query(
+    `UPDATE visit_target_assignments SET status='ACTIVE', completed_at=NULL WHERE id=?`,
+    [assignmentId]
+  );
+  return result.affectedRows > 0;
+};
+
+exports.refreshAssignmentDetails = async (connection, assignmentId, targets) => {
+  await connection.query(`DELETE FROM visit_target_assignment_details WHERE assignment_id=?`, [assignmentId]);
+  await exports.createAssignmentDetails(connection, assignmentId, targets);
+};
+
+ 

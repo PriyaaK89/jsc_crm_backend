@@ -186,30 +186,52 @@ exports.templateDropdown = async (req, res) => {
  */
 exports.updateTemplate = async (req, res) => {
   const connection = await db.getConnection();
-
+ 
   try {
     const { id } = req.params;
     const { employee_ids, targets, ...templateFields } = req.body;
-
+ 
     const existing = await visitTargetModel.getTemplateById(id);
-
+ 
     if (!existing) {
       return res.status(404).json({ success: false, message: "Template not found" });
     }
-
-    if (Array.isArray(employee_ids) && employee_ids.length > 0) {
-      const uniqueEmployeeIds = [...new Set(employee_ids)];
-
-      const startDate = templateFields.start_date || existing.start_date;
-      const endDate = templateFields.end_date || existing.end_date;
-
+ 
+    // Effective period for any NEW assignments created in this call.
+    // Falls back to the template's current dates if not being changed.
+    const newStartDate = templateFields.start_date || existing.start_date;
+    const newEndDate = templateFields.end_date || existing.end_date;
+ 
+    // ---- Diff employees ----
+    const existingEmployeeRows = await visitTargetModel.getTemplateEmployees(id);
+    const existingEmployeeIds = existingEmployeeRows.map((e) => e.id);
+ 
+    const employeeIdsProvided = Array.isArray(employee_ids);
+    const uniqueIncomingEmployeeIds = employeeIdsProvided
+      ? [...new Set(employee_ids)]
+      : existingEmployeeIds;
+ 
+    const addedEmployees = employeeIdsProvided
+      ? uniqueIncomingEmployeeIds.filter((eid) => !existingEmployeeIds.includes(eid))
+      : [];
+ 
+    const removedEmployees = employeeIdsProvided
+      ? existingEmployeeIds.filter((eid) => !uniqueIncomingEmployeeIds.includes(eid))
+      : [];
+ 
+    const keptEmployees = employeeIdsProvided
+      ? uniqueIncomingEmployeeIds.filter((eid) => existingEmployeeIds.includes(eid))
+      : existingEmployeeIds;
+ 
+    // ---- Validate: only added employees need a duplicate-assignment check ----
+    if (addedEmployees.length > 0) {
       const conflicts = await visitTargetModel.checkDuplicateTemplate(
-        uniqueEmployeeIds,
-        startDate,
-        endDate,
+        addedEmployees,
+        newStartDate,
+        newEndDate,
         id
       );
-
+ 
       if (conflicts.length > 0) {
         return res.status(409).json({
           success: false,
@@ -218,24 +240,99 @@ exports.updateTemplate = async (req, res) => {
         });
       }
     }
-
+ 
     await connection.beginTransaction();
-
+ 
+    // ---- 1. Update template info ----
     if (Object.keys(templateFields).length > 0) {
       await visitTargetModel.updateTemplate(connection, id, templateFields);
     }
-
-    if (Array.isArray(employee_ids) && employee_ids.length > 0) {
-      await visitTargetModel.updateTemplateUsers(connection, id, [...new Set(employee_ids)]);
-    }
-
+ 
+    // ---- 2. Update template targets ----
     if (Array.isArray(targets) && targets.length > 0) {
       await visitTargetModel.updateTemplateTargets(connection, id, targets);
     }
-
+ 
+    // ---- 3. Update template <-> employee mapping ----
+    if (employeeIdsProvided) {
+      await visitTargetModel.updateTemplateUsers(connection, id, uniqueIncomingEmployeeIds);
+    }
+ 
+    // Targets to use when creating assignment_details for NEWLY added
+    // employees: prefer the payload's targets; otherwise fall back to
+    // whatever the template currently has (post-update).
+    const effectiveTargets =
+      Array.isArray(targets) && targets.length > 0
+        ? targets
+        : await visitTargetModel.getTemplateTargets(id);
+ 
+    // ---- 5. Added employees: create a new ACTIVE assignment ----
+    for (const employeeId of addedEmployees) {
+      const alreadyExists = await visitTargetModel.checkExistingAssignment(
+        id,
+        employeeId,
+        newStartDate,
+        newEndDate
+      );
+ 
+      // Guards against creating a duplicate ACTIVE assignment if one
+      // for this exact period somehow already exists.
+      if (alreadyExists) {
+        continue;
+      }
+ 
+      const newAssignmentId = await visitTargetModel.createAssignment(connection, {
+        template_id: id,
+        employee_id: employeeId,
+        period_start: newStartDate,
+        period_end: newEndDate,
+        status: "ACTIVE",
+      });
+ 
+      await visitTargetModel.createAssignmentDetails(
+        connection,
+        newAssignmentId,
+        effectiveTargets
+      );
+    }
+ 
+    // ---- 6. Removed employees: expire their ACTIVE assignment, keep history ----
+    if (removedEmployees.length > 0) {
+      await visitTargetModel.expireAssignmentsForEmployees(connection, id, removedEmployees);
+    }
+ 
+    // ---- 7. Kept employees: sync assignment_details if targets changed ----
+    if (keptEmployees.length > 0 && Array.isArray(targets) && targets.length > 0) {
+      await visitTargetModel.syncActiveAssignmentDetailsForEmployees(
+        connection,
+        id,
+        keptEmployees,
+        targets
+      );
+    }
+ 
+    // ---- 8. Kept employees: sync period dates if template dates changed ----
+    if (keptEmployees.length > 0 && (templateFields.start_date || templateFields.end_date)) {
+      await visitTargetModel.updateActiveAssignmentsPeriodForEmployees(
+        connection,
+        id,
+        keptEmployees,
+        newStartDate,
+        newEndDate
+      );
+    }
+ 
     await connection.commit();
-
-    return res.json({ success: true, message: "Template updated" });
+ 
+    return res.json({
+      success: true,
+      message: "Template updated",
+      summary: {
+        added: addedEmployees,
+        removed: removedEmployees,
+        kept: keptEmployees,
+      },
+    });
   } catch (error) {
     await connection.rollback();
     console.error("updateTemplate error:", error);
@@ -244,26 +341,37 @@ exports.updateTemplate = async (req, res) => {
     connection.release();
   }
 };
-
+ 
 /**
  * Delete (soft-deactivate) template
+ *
+ * Deactivating a template also expires any ACTIVE assignments still
+ * tied to it, so:
+ *   - Employees aren't stuck "blocked" by checkDuplicateTemplate against
+ *     a dead template's assignment.
+ *   - Progress dashboards stop showing a "live" target for a template
+ *     that no longer exists in active form.
+ * COMPLETED/EXPIRED assignment history is left untouched either way.
  */
 exports.deleteTemplate = async (req, res) => {
   const connection = await db.getConnection();
-
+ 
   try {
     const { id } = req.params;
-
+ 
     const existing = await visitTargetModel.getTemplateById(id);
-
+ 
     if (!existing) {
       return res.status(404).json({ success: false, message: "Template not found" });
     }
-
+ 
     await connection.beginTransaction();
+ 
     await visitTargetModel.deleteTemplate(connection, id);
+    await visitTargetModel.expireAllActiveAssignmentsForTemplate(connection, id);
+ 
     await connection.commit();
-
+ 
     return res.json({ success: true, message: "Template deactivated" });
   } catch (error) {
     await connection.rollback();
@@ -438,6 +546,136 @@ exports.expireAssignment = async (req, res) => {
     await connection.rollback();
     console.error("expireAssignment error:", error);
     return res.status(500).json({ success: false, message: "Failed to expire assignment" });
+  } finally {
+    connection.release();
+  }
+};
+
+exports.reactivateTemplate = async (req, res) => {
+  const connection = await db.getConnection();
+
+  try {
+    const { id } = req.params;
+    const { start_date, end_date } = req.body;
+
+    const existing = await visitTargetModel.getTemplateById(id);
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Template not found" });
+    }
+
+    if (existing.status === "ACTIVE") {
+      return res.status(400).json({ success: false, message: "Template is already active" });
+    }
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    let periodStart;
+    let periodEnd;
+
+    if (start_date && end_date) {
+      periodStart = start_date;
+      periodEnd = end_date;
+    } else if (String(existing.end_date).slice(0, 10) >= todayStr) {
+      // Original window hasn't passed yet — safe to reuse as-is.
+      periodStart = existing.start_date;
+      periodEnd = existing.end_date;
+    } else {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This template's original period has already passed. Provide start_date and end_date to reactivate it with a new period.",
+      });
+    }
+
+    const mappedEmployees = await visitTargetModel.getTemplateEmployees(id);
+    const employeeIds = mappedEmployees.map((e) => e.id);
+
+    if (employeeIds.length > 0) {
+      const conflicts = await visitTargetModel.checkDuplicateTemplate(
+        employeeIds,
+        periodStart,
+        periodEnd,
+        id
+      );
+
+      if (conflicts.length > 0) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "One or more employees already have an active target for this period. Remove them from this template first, or choose a different period.",
+          conflicts,
+        });
+      }
+    }
+
+    await connection.beginTransaction();
+
+    const reactivated = await visitTargetModel.reactivateTemplate(
+      connection,
+      id,
+      periodStart,
+      periodEnd
+    );
+
+    if (!reactivated) {
+      // Covers a race where the template's status changed between the
+      // check above and this update.
+      await connection.rollback();
+      return res.status(409).json({
+        success: false,
+        message: "Template could not be reactivated — its status may have changed. Please retry.",
+      });
+    }
+
+    const templateTargets = await visitTargetModel.getTemplateTargets(id);
+
+    for (const employeeId of employeeIds) {
+      const existingAssignment = await visitTargetModel.getAssignmentForPeriod(
+        id,
+        employeeId,
+        periodStart,
+        periodEnd
+      );
+
+      if (existingAssignment) {
+        // Row already exists for this period (likely EXPIRED/COMPLETED
+        // from before deactivation) — flip it back to ACTIVE and refresh
+        // its targets from the template instead of creating a duplicate.
+        if (existingAssignment.status !== "ACTIVE") {
+          await visitTargetModel.reactivateAssignment(connection, existingAssignment.id);
+          await visitTargetModel.refreshAssignmentDetails(
+            connection,
+            existingAssignment.id,
+            templateTargets
+          );
+        }
+        continue;
+      }
+
+      const newAssignmentId = await visitTargetModel.createAssignment(connection, {
+        template_id: id,
+        employee_id: employeeId,
+        period_start: periodStart,
+        period_end: periodEnd,
+        status: "ACTIVE",
+      });
+
+      await visitTargetModel.createAssignmentDetails(connection, newAssignmentId, templateTargets);
+    }
+
+    await connection.commit();
+
+    return res.json({
+      success: true,
+      message: "Template reactivated",
+      period: { start_date: periodStart, end_date: periodEnd },
+      employees_assigned: employeeIds,
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error("reactivateTemplate error:", error);
+    return res.status(500).json({ success: false, message: "Failed to reactivate template" });
   } finally {
     connection.release();
   }

@@ -219,17 +219,20 @@ exports.getMonthlyAttendanceSummary = async (employeeId, month, year) => {
     total_days: row.total_days || 0,
   };
 };
-
 exports.getAttendanceImagesByDate = async (employeeId, date) => {
   const [rows] = await db.query(
     `
-    SELECT 
+    SELECT
       ea.id AS attendance_id,
       ea.attendance_date,
       eai.image_type,
-      eai.file_url
+      eai.storage_bucket,
+      eai.object_path,
+      eai.file_url,
+      eai.mime_type,
+      eai.file_size_kb
     FROM emp_attendance ea
-    LEFT JOIN emp_attendance_images eai 
+    LEFT JOIN emp_attendance_images eai
       ON ea.id = eai.attendance_id
     WHERE ea.employee_id = ?
       AND ea.attendance_date = ?
@@ -239,6 +242,25 @@ exports.getAttendanceImagesByDate = async (employeeId, date) => {
 
   return rows;
 };
+// exports.getAttendanceImagesByDate = async (employeeId, date) => {
+//   const [rows] = await db.query(
+//     `
+//     SELECT 
+//       ea.id AS attendance_id,
+//       ea.attendance_date,
+//       eai.image_type,
+//       eai.file_url
+//     FROM emp_attendance ea
+//     LEFT JOIN emp_attendance_images eai 
+//       ON ea.id = eai.attendance_id
+//     WHERE ea.employee_id = ?
+//       AND ea.attendance_date = ?
+//     `,
+//     [employeeId, date]
+//   );
+
+//   return rows;
+// };
 
 exports.getMyTeamAttendance = async ({
   hierarchyIds,

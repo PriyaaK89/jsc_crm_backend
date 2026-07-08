@@ -3,13 +3,15 @@ const visitModel = require("../models/visit.model");
 const customerModel = require("../models/customer.model");
 const db = require("../config/db");
 const User = require("../models/user.model");
+const { getSubordinates, getHierarchyIds } = require("../controllers/rollingUser.controller");
+const { getUsersByLevelAndHierarchy } = require("../models/rollingUser.model");
+
 
 const validPurposes = [ "new_dist_planning", "sales_order", "sales_return", "collection", "others"];
 
 exports.createVisit = async (req, res) => {
   try {
-    const { user_id, visit_type,customer_type,  customer_id, name, firm_name, firm_address, contact_number, address, area, district, pincode, visit_purpose, comment, reminder_date
-    } = req.body;
+    const { user_id, visit_type,customer_type,  customer_id, name, firm_name, firm_address, contact_number, address, area, district, pincode, visit_purpose, comment, reminder_date } = req.body;
 
     // Validate purpose
     if (!validPurposes.includes(visit_purpose)) {
@@ -20,14 +22,8 @@ exports.createVisit = async (req, res) => {
 
     //  NEW CUSTOMER FLOW
     if (customer_type === "new") {
-      if (!name) {
-        return res.status(400).json({ message: "Customer name required" });
-      }
-
-      const existing = await customerModel.findCustomer(
-        contact_number,
-        // visit_type
-      );
+      if (!name) { return res.status(400).json({ message: "Customer name required" }); }
+      const existing = await customerModel.findCustomer( contact_number );
 
       if (existing) {
         return res.status(400).json({
@@ -83,11 +79,9 @@ const cleanedReminderDate = clean(reminder_date);
         visitId
       }
     });
-    
 
   } catch (err) {
   console.error(" ERROR:", err);
-
   return res.status(500).json({
     message: err.message,   //  SHOW REAL ERROR
     error: err
@@ -214,7 +208,6 @@ exports.getTodayVisit =  async (req, res) => {
 exports.getTodayVisitCount = async (req, res) => {
   try {
     const userId = req.user.id;
-
     const [rows] = await db.query(
       `SELECT COUNT(*) as total 
        FROM visits 
@@ -222,7 +215,6 @@ exports.getTodayVisitCount = async (req, res) => {
        AND DATE(created_at) = CURDATE()`,
       [userId]
     );
-
     return res.json({
       success: true,
       totalVisits: rows[0].total
@@ -234,7 +226,6 @@ exports.getTodayVisitCount = async (req, res) => {
 
 exports.getVisitReport = async (req, res) => {
   try {
-
     const filters = {
       user_id: clean(req.query.user_id),
       from_date: clean(req.query.from_date),
@@ -243,8 +234,6 @@ exports.getVisitReport = async (req, res) => {
 
       // NEW
       search: clean(req.query.search),
-
-      // PAGINATION
       page: clean(req.query.page),
       limit: clean(req.query.limit),
     };
@@ -262,12 +251,89 @@ exports.getVisitReport = async (req, res) => {
     });
 
   } catch (err) {
-
     console.log("getVisitReport Error:", err);
-
     res.status(500).json({
       success: false,
       error: err.message,
+    });
+  }
+};
+
+exports.getUsersBySelectedLevel = async (req, res) => {
+  try {
+    const loginUserId = req.user.id;
+    const selectedLevel = Number(req.query.level);
+
+    if (!selectedLevel) {
+      return res.status(400).json({
+        success: false,
+        message: "level is required"
+      });
+    }
+
+    const hierarchyUsers = await getSubordinates(loginUserId);
+    const users = hierarchyUsers.filter( user => Number(user.level) === selectedLevel );
+    return res.status(200).json({ success: true, data: users });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+exports.getHierarchyVisits = async (req, res) => {
+  try {
+    const loginUserId = req.user.id;
+
+    const hierarchyIds = await getHierarchyIds(loginUserId);
+
+    const data = await visitModel.getHierarchyVisitSummary({
+      user_ids: hierarchyIds,
+      date: req.query.date,
+      level: req.query.level,
+      user_id: req.query.user_id
+    });
+
+    return res.status(200).json({
+      success: true,
+      data
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+exports.getUserVisitDetails = async (req, res) => {
+  try {
+
+    const userId = req.params.userId;
+     const date = req.query.date;
+
+    const visits = await visitModel.getUserVisitDetails(userId, date);
+   const data = await Promise.all(
+  visits.map(async (visit) => ({
+    ...visit,
+    image_url: visit.image_path
+      ? await getPresignedUrl(visit.image_path)
+      : null
+  }))
+);
+    return res.status(200).json({
+      success: true,
+      total_visits: visits.length,
+      data
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 };

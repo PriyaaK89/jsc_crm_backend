@@ -148,15 +148,9 @@ const getSubTeamsByTeam = async ({
   limit,
   search
 }) => {
-
   const offset = (page - 1) * limit;
-
   let where = `WHERE st.parent_team_id = ?`;
-
   let params = [teamId];
-
-  // SEARCH
-
   if (search) {
 
     where += ` AND st.name LIKE ?`;

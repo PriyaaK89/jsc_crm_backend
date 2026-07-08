@@ -41,8 +41,6 @@ const createVoucherTypeModel = async (connection, data) => {
   return result;
 };
 
-
-
 const getAllVoucherTypesModel = async (
   connection,
   page,
@@ -89,11 +87,9 @@ const getAllVoucherTypesModel = async (
   // PAGINATION
   query += `
     ORDER BY id DESC
-    LIMIT ?
-    OFFSET ?
+    LIMIT ${parseInt(limit, 10)}
+    OFFSET ${parseInt(offset, 10)}
   `;
-
-  values.push(Number(limit), Number(offset));
 
   // GET DATA
   const [rows] = await connection.execute(query, values);
@@ -109,6 +105,73 @@ const getAllVoucherTypesModel = async (
     total: countResult[0].total
   };
 };
+
+// const getAllVoucherTypesModel = async (
+//   connection,
+//   page,
+//   limit,
+//   search
+// ) => {
+
+//   const offset = (page - 1) * limit;
+
+//   let query = `
+//     SELECT *
+//     FROM voucher_types
+//   `;
+
+//   let countQuery = `
+//     SELECT COUNT(*) as total
+//     FROM voucher_types
+//   `;
+
+//   const values = [];
+//   const countValues = [];
+
+//   // SEARCH FILTER
+//   if (search) {
+
+//     query += `
+//       WHERE
+//         voucher_name LIKE ?
+//         OR voucher_type LIKE ?
+//     `;
+
+//     countQuery += `
+//       WHERE
+//         voucher_name LIKE ?
+//         OR voucher_type LIKE ?
+//     `;
+
+//     const searchValue = `%${search}%`;
+
+//     values.push(searchValue, searchValue);
+//     countValues.push(searchValue, searchValue);
+//   }
+
+//   // PAGINATION
+//   query += `
+//     ORDER BY id DESC
+//     LIMIT ?
+//     OFFSET ?
+//   `;
+
+//   values.push(Number(limit), Number(offset));
+
+//   // GET DATA
+//   const [rows] = await connection.execute(query, values);
+
+//   // GET TOTAL COUNT
+//   const [countResult] = await connection.execute(
+//     countQuery,
+//     countValues
+//   );
+
+//   return {
+//     rows,
+//     total: countResult[0].total
+//   };
+// };
 
 
 

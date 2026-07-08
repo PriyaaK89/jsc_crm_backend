@@ -13,7 +13,14 @@ const folderMap = {
   visits: "employee/visits",
   distributor_documents: "employee/dist-documents",
   distributor_agreement: 'distributor/dist-letters',
-  company: 'company/images'
+  company: 'company/images',
+  txn_payments: "txn-master/payment",
+  txn_receipt: "txn-master/receipt",
+  txn_sales: "txn-master/sales",
+  txn_purchase: "txn-master/purchase",
+  txn_debitNote: "txn-master/debitNote",
+  txn_creditNote: "txn-master/creditNote",
+  approval_returns: "approval/returns",
 };
 
 const uploadFileToMinio = async (file, type, options = {}) => {

@@ -1,14 +1,18 @@
 const Attendance = require("../models/empAttendance.model");
-const uploadToS3 = require("../utils/S3Upload");
 const { calculateAttendanceUnit } = require("../utils/attendanceCalculator");
 const SalaryDaily = require("../models/empDailySalary.model");
 const db = require("../config/db");
+const { getHierarchyIds } = require("../controllers/rollingUser.controller");
+const { uploadFileToMinio,getPresignedUrl} = require("../utils/fileUpload");
+
 
 const generateDailySalaryInternal = async (employeeId, date) => {
   const user = await SalaryDaily.getUserSalaryInfo(employeeId);
+  console.log("USER =>", employeeId, user ? "found" : "NOT FOUND");
   if (!user) return;
 
   const attendance = await SalaryDaily.getAttendanceByDate(employeeId, date);
+  console.log("ATTENDANCE =>", employeeId, date, attendance);
   if (!attendance) return;
 
   const year = new Date(date).getFullYear();
@@ -35,7 +39,10 @@ const generateDailySalaryInternal = async (employeeId, date) => {
     basicSalary = perDaySalary;
   } else if (attendance.attendance_unit === "half") {
     basicSalary = perDaySalary * 0.5;
-  }
+  } else if (["week_off", "absent", "leave"].includes(attendance.attendance_unit)) {
+  basicSalary = 0;
+  // Still continue — don't return early — so a ₹0 row gets saved
+}
 
   /* ---------- Working Hours Format ---------- */
   const totalMinutes = attendance.working_minutes || 0;
@@ -155,7 +162,8 @@ for (const exp of expenses) {
   busTrainTollExpense;
   const netSalary = grossSalary;
 
-  await SalaryDaily.saveDailySalary([
+  try{
+     await SalaryDaily.saveDailySalary([
     employeeId,
     date,
     attendance.attendance_unit,
@@ -173,6 +181,13 @@ for (const exp of expenses) {
     grossSalary.toFixed(2),
     netSalary.toFixed(2),
   ]);
+  console.log("SAVED OK =>", employeeId, date);
+
+  }catch(error){
+// console.error("SAVE FAILED =>", employeeId, date, err.sqlMessage);
+console.error("SAVE FAILED =>", employeeId, date, error.sqlMessage, error.message);
+  }
+ 
 };
 
 const autoClosePreviousDay = async (employeeId) => {
@@ -320,17 +335,20 @@ exports.markAttendance = async (req, res) => {
         for (const field in req.files) {
           const file = req.files[field][0];
 
-          const s3Data = await uploadToS3(file, employee_id, "attendance");
+const upload = await uploadFileToMinio(
+  file,
+  "attendance_photo"
+);
 
-          await Attendance.saveAttendanceImage([
-            attendanceId,
-            field,
-            s3Data.bucket,
-            s3Data.key,
-            s3Data.url,
-            s3Data.mimeType,
-            s3Data.sizeKb,
-          ]);
+await Attendance.saveAttendanceImage([
+  attendanceId,                 // attendance_id
+  field,                        // image_type
+ process.env.MINIO_BUCKET || "jsc-crm",                 // storage_bucket
+  upload.object_path,           // object_path
+  upload.file_url,              // file_url
+  file.mimetype,                // mime_type
+  Math.ceil(file.size / 1024),  // file_size_kb
+]);
         }
       }
 
@@ -436,17 +454,20 @@ exports.markAttendance = async (req, res) => {
       for (const field in req.files) {
         const file = req.files[field][0];
 
-        const s3Data = await uploadToS3(file, employee_id, "attendance");
+const upload = await uploadFileToMinio(
+  file,
+  "attendance_photo"
+);
 
-        await Attendance.saveAttendanceImage([
-          todayAttendance.id,
-          field,
-          s3Data.bucket,
-          s3Data.key,
-          s3Data.url,
-          s3Data.mimeType,
-          s3Data.sizeKb,
-        ]);
+await Attendance.saveAttendanceImage([
+  todayAttendance.id,           // attendance_id
+  field,                        // image_type
+  process.env.MINIO_BUCKET || "jsc-crm",                // storage_bucket
+  upload.object_path,           // object_path
+  upload.file_url,              // file_url
+  file.mimetype,                // mime_type
+  Math.ceil(file.size / 1024),  // file_size_kb
+]);
       }
 
       return res.json({
@@ -461,6 +482,127 @@ exports.markAttendance = async (req, res) => {
   } catch (error) {
     console.error("Attendance Error:", error);
     return res.status(500).json({ message: "Server error" });
+  }
+};
+// exports.getAttendanceImagesByDate = async (req, res) => {
+//   try {
+//     const { employeeId } = req.params;
+//     const { date } = req.query;
+
+//     if (!date) {
+//       return res.status(400).json({
+//         message: "Date is required (YYYY-MM-DD)",
+//       });
+//     }
+
+//     const rows = await Attendance.getAttendanceImagesByDate(employeeId, date);
+
+//     if (!rows.length) {
+//       return res.status(404).json({
+//         message: "No attendance found for this date",
+//       });
+//     }
+
+//     // Format response properly
+//     const response = {
+//       employee_id: employeeId,
+//       attendance_date: date,
+//       images: {},
+//     };
+
+//     rows.forEach((row) => {
+//       if (row.image_type && row.file_url) {
+//         response.images[row.image_type] = row.file_url;
+//       }
+//     });
+
+//     return res.json(response);
+//   } catch (error) {
+//     console.error("Get Attendance Images Error:", error);
+//     return res.status(500).json({
+//       message: "Server error",
+//     });
+//   }
+// };
+
+exports.getAttendanceImagesByDate = async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({
+        message: "Date is required (YYYY-MM-DD)",
+      });
+    }
+
+    const rows = await Attendance.getAttendanceImagesByDate(employeeId, date);
+
+    if (!rows.length) {
+      return res.status(404).json({
+        message: "No attendance found for this date",
+      });
+    }
+
+    const response = {
+      employee_id: employeeId,
+      attendance_date: date,
+      images: {},
+    };
+
+    for (const row of rows) {
+      if (row.image_type && row.object_path) {
+        const presignedUrl = await getPresignedUrl(row.object_path);
+
+        response.images[row.image_type] = presignedUrl;
+      }
+    }
+
+    return res.json(response);
+  } catch (error) {
+    console.error("Get Attendance Images Error:", error);
+    return res.status(500).json({
+      message: "Server error",
+    });
+  }
+};
+exports.getMyAttendance = async (req, res) => {
+  try {
+    const employeeId = req.user?.id; // from token
+    let { start_date, end_date, page = 1, limit = 10 } = req.query;
+
+    page = Number(page);
+    limit = Number(limit);
+    const offset = (page - 1) * limit;
+
+    const attendance = await Attendance.getDayWiseAttendance({
+      employeeId, // force from token
+      startDate: start_date,
+      endDate: end_date,
+      limit,
+      offset,
+    });
+
+    const totalRecords = await Attendance.getDayWiseAttendanceCount({
+      employeeId,
+      startDate: start_date,
+      endDate: end_date,
+    });
+
+    return res.json({
+      pagination: {
+        page,
+        limit,
+        total_records: totalRecords,
+        total_pages: Math.ceil(totalRecords / limit),
+      },
+      attendance,
+    });
+  } catch (error) {
+    console.error("My Attendance Error:", error);
+    return res.status(500).json({
+      message: "Server error",
+    });
   }
 };
 
@@ -518,45 +660,7 @@ exports.getDayWiseAttendance = async (req, res) => {
   }
 };
 
-exports.getMyAttendance = async (req, res) => {
-  try {
-    const employeeId = req.user?.id; // from token
-    let { start_date, end_date, page = 1, limit = 10 } = req.query;
 
-    page = Number(page);
-    limit = Number(limit);
-    const offset = (page - 1) * limit;
-
-    const attendance = await Attendance.getDayWiseAttendance({
-      employeeId, // force from token
-      startDate: start_date,
-      endDate: end_date,
-      limit,
-      offset,
-    });
-
-    const totalRecords = await Attendance.getDayWiseAttendanceCount({
-      employeeId,
-      startDate: start_date,
-      endDate: end_date,
-    });
-
-    return res.json({
-      pagination: {
-        page,
-        limit,
-        total_records: totalRecords,
-        total_pages: Math.ceil(totalRecords / limit),
-      },
-      attendance,
-    });
-  } catch (error) {
-    console.error("My Attendance Error:", error);
-    return res.status(500).json({
-      message: "Server error",
-    });
-  }
-};
 
 exports.getMonthlyAttendanceSummary = async (req, res) => {
   try {
@@ -601,46 +705,7 @@ exports.getMonthlyAttendanceSummary = async (req, res) => {
   }
 };
 
-exports.getAttendanceImagesByDate = async (req, res) => {
-  try {
-    const { employeeId } = req.params;
-    const { date } = req.query;
 
-    if (!date) {
-      return res.status(400).json({
-        message: "Date is required (YYYY-MM-DD)",
-      });
-    }
-
-    const rows = await Attendance.getAttendanceImagesByDate(employeeId, date);
-
-    if (!rows.length) {
-      return res.status(404).json({
-        message: "No attendance found for this date",
-      });
-    }
-
-    // Format response properly
-    const response = {
-      employee_id: employeeId,
-      attendance_date: date,
-      images: {},
-    };
-
-    rows.forEach((row) => {
-      if (row.image_type && row.s3_url) {
-        response.images[row.image_type] = row.s3_url;
-      }
-    });
-
-    return res.json(response);
-  } catch (error) {
-    console.error("Get Attendance Images Error:", error);
-    return res.status(500).json({
-      message: "Server error",
-    });
-  }
-};
 
 exports.getDailyAttendanceSummary = async (req, res) => {
   try {
@@ -678,4 +743,29 @@ exports.getDailyAttendanceSummary = async (req, res) => {
     });
   }
 };
+
+exports.getMyTeamAttendance = async (req, res) => {
+  try {
+    const loginUserId = req.user.id;
+    const hierarchyIds = await getHierarchyIds(loginUserId);
+    const data = await Attendance.getMyTeamAttendance({
+      hierarchyIds,
+      date: req.query.date,
+      level: req.query.level,
+      user_id: req.query.user_id
+    });
+
+    return res.status(200).json({
+      success: true,
+      data
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports.generateDailySalaryInternal = generateDailySalaryInternal;

@@ -1,8 +1,5 @@
 const db = require("../config/db");
 
-// ===============================
-// GET SINGLE USER
-// ===============================
 const getUserWithRole = async (userId) => {
   const [rows] = await db.query(
     `SELECT 
@@ -19,13 +16,12 @@ const getUserWithRole = async (userId) => {
      WHERE u.id = ?`,
     [userId]
   );
-
   return rows[0];
 };
 
 // ===============================
 // GET DIRECT SUBORDINATES
-// ===============================
+
 const getDirectSubordinates = async (userId) => {
   const [rows] = await db.query(
     `SELECT 
@@ -46,7 +42,25 @@ const getDirectSubordinates = async (userId) => {
   return rows;
 };
 
-module.exports = {
-  getUserWithRole,
-  getDirectSubordinates
+const getUsersByLevelAndHierarchy = async ( level, userIds ) => {
+
+  const [rows] = await db.query(
+    ` SELECT
+      u.id,
+      u.name,
+      jr.name AS role_name,
+      jr.level
+    FROM users u
+    JOIN job_roles jr
+      ON jr.id = u.job_role_id
+    WHERE jr.level = ?
+    AND u.id IN (${userIds.map(() => "?").join(",")})
+    ORDER BY u.name
+    `,
+    [level, ...userIds]
+  );
+
+  return rows;
 };
+
+module.exports = {  getUserWithRole, getDirectSubordinates, getUsersByLevelAndHierarchy };

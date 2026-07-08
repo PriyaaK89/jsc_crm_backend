@@ -52,7 +52,7 @@ const createStockItem = async (data) => {
             bulk_base_value,
 
              is_returnable,
-   returnable_percentage,
+             returnable_percentage,
 
             maintain_in_batches,
             track_mfg_date,
@@ -86,7 +86,7 @@ const createStockItem = async (data) => {
             bulk_base_value || null,
 
             is_returnable || 0,
-returnable_percentage || null,
+            returnable_percentage || null,
 
             maintain_in_batches || 0,
             track_mfg_date || 0,
@@ -233,7 +233,7 @@ const getStockItems = async (
             si.enable_cost_tracking,
 
             si.is_returnable,
-si.returnable_percentage,
+            si.returnable_percentage,
 
             si.description,
             si.created_at,
@@ -320,21 +320,22 @@ const getStockItemById = async (id) => {
             sc.name AS stock_category_name,
             u.symbol AS base_unit_name,
             au.symbol AS alternative_unit_name,
-            bu.symbol AS bulk_unit_name
+            bu.symbol AS bulk_unit_name,
 
+            si.alternative_unit_value,
+            si.base_unit_value,
+        
+            si.bulk_unit_value,
+            si.bulk_base_value
         FROM stock_items si
 
-        LEFT JOIN stock_groups sg
-            ON si.stock_group_id = sg.id
+        LEFT JOIN stock_groups sg ON si.stock_group_id = sg.id
 
-        LEFT JOIN stock_categories sc
-            ON si.stock_category_id = sc.id
+        LEFT JOIN stock_categories sc ON si.stock_category_id = sc.id
 
-        LEFT JOIN units u
-            ON si.unit_id = u.id
+        LEFT JOIN units u ON si.unit_id = u.id
 
-        LEFT JOIN units au
-            ON si.alternative_unit_id = au.id
+        LEFT JOIN units au ON si.alternative_unit_id = au.id
 
         LEFT JOIN units bu
             ON si.bulk_unit_id = bu.id
@@ -342,9 +343,32 @@ const getStockItemById = async (id) => {
         WHERE si.id = ?
     `, [id]);
 
-    return rows[0];
-};
+    const item = rows[0];
 
+    if (!item) return null;
+    
+    let calculated_alt_unit = null;
+    
+    if (
+        Number(item.base_unit_value) > 0 &&
+        Number(item.bulk_base_value) > 0
+    ) {
+        const altQty = Number(
+            (
+                Number(item.bulk_base_value) /
+                Number(item.base_unit_value)
+            ).toFixed(2)
+        );
+    
+        calculated_alt_unit = `${altQty} ${item.alternative_unit_name}`;
+        
+    }
+    
+    return {
+        ...item,
+        calculated_alt_unit
+    };
+}
 
 
 // =============================

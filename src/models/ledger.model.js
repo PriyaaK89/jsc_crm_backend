@@ -1,7 +1,6 @@
 const db = require("../config/db");
 
 const createLedger = async (ledgerData) => {
-
   const {
     ledger_name, group_id, employee_under,
     opening_balance, balance_type, opening_date,
@@ -1305,6 +1304,84 @@ const reassignLedgerEmployeeModel = async (
   return result;
 };
 
+// models/ledgerModel.js
+
+const getCurrentLedgerBalance = async (
+  connection,
+  ledgerId
+) => {
+
+  const [[ledger]] = await connection.query(
+    `
+    SELECT
+      opening_balance,
+      balance_type
+    FROM ledgers
+    WHERE id = ?
+    `,
+    [ledgerId]
+  );
+
+  if (!ledger) return 0;
+
+  let balance = Number(ledger.opening_balance);
+
+  const [transactions] = await connection.query(
+    `
+    SELECT
+      entry_type,
+      amount
+    FROM ledger_transactions
+    WHERE ledger_id = ?
+    AND is_cancelled = 0
+    `,
+    [ledgerId]
+  );
+
+  for (const trx of transactions) {
+
+    if (trx.entry_type === "Dr") {
+      balance += Number(trx.amount);
+    } else {
+      balance -= Number(trx.amount);
+    }
+  }
+
+  return balance;
+};
+
+const getMyAssignedLedgersModel = async (employeeId) => {
+  const [rows] = await db.query(
+    `
+    SELECT
+      l.id,
+      l.ledger_name,
+      l.group_id,
+      l.employee_under,
+      l.opening_balance,
+      l.balance_type,
+      l.mailing_name,
+      l.location,
+      l.country,
+      l.state,
+      l.pincode,
+      l.pan_no,
+      l.gst_no,
+      l.credit_limit,
+      lic.security_amount,
+      l.created_at
+    FROM ledgers l
+    LEFT JOIN ledger_interest_config lic
+      ON lic.ledger_id = l.id
+    WHERE l.employee_under = ?
+    ORDER BY l.ledger_name ASC
+    `,
+    [employeeId]
+  );
+
+  return rows;
+};
+
 module.exports = {
   createLedger,
   createLedgerBankDetails,
@@ -1318,5 +1395,5 @@ module.exports = {
   updateLedgerBankDetailsModel,
   replaceLedgerInterestConfigsModel,
   updateLedgerOtherDetailsModel,
-  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel
+  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel
 };

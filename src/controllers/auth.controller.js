@@ -283,7 +283,7 @@ exports.login = async (req, res) => {
 
     //  TOKEN
     const token = jwt.sign(
-      { id: user.id, role: user.role , job_role_id: user.job_role_id,
+      { id: user.id, role: user.role ,  name: user.name, job_role_id: user.job_role_id,
     job_role_level: user.job_role_level},
       process.env.JWT_SECRET,
       { expiresIn: "1d" }
@@ -706,7 +706,6 @@ exports.updateUserStatusByAction = async (req, res) => {
 exports.deleteUserById = async (req, res) => {
   try {
     const userId = req.params.id;
-
     const deleted = await User.softDeleteUser(userId);
 
     if (!deleted) {

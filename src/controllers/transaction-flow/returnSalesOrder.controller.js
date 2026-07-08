@@ -1,0 +1,144 @@
+const db = require("../../config/db");
+const transactionApprovalModel = require("../../models/transaction-flow/transactionApproval.model");
+const { uploadFileToMinio } = require("../../utils/fileUpload");
+const { validateApprover } = require("./validation");
+
+exports.returnSalesOrder = async (req, res) => {
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const approvalId = req.params.approvalId;
+    const reason = req.body.reason?.trim();
+    const userId = req.user.id;
+
+    if (!reason) {
+      throw new Error("Return reason required");
+    }
+
+    if (!req.files?.returnImage?.[0]) {
+      throw new Error("Return image required");
+    }
+
+    const approval = await transactionApprovalModel.getApprovalById(approvalId);
+
+    if (!approval) {
+      throw new Error("Approval not found");
+    }
+
+    validateApprover(approval, userId);
+
+    // Mark current approver notification completed
+    await transactionApprovalModel.completeApprovalNotification(
+      connection,
+      approvalId,
+      userId,
+    );
+
+    // Upload return image
+    const uploaded = await uploadFileToMinio(
+      req.files.returnImage[0],
+      "approval_returns",
+    );
+
+    let returnedByName = "";
+    let nextApprover = null;
+    let nextLevel = null;
+
+    switch (approval.approval_level) {
+      case "JUNIOR":
+        returnedByName = approval.junior_name;
+
+        // Employee must fix
+        nextApprover = approval.created_by;
+        nextLevel = "EMPLOYEE";
+        break;
+
+      case "DISPATCHER":
+        returnedByName = approval.dispatcher_name;
+
+        // Junior must fix
+        nextApprover = approval.junior_accountant_id;
+        nextLevel = "JUNIOR";
+        break;
+
+      case "SENIOR":
+        returnedByName = approval.senior_name;
+
+        // Dispatcher must fix
+        nextApprover = approval.dispatcher_id;
+        nextLevel = "DISPATCHER";
+        break;
+
+      default:
+        throw new Error("Invalid approval level");
+    }
+
+    const returnMessage = `Sales Order returned by ${returnedByName}. Reason: ${reason}`;
+
+    // History
+    await transactionApprovalModel.createHistory(connection, {
+      approval_id: approvalId,
+      action: "RETURNED",
+      action_by: userId,
+      action_level: approval.approval_level,
+      remarks: reason,
+      attachment: uploaded.object_path,
+    });
+
+    // Update approval
+    await transactionApprovalModel.updateApproval(connection, approvalId, {
+      payload_json: approval.payload_json,
+
+      current_approver_id: nextApprover,
+      approval_level: nextLevel,
+
+      returned_to_user_id: nextApprover,
+      returned_from_level: approval.approval_level,
+
+      status: "RETURNED",
+      remarks: reason,
+
+      current_status_message: `Returned by ${returnedByName}`,
+
+      returned_at: new Date(),
+    });
+
+    // Notify person who must fix it
+    await transactionApprovalModel.createNotification(connection, {
+      user_id: nextApprover,
+      approval_id: approvalId,
+
+      module_type: "SALES",
+      notification_category: "APPROVAL",
+
+      title: "Sales Order Returned",
+
+      message: returnMessage,
+    });
+
+    // Update employee status notification
+    await transactionApprovalModel.updateStatusNotification(
+      connection,
+      approvalId,
+      returnMessage,
+    );
+
+    await connection.commit();
+
+    return res.status(200).json({
+      success: true,
+      message: "Returned successfully",
+    });
+  } catch (error) {
+    await connection.rollback();
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  } finally {
+    connection.release();
+  }
+};

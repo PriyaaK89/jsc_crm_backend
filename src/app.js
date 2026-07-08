@@ -11,6 +11,8 @@ app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+
+
 const departmentRoute = require("../src/routes/department.routes");
 const jobRoleRoute = require("../src/routes/jobRole.routes");
 const authRoutes = require('../src/routes/auth.routes');
@@ -52,6 +54,21 @@ const materialManufacturingRoute = require("../src/routes/materialManufacturing.
 const stockTransferRoute = require("../src/routes/stockTransfer.route");
 const retailerRoute = require("../src/routes/retailer.routes");
 const retailerAssignmentRoute = require("../src/routes/retailerAssignment.routes");
+const generateVoucherRoute = require("../src/routes/generateVoucher.routes");
+const purchaseTxnMasterRoute = require("../src/routes/purchaseTxnMaster.routes");
+const partyLedgerReportRoute = require("../src/routes/partyLedgerReport.routes");
+const paymentTxnRoute = require("../src/routes/payment.route");
+const salesTxnRoute = require("../src/routes/sales.routes");
+const receiptTxnRoute = require("../src/routes/receipt.routes");
+const creditNoteTxnRoute = require("../src/routes/creditNote.routes");
+const debitNoteTxnRoute = require("../src/routes/debitNote.routes");
+const contraTxnRoute = require("../src/routes/contra.routes");
+const journalTxnRoute = require("../src/routes/journal.routes");
+const partyTransactionReportRoute = require("./routes/partyTransactionReport.routes");
+const transactionApprovalConfig = require("../src/routes/transaction-flow/transactionApprovalConfig.routes")
+// for sales order request in apk
+const transactionApproval = require("../src/routes/transaction-flow/transactionApproval.routes");
+const visitTargetTemplate = require("../src/routes/visitTargetTemplate.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -100,6 +117,20 @@ app.use(materialManufacturingRoute);
 app.use(stockTransferRoute);
 app.use(retailerRoute);
 app.use(retailerAssignmentRoute);
+app.use(generateVoucherRoute);
+app.use(purchaseTxnMasterRoute);
+app.use(partyLedgerReportRoute);
+app.use(paymentTxnRoute);
+app.use(salesTxnRoute);
+app.use(receiptTxnRoute);
+app.use(creditNoteTxnRoute);
+app.use(debitNoteTxnRoute);
+app.use(contraTxnRoute);
+app.use(journalTxnRoute);
+app.use(partyTransactionReportRoute);
+app.use(transactionApprovalConfig);
+app.use(transactionApproval);
+app.use(visitTargetTemplate);
 
 // 404 handler
 app.use((req, res) => {

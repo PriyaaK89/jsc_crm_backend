@@ -11,7 +11,7 @@ const {
   updateLedgerBankDetailsModel,
   replaceLedgerInterestConfigsModel,
   updateLedgerOtherDetailsModel,
-  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel
+  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel
 } = require("../models/ledger.model");
 
 const { getGroupById } = require("../models/accountGroup.model");
@@ -437,11 +437,6 @@ const getLedgers = async (req, res) => {
   }
 };
 
-
-// ===============================
-// GET LEDGER BY ID
-// ===============================
-
 const getLedgerByIdController = async (req, res) => {
   const connection = await db.getConnection();
   try {
@@ -455,6 +450,11 @@ const getLedgerByIdController = async (req, res) => {
         message: "Ledger not found",
       });
     }
+        const currentBalance =
+      await getCurrentLedgerBalance( connection, id );
+ledger.current_balance = Number(currentBalance.toFixed(2));
+    // ledger.current_balance = currentBalance;
+
 
     return res.status(200).json({
       success: true,
@@ -695,10 +695,42 @@ const reassignLedgerEmployee = async (
 };
 
 
+const getMyAssignedLedgers = async (req, res) => {
+    try {
+      const employeeId = req.user.id;
+
+      const ledgers =
+        await getMyAssignedLedgersModel(
+          employeeId
+        );
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Assigned ledgers fetched successfully",
+        count: ledgers.length,
+        data: ledgers,
+      });
+    } catch (error) {
+      console.error(
+        "getMyAssignedLedgers Error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Failed to fetch assigned ledgers",
+        error: error.message,
+      });
+    }
+  };
+
+
 module.exports = {
   createLedgerController,
   getLedgers,
   getLedgerByIdController,
   updateLedgerController,
-  deleteLedgerController, getLedgerDropdown, reassignLedgerEmployee
+  deleteLedgerController, getLedgerDropdown, reassignLedgerEmployee, getMyAssignedLedgers
 };

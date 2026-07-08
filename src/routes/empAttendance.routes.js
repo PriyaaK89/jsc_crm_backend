@@ -24,10 +24,21 @@ router.post("/mark-emp-attendance", auth, (req, res) => {
   });
 });
 router.get( "/get-emp-attendance", auth, attendanceController.getDayWiseAttendance);
-router.get( "/attendance/monthly-summary/:employeeId", auth, attendanceController.getMonthlyAttendanceSummary);
 router.get( "/get-attendance-images/:employeeId", auth, attendanceController.getAttendanceImagesByDate);
 router.get( "/my-attendance", auth, attendanceController.getMyAttendance);
+router.get( "/attendance/monthly-summary/:employeeId", auth, attendanceController.getMonthlyAttendanceSummary);
 router.get("/daily-summary", auth, attendanceController.getDailyAttendanceSummary);
 router.get( "/today-attendance/:employee_id", auth, attendanceController.getTodayAttendance);
+router.get( "/my-team-attendance", auth, attendanceController.getMyTeamAttendance );
+const { generateDailySalaryInternal } = require("../controllers/empAttendance.controller");
+
+router.get("/test-sunday-salary", async (req, res) => {
+  try {
+    await attendanceController.generateDailySalaryInternal(1, "2026-05-31"); // real employee id, last sunday
+    res.json({ message: "done, check console logs" });
+  } catch(err) {
+    res.json({ error: err.message });
+  }
+});
 
 module.exports = router;

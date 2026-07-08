@@ -16,6 +16,15 @@ const getRolesByDepartment = async (departmentId) => {
   return rows;
 };
 
+const checkJobRoleExists = async (department_id, name) => {
+  const [rows] = await db.query(
+    "SELECT id FROM job_roles WHERE department_id = ? AND name = ?",
+    [department_id, name]
+  );
+
+  return rows.length > 0;
+};
+
 const getRoleById = async (id) => {
   const [rows] = await db.query(
     'SELECT id, name, level, department_id FROM job_roles WHERE id = ?',
@@ -63,5 +72,5 @@ module.exports = {
   getRolesByDepartment,
   getRoleById,
   updateJobRole,
-  deleteJobRole, getUsersByLevel
+  deleteJobRole, getUsersByLevel, checkJobRoleExists
 };

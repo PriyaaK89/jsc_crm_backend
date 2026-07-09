@@ -230,11 +230,7 @@ const getEmployeeTargetById = async (id) => {
 
 
 // ================= UPDATE =================
-const updateEmployeeTarget = async (
-  connection,
-  id,
-  data
-) => {
+const updateEmployeeTarget = async ( connection, id, data ) => {
 
   const {
     user_id,
@@ -276,34 +272,15 @@ const updateEmployeeTarget = async (
 
 
 // ================= DELETE OLD CATEGORIES =================
-const deleteTargetCategories = async (
-  connection,
-  employee_target_id
-) => {
+const deleteTargetCategories = async ( connection, employee_target_id ) => {
 
-  await connection.query(
-    `
-    DELETE FROM employee_target_categories
-    WHERE employee_target_id = ?
-    `,
-    [employee_target_id]
-  );
+  await connection.query( ` DELETE FROM employee_target_categories WHERE employee_target_id = ? `, [employee_target_id] );
 };
 
 
 // ================= DELETE TARGET =================
-const deleteEmployeeTarget = async (
-  connection,
-  id
-) => {
-
-  await connection.query(
-    `
-    DELETE FROM employee_targets
-    WHERE id = ?
-    `,
-    [id]
-  );
+const deleteEmployeeTarget = async ( connection, id) => {
+  await connection.query( ` DELETE FROM employee_targets WHERE id = ? `, [id] );
 };
 
 

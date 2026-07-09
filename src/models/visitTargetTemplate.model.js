@@ -494,6 +494,14 @@ exports.createAssignmentDetails = async (connection, assignmentId, targets) => {
   await connection.query(query, [values]);
 };
 
+// exports.checkExistingAssignment = async ( templateId, employeeId, startDate, endDate ) => {
+//   const [rows] = await db.query(
+//     ` SELECT id FROM visit_target_assignments WHERE template_id=? AND employee_id=? AND period_start=? AND period_end=? LIMIT 1 `,
+//     [templateId, employeeId, startDate, endDate]
+//   );
+//   return rows.length > 0;
+// };
+
 exports.checkExistingAssignment = async (
   templateId,
   employeeId,
@@ -507,6 +515,7 @@ exports.checkExistingAssignment = async (
         AND employee_id=?
         AND period_start=?
         AND period_end=?
+        AND status='ACTIVE'
         LIMIT 1 `,
 
     [templateId, employeeId, startDate, endDate]

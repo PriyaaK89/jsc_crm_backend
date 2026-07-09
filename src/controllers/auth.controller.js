@@ -892,9 +892,7 @@ exports.getNotifications = async (req, res) => {
     const offset = (page - 1) * limit;
 
     // Get total count
-    const [[{ total }]] = await db.query(
-      `SELECT COUNT(*) AS total FROM notifications`
-    );
+    const [[{ total }]] = await db.query( `SELECT COUNT(*) AS total FROM notifications` );
 
     // Get paginated data
     const [rows] = await db.query(

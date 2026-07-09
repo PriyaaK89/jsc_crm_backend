@@ -266,21 +266,35 @@ exports.updateTemplate = async (req, res) => {
         ? targets
         : await visitTargetModel.getTemplateTargets(id);
  
-    // ---- 5. Added employees: create a new ACTIVE assignment ----
+// ---- 5. Added employees: create a new ACTIVE assignment, or
+    // reactivate an existing EXPIRED/COMPLETED row for this exact period
+    // (required because uq_assignment_period is unique on
+    // template_id+employee_id+period_start+period_end regardless of status) ----
     for (const employeeId of addedEmployees) {
-      const alreadyExists = await visitTargetModel.checkExistingAssignment(
+      const existingRow = await visitTargetModel.getAssignmentForPeriod(
         id,
         employeeId,
         newStartDate,
         newEndDate
       );
- 
-      // Guards against creating a duplicate ACTIVE assignment if one
-      // for this exact period somehow already exists.
-      if (alreadyExists) {
+
+      if (existingRow) {
+        if (existingRow.status === "ACTIVE") {
+          // already active for this exact period, nothing to do
+          continue;
+        }
+
+        // EXPIRED/COMPLETED row exists for this period — reactivate it
+        // instead of inserting (avoids uq_assignment_period collision)
+        await visitTargetModel.reactivateAssignment(connection, existingRow.id);
+        await visitTargetModel.refreshAssignmentDetails(
+          connection,
+          existingRow.id,
+          effectiveTargets
+        );
         continue;
       }
- 
+
       const newAssignmentId = await visitTargetModel.createAssignment(connection, {
         template_id: id,
         employee_id: employeeId,
@@ -288,7 +302,7 @@ exports.updateTemplate = async (req, res) => {
         period_end: newEndDate,
         status: "ACTIVE",
       });
- 
+
       await visitTargetModel.createAssignmentDetails(
         connection,
         newAssignmentId,

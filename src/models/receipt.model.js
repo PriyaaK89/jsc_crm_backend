@@ -212,46 +212,32 @@ exports.getReceiptInvoice = async (receiptId) => {
 
     WHERE r.id = ?
     `,
-    [receiptId]
+    [receiptId],
   );
 
-  if (!receiptRows.length) {
-    return null;
-  }
+  if (!receiptRows.length) { return null; }
 
   const receipt = receiptRows[0];
 
   // Receipt Entries
 
   const [entries] = await db.query(
-    `
-    SELECT
-
-        re.*,
+    ` SELECT re.*,
 
         l.ledger_name,
         l.gst_no
 
     FROM receipt_entries re
-
-    LEFT JOIN ledgers l
-        ON l.id = re.ledger_id
-
+    LEFT JOIN ledgers l ON l.id = re.ledger_id
     WHERE re.receipt_id = ?
-
-    ORDER BY re.id ASC
-    `,
-    [receiptId]
+    ORDER BY re.id ASC `, [receiptId],
   );
 
   // Bill References
 
   const [billReferences] = await db.query(
-    `
-    SELECT
-
+    ` SELECT
         rb.*,
-
         sbr.bill_amount,
         sbr.pending_amount
 
@@ -261,15 +247,10 @@ exports.getReceiptInvoice = async (receiptId) => {
         ON sbr.id = rb.sales_bill_reference_id
 
     WHERE rb.receipt_id = ?
-
     ORDER BY rb.id ASC
-    `,
-    [receiptId]
+    `, [receiptId],
   );
 
   return {
-    receipt,
-    entries,
-    billReferences,
-  };
+    receipt, entries, billReferences, };
 };

@@ -1,26 +1,46 @@
 const db = require("../../config/db");
 
-exports.createApprovalRequest = async (connection, data) => {
-  const [result] = await connection.query(
-    ` INSERT INTO transaction_approvals
-      (
-        transaction_type,
-        created_by,
-        junior_accountant_id,
-        dispatcher_id,
-        senior_accountant_id,
+exports.generateOrderNo = async (connection, transactionType) => {
+  const [rows] = await connection.query(
+    `
+    SELECT COALESCE(MAX(CAST(order_no AS UNSIGNED)), 0) + 1 AS nextOrderNo
+    FROM transaction_approvals
+    WHERE transaction_type = ?
+    FOR UPDATE
+    `,
+    [transactionType]
+  );
 
-        current_approver_id,
-        approval_level,
-        payload_json,
-        current_status_message
-      )
-      VALUES
-      ( ?,?, ?,?,?, ?, ?, ?, ? ) `,
+  return rows[0].nextOrderNo;
+};
+
+exports.createApprovalRequest = async (connection, data) => {
+  // Generate the next order number for this transaction type
+  const orderNo = await exports.generateOrderNo(
+    connection,
+    data.transaction_type
+  );
+
+  const [result] = await connection.query(
+    `
+    INSERT INTO transaction_approvals
+    (
+      transaction_type,
+      created_by,
+      junior_accountant_id,
+      dispatcher_id,
+      senior_accountant_id,
+      current_approver_id,
+      approval_level,
+      payload_json,
+      current_status_message,
+      order_no
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
     [
       data.transaction_type,
       data.created_by,
-
       data.junior_accountant_id,
       data.dispatcher_id,
       data.senior_accountant_id,
@@ -28,7 +48,8 @@ exports.createApprovalRequest = async (connection, data) => {
       data.approval_level,
       JSON.stringify(data.payload_json),
       data.current_status_message,
-    ],
+      orderNo,
+    ]
   );
 
   return result.insertId;
@@ -208,6 +229,7 @@ exports.getNotifications = async (userId, moduleType = null, notificationCategor
     FROM (
       SELECT
         n.*,
+        ta.order_no,
         ta.status,
         ta.transaction_type,
         ta.approval_level,
@@ -415,4 +437,19 @@ exports.getNextOrderNumber = async (transactionType) => {
   );
 
   return (rows[0]?.lastId || 0) + 1;
+};
+
+exports.markNotificationsRead = async (userId, notificationIds = null) => {
+  let sql = `UPDATE order_notifications SET is_read = 1 WHERE user_id = ?`;
+  const params = [userId];
+
+  if (notificationIds && notificationIds.length > 0) {
+    sql += ` AND id IN (${notificationIds.map(() => "?").join(",")})`;
+    params.push(...notificationIds);
+  } else {
+    sql += ` AND is_read = 0`;
+  }
+
+  const [result] = await db.query(sql, params);
+  return result;
 };

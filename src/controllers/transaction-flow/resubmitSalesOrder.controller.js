@@ -43,36 +43,32 @@ exports.resubmitSalesOrder = async (req, res) => {
 
       default: throw new Error("Invalid returned_from_level value");
     }
+    const updatedPayload = {
+  ...approval.payload_json,
+  ...req.body,
+};
 
-    await connection.query(
-      ` UPDATE transaction_approvals
-      SET
-        payload_json = ?,
-
-        status = 'PENDING',
-
-        approval_level = ?,
-        current_approver_id = ?,
-
-        current_status_message = ?,
-
-        returned_to_user_id = NULL,
-        returned_from_level = NULL,
-
-        resubmission_count =
-          resubmission_count + 1,
-
-        updated_at = CURRENT_TIMESTAMP
-
-      WHERE id = ? `,
-      [
-        JSON.stringify(req.body),
-        nextLevel,
-        nextApprover,
-        `Pending at ${approverName}`,
-        approvalId,
-      ],
-    );
+ await connection.query(
+  ` UPDATE transaction_approvals
+  SET
+    payload_json = ?,
+    status = 'PENDING',
+    approval_level = ?,
+    current_approver_id = ?,
+    current_status_message = ?,
+    returned_to_user_id = NULL,
+    returned_from_level = NULL,
+    resubmission_count = resubmission_count + 1,
+    updated_at = CURRENT_TIMESTAMP
+  WHERE id = ? `,
+  [
+    JSON.stringify(updatedPayload),
+    nextLevel,
+    nextApprover,
+    `Pending at ${approverName}`,
+    approvalId,
+  ],
+);
 
     // await transactionApprovalModel.createHistory(connection, {
     //   approval_id: approvalId,

@@ -676,6 +676,7 @@ const getLedgerByIdModel = async (connection,id) => {
       l.group_id,
       ag.group_name,
       l.employee_under,
+      u.name AS employee_under_name,
       l.opening_balance,
       l.balance_type,
       l.opening_date,
@@ -748,6 +749,9 @@ const getLedgerByIdModel = async (connection,id) => {
 
     LEFT JOIN account_groups ag
     ON ag.id = l.group_id
+
+    LEFT JOIN users u
+ON u.id = l.employee_under
 
     LEFT JOIN ledger_bank_details lbd
     ON lbd.ledger_id = l.id

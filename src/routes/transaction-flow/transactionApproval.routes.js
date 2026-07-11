@@ -14,6 +14,7 @@ router.post( "/create-sales-approval-request", auth,
 router.get( "/pending-approvals", auth, controller.getPendingApprovals );
 router.get( "/get-notifications", auth, controller.getNotifications );
 router.get( "/get-notification-counts", auth, controller.getNotificationCounts );
+router.put("/mark-notifications-read", auth, controller.markNotificationsRead);
 router.get( "/get-order-approval/:approvalId", auth, controller.getApprovalById );
 router.get( "/approval-history/:approvalId", controller.getPayloadHistory );
 // router.post( "/approve-sale-order", auth, salesApprove.approveSalesOrder);

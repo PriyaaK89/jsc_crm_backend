@@ -2,7 +2,7 @@ const db = require("../../config/db");
 const transactionApprovalModel = require("../../models/transaction-flow/transactionApproval.model");
 const { validateApprover } = require("./validation");
 
-exports.rejectSalesOrder = async (req, res) => {
+exports.rejectReceiptOrder = async (req, res) => {
   const connection = await db.getConnection();
 
   try {
@@ -24,31 +24,23 @@ exports.rejectSalesOrder = async (req, res) => {
 
     validateApprover(approval, userId);
 
-    // Close current approver notification
-    await transactionApprovalModel.completeApprovalNotification(
-      connection,
-      approvalId,
-      userId,
-    );
+    await transactionApprovalModel.completeApprovalNotification(connection, approvalId, userId);
 
     let rejectedByName = "";
 
     switch (approval.approval_level) {
-      case "JUNIOR": rejectedByName = approval.junior_name;
-      break;
-
-      case "DISPATCHER": rejectedByName = approval.dispatcher_name;
-      break;
-
-      case "SENIOR": rejectedByName = approval.senior_name;
-      break;
-
-      default: rejectedByName = "Unknown User";
+      case "JUNIOR":
+        rejectedByName = approval.junior_name;
+        break;
+      case "SENIOR":
+        rejectedByName = approval.senior_name;
+        break;
+      default:
+        rejectedByName = "Unknown User";
     }
 
-    const rejectionMessage = `Sales Order rejected by ${rejectedByName}. Reason: ${reason}`;
+    const rejectionMessage = `Receipt request rejected by ${rejectedByName}. Reason: ${reason}`;
 
-    // History entry
     await transactionApprovalModel.createHistory(connection, {
       approval_id: approvalId,
       action: "REJECTED",
@@ -57,33 +49,25 @@ exports.rejectSalesOrder = async (req, res) => {
       remarks: reason,
     });
 
-    // Update approval status
     await transactionApprovalModel.updateApproval(connection, approvalId, {
       payload_json: approval.payload_json,
-
       current_approver_id: null,
       approval_level: approval.approval_level,
-
       status: "REJECTED",
       remarks: reason,
       current_status_message: `Rejected by ${rejectedByName}`,
       rejected_at: new Date(),
     });
 
-    // Update employee status notification
-    await transactionApprovalModel.updateStatusNotification( connection, approvalId, rejectionMessage, );
+    await transactionApprovalModel.updateStatusNotification(connection, approvalId, rejectionMessage);
 
-    // Notify Senior Accountant
-    if (
-      approval.senior_accountant_id &&
-      approval.senior_accountant_id !== userId
-    ) {
+    if (approval.senior_accountant_id && approval.senior_accountant_id !== userId) {
       await transactionApprovalModel.createNotification(connection, {
         user_id: approval.senior_accountant_id,
         approval_id: approvalId,
-        module_type: "SALES",
+        module_type: "RECEIPT",
         notification_category: "STATUS",
-        title: "Sales Order Rejected",
+        title: "Receipt Request Rejected",
         message: rejectionMessage,
       });
     }
@@ -96,11 +80,7 @@ exports.rejectSalesOrder = async (req, res) => {
     });
   } catch (error) {
     await connection.rollback();
-
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    return res.status(500).json({ success: false, message: error.message });
   } finally {
     connection.release();
   }

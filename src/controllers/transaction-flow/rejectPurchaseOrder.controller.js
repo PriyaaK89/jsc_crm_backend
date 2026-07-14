@@ -2,7 +2,7 @@ const db = require("../../config/db");
 const transactionApprovalModel = require("../../models/transaction-flow/transactionApproval.model");
 const { validateApprover } = require("./validation");
 
-exports.rejectSalesOrder = async (req, res) => {
+exports.rejectPurchaseOrder = async (req, res) => {
   const connection = await db.getConnection();
 
   try {
@@ -13,7 +13,7 @@ exports.rejectSalesOrder = async (req, res) => {
 
     if (!reason) { throw new Error("Rejection reason required"); }
     const approval = await transactionApprovalModel.getApprovalById(approvalId);
-     const employeeName = approval.employee_name || approval.created_by_name || "Employee";
+    const employeeName = approval.employee_name || approval.created_by_name || "Employee";
     const employeeId = approval.created_by;
     if (!approval) { throw new Error("Approval not found"); }
     validateApprover(approval, userId);
@@ -35,7 +35,7 @@ exports.rejectSalesOrder = async (req, res) => {
       default: rejectedByName = "Unknown User";
     }
 
-    const rejectionMessage = `Sales Order rejected by ${rejectedByName}. Reason: ${reason}`;
+    const rejectionMessage = `Purchase Order rejected by ${rejectedByName}. Reason: ${reason}`;
 
     // History entry
     await transactionApprovalModel.createHistory(connection, {
@@ -68,11 +68,11 @@ exports.rejectSalesOrder = async (req, res) => {
       await transactionApprovalModel.createNotification(connection, {
         user_id: approval.senior_accountant_id,
         approval_id: approvalId,
-        module_type: "SALES",
+        module_type: "PURCHASE",
         notification_category: "STATUS",
-        title: "Sales Order Rejected",
+        title: "Purchase Order Rejected",
         message: rejectionMessage,
-          generated_by_id: employeeId,
+         generated_by_id: employeeId,
       generated_by_name: employeeName,
       });
     }

@@ -7,6 +7,10 @@ const salesApprove = require("../../controllers/transaction-flow/approveSales.co
 const rejectSales = require("../../controllers/transaction-flow/rejectSalesOrder.controller");
 const returnSales = require("../../controllers/transaction-flow/returnSalesOrder.controller");
 const resubmitSales = require("../../controllers/transaction-flow/resubmitSalesOrder.controller");
+const purchaseApprove = require("../../controllers/transaction-flow/approvePurchaseOrder.controller");
+const purchaseReject = require("../../controllers/transaction-flow/rejectPurchaseOrder.controller");
+const purchaseReturn = require("../../controllers/transaction-flow/returnPurchaseOrder.controller");
+const purchaseResubmit = require("../../controllers/transaction-flow/resubmitPurchaseOrder.controller");
 
 router.post( "/create-sales-approval-request", auth,   
     upload.fields([ { name: "orderBillImage", maxCount: 1 } ]), 
@@ -29,5 +33,19 @@ router.post( "/return-sale-order/:approvalId", auth, upload.fields([ { name: "re
 router.post( "/reject-sale-order/:approvalId", auth, rejectSales.rejectSalesOrder );
 router.post( "/resubmit-sale-order/:approvalId", auth, resubmitSales.resubmitSalesOrder );
 router.get( "/next-order-number", auth, controller.getNextOrderNumber );
+
+router.post( "/create-purchase-approval-request", auth,
+  upload.fields([{ name: "supplierInvoiceImage", maxCount: 1 }]),
+  controller.createPurchaseApprovalRequest
+);
+
+router.post( "/approve-purchase-order/:approvalId", auth,
+  upload.fields([ { name: "dispatch_doc_image", maxCount: 1 }, { name: "bill_t_image", maxCount: 1 }, ]), 
+  purchaseApprove.approvePurchaseOrder
+);
+
+router.post( "/return-purchase-order/:approvalId", auth, upload.fields([ { name: "returnImage", maxCount: 1 } ]), purchaseReturn.returnPurchaseOrder );
+router.post( "/reject-purchase-order/:approvalId", auth, purchaseReject.rejectPurchaseOrder );
+router.post( "/resubmit-purchase-order/:approvalId", auth, purchaseResubmit.resubmitPurchaseOrder );
 
 module.exports = router;

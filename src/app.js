@@ -69,6 +69,7 @@ const transactionApprovalConfig = require("../src/routes/transaction-flow/transa
 // for sales order request in apk
 const transactionApproval = require("../src/routes/transaction-flow/transactionApproval.routes");
 const visitTargetTemplate = require("../src/routes/visitTargetTemplate.routes");
+const receiptApproval = require("../src/routes/transaction-flow/receiptApproval.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -131,6 +132,7 @@ app.use(partyTransactionReportRoute);
 app.use(transactionApprovalConfig);
 app.use(transactionApproval);
 app.use(visitTargetTemplate);
+app.use(receiptApproval);
 
 // 404 handler
 app.use((req, res) => {

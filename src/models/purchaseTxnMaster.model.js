@@ -20,44 +20,14 @@ exports.getPurchaseLedgerDropdown = async () => {
 
 exports.createPurchase = async (connection, purchaseData) => {
   const {
-    voucher_type_id,
-    voucher_no,
-    purchase_date,
-    supplier_invoice_no,
-
-    supplier_ledger_id,
-    purchase_ledger_id,
-
-    assign_employee_id,
-    employee_under_id,
-
-    is_consignee,
-    dealer_name,
-    proprietor_name,
-    consignee_contact_no,
-    consignee_address,
-    consignee_gstn_no,
-
-    dispatch_doc_no,
-    transport_name,
-    destination,
-    bill_t_no,
-    vehicle_no,
-    transport_freight,
-
-    subtotal,
-    igst_total,
-    cgst_total,
-    sgst_total,
-    tax_total,
-    total_amount,
-
-    tax_mode,
-    bill_t_image,
-    dispatch_doc_image,
-
-    narration,
-    created_by,
+    voucher_type_id, voucher_no, purchase_date, supplier_invoice_no,
+    supplier_ledger_id, purchase_ledger_id,
+    assign_employee_id, employee_under_id,
+    is_consignee, dealer_name, proprietor_name, consignee_contact_no, consignee_address, consignee_gstn_no,
+    dispatch_doc_no, transport_name, destination, bill_t_no, vehicle_no, transport_freight,
+    subtotal, igst_total, cgst_total, sgst_total, tax_total, total_amount,
+    tax_mode, bill_t_image, dispatch_doc_image,
+    narration, created_by,
   } = purchaseData;
 
   const [result] = await connection.query(
@@ -145,7 +115,7 @@ exports.createPurchase = async (connection, purchaseData) => {
 
       tax_mode,
       bill_t_image,
-    dispatch_doc_image,
+      dispatch_doc_image,
 
       narration,
       created_by,
@@ -157,38 +127,16 @@ exports.createPurchase = async (connection, purchaseData) => {
 
 exports.insertPurchaseItem = async (connection, item, purchaseId) => {
   const [result] = await connection.query(
-    `
-        INSERT INTO purchase_items (
-            purchase_id,
-            stock_item_id,
-            godown_id,
-            batch_no,
-            mfg_date,
-            expiry_date,
-
-            available_qty,
-            billed_qty,
-
-            rate,
-
-            unit_id,
-
-            alt_unit_id,
-            alt_unit_qty,
-
+    ` INSERT INTO purchase_items (
+            purchase_id, stock_item_id, godown_id, batch_no, mfg_date, expiry_date,
+            available_qty, billed_qty,
+            rate, unit_id,
+            alt_unit_id, alt_unit_qty,
             amount,
-
-            igst_percent,
-            igst_amount,
-
-            cgst_percent,
-            cgst_amount,
-
-            sgst_percent,
-            sgst_amount,
-
+            igst_percent, igst_amount,
+            cgst_percent, cgst_amount,
+            sgst_percent, sgst_amount,
             total_amount
-
         )
         VALUES (
     ?, ?, ?, ?, ?, ?,
@@ -222,18 +170,11 @@ exports.insertPurchaseItem = async (connection, item, purchaseId) => {
   return result.insertId;
 };
 
-exports.insertStockTransaction = async (
-  connection,
-  item,
-  purchaseId,
-  purchaseDate,
-  createdBy
-) => {
+exports.insertStockTransaction = async (connection, item, purchaseId, purchaseDate, createdBy) => {
   await connection.query(
     `
-        INSERT INTO stock_transactions (
- transaction_type, reference_type, reference_id, transaction_date, stock_item_id, godown_id, batch_no, unit_id, qty_in, qty_out, rate, amount, created_by
-        )
+        INSERT INTO stock_transactions ( transaction_type, reference_type, reference_id, transaction_date, 
+        stock_item_id, godown_id, batch_no, unit_id, qty_in, qty_out, rate, amount, created_by )
         VALUES (
             'PURCHASE',
             'PURCHASE',
@@ -243,8 +184,7 @@ exports.insertStockTransaction = async (
             ?,0,
             ?,?,
             ?
-        )
-        `,
+        ) `,
     [
       purchaseId,
       purchaseDate,
@@ -262,25 +202,11 @@ exports.insertStockTransaction = async (
 
 exports.insertLedgerTransaction = async (connection, data) => {
   await connection.query(
-    `
-        INSERT INTO ledger_transactions (
-            transaction_type,
-            reference_id,
-            voucher_no,
-            voucher_type_id,
-            transaction_date,
-            ledger_id,
-            entry_type,
-            amount,
-            remarks,
-            created_by
-
-        )
+    ` INSERT INTO ledger_transactions ( transaction_type, reference_id, voucher_no, voucher_type_id,
+            transaction_date, ledger_id, entry_type, amount, remarks, created_by )
         VALUES (
             ?,?,?,?,?,?,
-            ?,?,?,?
-        )
-        `,
+            ?,?,?,? )`,
     [
       data.transaction_type,
       data.reference_id,
@@ -298,20 +224,8 @@ exports.insertLedgerTransaction = async (connection, data) => {
 
 exports.insertPurchaseBatch = async (connection, item, purchaseItemId) => {
   await connection.query(
-    `
-        INSERT INTO purchase_item_batches (
-
-            purchase_item_id,
-            stock_item_id,
-            godown_id,
-            batch_no,
-            qty,
-            mfg_date,
-            expiry_date,
-            remind_expiry,
-            remind_date
-
-        )
+    ` INSERT INTO purchase_item_batches ( purchase_item_id, stock_item_id, godown_id, batch_no,
+      qty, mfg_date, expiry_date, remind_expiry, remind_date )
         VALUES ( ?,?,?,?,?,?,?,?,? ) `,
     [
       purchaseItemId,
@@ -329,20 +243,9 @@ exports.insertPurchaseBatch = async (connection, item, purchaseItemId) => {
 
 exports.getPurchaseList = async () => {
   const [rows] = await db.query(`
-        SELECT
-
-            p.id,
-            p.voucher_no,
-            p.purchase_date,
-            p.total_amount,
-
-            l.ledger_name AS supplier_name
-
+        SELECT p.id, p.voucher_no, p.purchase_date, p.total_amount, l.ledger_name AS supplier_name
         FROM purchases p
-
-        LEFT JOIN ledgers l
-            ON l.id = p.supplier_ledger_id
-
+        LEFT JOIN ledgers l ON l.id = p.supplier_ledger_id
         ORDER BY p.id DESC
     `);
 
@@ -350,15 +253,7 @@ exports.getPurchaseList = async () => {
 };
 
 exports.getPurchaseById = async (id) => {
-  const [purchaseRows] = await db.query(
-    `
-        SELECT *
-        FROM purchases
-        WHERE id = ?
-    `,
-    [id]
-  );
-
+  const [purchaseRows] = await db.query(` SELECT * FROM purchases WHERE id = ? `, [id]);
   const [itemRows] = await db.query(
     ` SELECT * FROM purchase_items WHERE purchase_id = ? `,
     [id]
@@ -386,14 +281,7 @@ exports.getSupplierDropdown = async () => {
 };
 
 exports.getLedgerByName = async (connection, ledgerName) => {
-  const [rows] = await connection.query(
-    `  SELECT id
-        FROM ledgers
-        WHERE ledger_name = ?
-        LIMIT 1
-        `,
-    [ledgerName]
-  );
+  const [rows] = await connection.query(` SELECT id FROM ledgers WHERE ledger_name = ? LIMIT 1 `, [ledgerName]);
   return rows[0];
 };
 

@@ -698,16 +698,11 @@ const reassignLedgerEmployee = async (
 const getMyAssignedLedgers = async (req, res) => {
     try {
       const employeeId = req.user.id;
-
-      const ledgers =
-        await getMyAssignedLedgersModel(
-          employeeId
-        );
+      const ledgers = await getMyAssignedLedgersModel( employeeId );
 
       return res.status(200).json({
         success: true,
-        message:
-          "Assigned ledgers fetched successfully",
+        message: "Assigned ledgers fetched successfully",
         count: ledgers.length,
         data: ledgers,
       });

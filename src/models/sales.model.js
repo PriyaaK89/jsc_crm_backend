@@ -353,134 +353,338 @@ exports.insertExtraLedger = async ( connection, data) => {
     ]
   );
 };
-
 exports.getSalesInvoice = async (saleId) => {
+  // Sales Header
   const [salesRows] = await db.query(
-      ` SELECT
-          s.*,
-          customer.ledger_name AS customer_name,
-          customer.gst_no AS customer_gst,
-          customerDetails.contact AS customer_mobile,
-          customerDetails.address AS customer_address,
-          customerDetails.firm_name,
-          customerDetails.customer_name,
+    `
+    SELECT
+        s.*,
+        customer.ledger_name AS customer_name,
+        customer.gst_no AS customer_gst,
+        customerDetails.contact AS customer_mobile,
+        customerDetails.address AS customer_address,
+        customerDetails.firm_name,
+        customerDetails.customer_name,
 
-          salesLedger.ledger_name AS sales_ledger_name,
+        salesLedger.ledger_name AS sales_ledger_name,
 
-          assignUser.name AS assign_employee_name,
-          underUser.name AS employee_under_name
+        assignUser.name AS assign_employee_name,
+        underUser.name AS employee_under_name
 
-      FROM sales s
-      LEFT JOIN ledgers customer ON customer.id = s.customer_ledger_id
-      LEFT JOIN ledger_other_details customerDetails ON customerDetails.ledger_id = s.customer_ledger_id
-      LEFT JOIN ledgers salesLedger ON salesLedger.id = s.sales_ledger_id
-      LEFT JOIN users assignUser ON assignUser.id = s.assign_employee_id
-      LEFT JOIN users underUser ON underUser.id = s.employee_under_id
+    FROM sales s
 
-      WHERE s.id = ?
-      `,
-      [saleId]
+    LEFT JOIN ledgers customer
+        ON customer.id = s.customer_ledger_id
+
+    LEFT JOIN ledger_other_details customerDetails
+        ON customerDetails.ledger_id = s.customer_ledger_id
+
+    LEFT JOIN ledgers salesLedger
+        ON salesLedger.id = s.sales_ledger_id
+
+    LEFT JOIN users assignUser
+        ON assignUser.id = s.assign_employee_id
+
+    LEFT JOIN users underUser
+        ON underUser.id = s.employee_under_id
+
+    WHERE s.id = ?
+    `,
+    [saleId]
   );
 
   if (!salesRows.length) {
-      return null;
+    return null;
   }
 
   const sale = salesRows[0];
 
   // Sales Items
+  const [itemRows] = await db.query(
+    `
+    SELECT
+        si.id,
+        si.stock_item_id,
+        si.batch_no,
 
-const [itemRows] = await db.query(
-  `
-  SELECT
-      si.id,
-      si.stock_item_id,
+        gst.hsn_sac AS hsn_code,
 
-      si.batch_no,
+        si.available_qty,
+        si.billed_qty,
 
-      gst.hsn_sac AS hsn_code,
+        si.rate,
+        si.supercash_rate,
+        si.amount,
 
-      si.available_qty,
-      si.billed_qty,
+        si.igst_percent,
+        si.igst_amount,
 
-      si.rate,
-      si.supercash_rate,
+        si.cgst_percent,
+        si.cgst_amount,
 
-      si.amount,
+        si.sgst_percent,
+        si.sgst_amount,
 
-      si.igst_percent,
-      si.igst_amount,
+        si.total_amount,
 
-      si.cgst_percent,
-      si.cgst_amount,
+        stock.item_name,
 
-      si.sgst_percent,
-      si.sgst_amount,
+        stock.alternative_unit_value,
+        stock.base_unit_value,
+        stock.bulk_unit_value,
+        stock.bulk_base_value,
 
-      si.total_amount,
-      si.calculated_alt_unit,
+        u.symbol AS unit_name,
+        au.symbol AS alternative_unit_name,
+        bu.symbol AS bulk_unit_name
 
-      stock.alternative_unit_value,
-      stock.base_unit_value,
-      stock.bulk_unit_value,
+    FROM sales_items si
 
-      stock.item_name,
-      u.symbol AS unit_name
+    LEFT JOIN stock_items stock
+        ON stock.id = si.stock_item_id
 
-  FROM sales_items si
+    LEFT JOIN units u
+        ON u.id = si.unit_id
 
-  LEFT JOIN stock_items stock
-      ON stock.id = si.stock_item_id
+    LEFT JOIN units au
+        ON au.id = stock.alternative_unit_id
 
-  LEFT JOIN units u
-      ON u.id = si.unit_id
+    LEFT JOIN units bu
+        ON bu.id = stock.bulk_unit_id
 
-  LEFT JOIN stock_item_gst_details gst
-      ON gst.stock_item_id = stock.id
+    LEFT JOIN stock_item_gst_details gst
+        ON gst.stock_item_id = stock.id
 
-  WHERE si.sale_id = ?
+    WHERE si.sale_id = ?
 
-  ORDER BY si.id ASC
-  `,
-  [saleId]
-);
+    ORDER BY si.id ASC
+    `,
+    [saleId]
+  );
+
+  // Calculate Alternative Unit and Bulk Unit
+  const items = itemRows.map((item) => {
+    const billedQty = Number(item.billed_qty) || 0;
+    const baseUnitValue = Number(item.base_unit_value) || 0;
+    const bulkBaseValue = Number(item.bulk_base_value) || 0;
+
+    let calculated_alt_unit = null;
+    let calculated_bulk_unit = null;
+
+    /*
+      Example:
+      Base unit = KG
+      Alternative unit = PKT
+      Bulk unit = BAG
+
+      1 PKT = 4 KG
+      1 BAG = 48 KG
+
+      Packets inside 1 BAG:
+      48 / 4 = 12 PKT
+    */
+    if (
+      baseUnitValue > 0 &&
+      bulkBaseValue > 0 &&
+      item.alternative_unit_name
+    ) {
+      const altQty = bulkBaseValue / baseUnitValue;
+
+      calculated_alt_unit = `${Number(
+        altQty.toFixed(2)
+      )} ${item.alternative_unit_name}`;
+    }
+
+    /*
+      Calculate number of bulk units according to ordered quantity.
+
+      Example:
+      Ordered quantity = 288 KG
+      1 BAG = 48 KG
+
+      288 / 48 = 6 BAG
+    */
+    if (
+      billedQty > 0 &&
+      bulkBaseValue > 0 &&
+      item.bulk_unit_name
+    ) {
+      const bulkQty = billedQty / bulkBaseValue;
+
+      calculated_bulk_unit = `${Number(
+        bulkQty.toFixed(2)
+      )} ${item.bulk_unit_name}`;
+    }
+
+    return {
+      ...item,
+      calculated_alt_unit,
+      calculated_bulk_unit,
+    };
+  });
 
   // Extra Ledgers
-
   const [extraLedgers] = await db.query(
-      `
-      SELECT
+    `
+    SELECT
+        sel.*,
+        l.ledger_name
 
-          sel.*,
-          l.ledger_name
+    FROM sales_extra_ledgers sel
 
-      FROM sales_extra_ledgers sel
+    LEFT JOIN ledgers l
+        ON l.id = sel.ledger_id
 
-      LEFT JOIN ledgers l
-          ON l.id = sel.ledger_id
-
-      WHERE sel.sale_id = ?
-      `,
-      [saleId]
+    WHERE sel.sale_id = ?
+    `,
+    [saleId]
   );
 
   // Bill References
-
   const [billReferences] = await db.query(
-      `
-      SELECT *
-
-      FROM sales_bill_references
-
-      WHERE sale_id = ?
-      `,
-      [saleId]
+    `
+    SELECT *
+    FROM sales_bill_references
+    WHERE sale_id = ?
+    `,
+    [saleId]
   );
 
   return {
-      sale,
-      items: itemRows,
-      extraLedgers,
-      billReferences
+    sale,
+    items,
+    extraLedgers,
+    billReferences,
   };
 };
+
+// exports.getSalesInvoice = async (saleId) => {
+//   const [salesRows] = await db.query(
+//       ` SELECT
+//           s.*,
+//           customer.ledger_name AS customer_name,
+//           customer.gst_no AS customer_gst,
+//           customerDetails.contact AS customer_mobile,
+//           customerDetails.address AS customer_address,
+//           customerDetails.firm_name,
+//           customerDetails.customer_name,
+
+//           salesLedger.ledger_name AS sales_ledger_name,
+
+//           assignUser.name AS assign_employee_name,
+//           underUser.name AS employee_under_name
+
+//       FROM sales s
+//       LEFT JOIN ledgers customer ON customer.id = s.customer_ledger_id
+//       LEFT JOIN ledger_other_details customerDetails ON customerDetails.ledger_id = s.customer_ledger_id
+//       LEFT JOIN ledgers salesLedger ON salesLedger.id = s.sales_ledger_id
+//       LEFT JOIN users assignUser ON assignUser.id = s.assign_employee_id
+//       LEFT JOIN users underUser ON underUser.id = s.employee_under_id
+
+//       WHERE s.id = ?
+//       `,
+//       [saleId]
+//   );
+
+//   if (!salesRows.length) {
+//       return null;
+//   }
+
+//   const sale = salesRows[0];
+
+//   // Sales Items
+
+// const [itemRows] = await db.query(
+//   `
+//   SELECT
+//       si.id,
+//       si.stock_item_id,
+
+//       si.batch_no,
+
+//       gst.hsn_sac AS hsn_code,
+
+//       si.available_qty,
+//       si.billed_qty,
+
+//       si.rate,
+//       si.supercash_rate,
+
+//       si.amount,
+
+//       si.igst_percent,
+//       si.igst_amount,
+
+//       si.cgst_percent,
+//       si.cgst_amount,
+
+//       si.sgst_percent,
+//       si.sgst_amount,
+
+//       si.total_amount,
+//       si.calculated_alt_unit,
+
+//       stock.alternative_unit_value,
+//       stock.base_unit_value,
+//       stock.bulk_unit_value,
+
+//       stock.item_name,
+//       u.symbol AS unit_name
+
+//   FROM sales_items si
+
+//   LEFT JOIN stock_items stock
+//       ON stock.id = si.stock_item_id
+
+//   LEFT JOIN units u
+//       ON u.id = si.unit_id
+
+//   LEFT JOIN stock_item_gst_details gst
+//       ON gst.stock_item_id = stock.id
+
+//   WHERE si.sale_id = ?
+
+//   ORDER BY si.id ASC
+//   `,
+//   [saleId]
+// );
+
+//   // Extra Ledgers
+
+//   const [extraLedgers] = await db.query(
+//       `
+//       SELECT
+
+//           sel.*,
+//           l.ledger_name
+
+//       FROM sales_extra_ledgers sel
+
+//       LEFT JOIN ledgers l
+//           ON l.id = sel.ledger_id
+
+//       WHERE sel.sale_id = ?
+//       `,
+//       [saleId]
+//   );
+
+//   // Bill References
+
+//   const [billReferences] = await db.query(
+//       `
+//       SELECT *
+
+//       FROM sales_bill_references
+
+//       WHERE sale_id = ?
+//       `,
+//       [saleId]
+//   );
+
+//   return {
+//       sale,
+//       items: itemRows,
+//       extraLedgers,
+//       billReferences
+//   };
+// };

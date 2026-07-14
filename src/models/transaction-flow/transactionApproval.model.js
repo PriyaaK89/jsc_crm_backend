@@ -3,15 +3,23 @@ const db = require("../../config/db");
 exports.generateOrderNo = async (connection, transactionType) => {
   const [rows] = await connection.query(
     `
-    SELECT COALESCE(MAX(CAST(order_no AS UNSIGNED)), 0) + 1 AS nextOrderNo
+    SELECT COALESCE(
+      MAX(
+        CAST(
+          SUBSTRING_INDEX(order_no, '-', -1) AS UNSIGNED
+        )
+      ), 0
+    ) + 1 AS nextOrderNo
     FROM transaction_approvals
     WHERE transaction_type = ?
     FOR UPDATE
-    `,
-    [transactionType]
+    `, [transactionType]
   );
 
-  return rows[0].nextOrderNo;
+  const nextNumber = rows[0].nextOrderNo;
+  const prefix = transactionType.slice(0, 4);
+
+  return `${prefix}-${nextNumber}`;
 };
 
 exports.createApprovalRequest = async (connection, data) => {
@@ -65,9 +73,9 @@ exports.createNotification = async (connection, data) => {
       module_type,
       notification_category,
       title,
-      message,  generated_by_id, generated_by_name
+      message, attachment,  generated_by_id, generated_by_name
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       data.user_id,
@@ -75,7 +83,7 @@ exports.createNotification = async (connection, data) => {
       data.module_type,
       data.notification_category,
       data.title,
-      data.message,  data.generated_by_id ?? null,
+      data.message, data.attachment || null,  data.generated_by_id ?? null,
       data.generated_by_name ?? null,
     ],
   );
@@ -430,13 +438,35 @@ exports.completeApprovalNotification = async ( connection, approvalId, userId ) 
   );
 };
 
+// exports.getNextOrderNumber = async (transactionType) => {
+//   const [rows] = await db.query(
+//     ` SELECT MAX(id) AS lastId FROM transaction_approvals WHERE transaction_type = ? `,
+//     [transactionType]
+//   );
+
+//   return (rows[0]?.lastId || 0) + 1;
+// };
 exports.getNextOrderNumber = async (transactionType) => {
   const [rows] = await db.query(
-    ` SELECT MAX(id) AS lastId FROM transaction_approvals WHERE transaction_type = ? `,
+    `
+    SELECT COALESCE(
+      MAX(
+        CAST(
+          SUBSTRING_INDEX(order_no, '-', -1) AS UNSIGNED
+        )
+      ), 0
+    ) + 1 AS nextOrderNo
+    FROM transaction_approvals
+    WHERE transaction_type = ?
+    `,
     [transactionType]
   );
 
-  return (rows[0]?.lastId || 0) + 1;
+  const nextNumber = rows[0].nextOrderNo;
+  // const prefix = transactionType.slice(0, 4);
+
+  // return `${prefix}-${nextNumber}`;
+  return `${nextNumber}`;
 };
 
 exports.markNotificationsRead = async (userId, notificationIds = null) => {

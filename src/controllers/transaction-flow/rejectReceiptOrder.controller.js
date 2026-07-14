@@ -17,6 +17,8 @@ exports.rejectReceiptOrder = async (req, res) => {
     }
 
     const approval = await transactionApprovalModel.getApprovalById(approvalId);
+    const employeeName = approval.employee_name || approval.created_by_name || "Employee";
+    const employeeId = approval.created_by;
 
     if (!approval) {
       throw new Error("Approval not found");
@@ -69,6 +71,8 @@ exports.rejectReceiptOrder = async (req, res) => {
         notification_category: "STATUS",
         title: "Receipt Request Rejected",
         message: rejectionMessage,
+        generated_by_id: employeeId,
+      generated_by_name: employeeName,
       });
     }
 

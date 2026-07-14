@@ -89,6 +89,7 @@ exports.returnReceiptOrder = async (req, res) => {
       generated_by_id: employeeId,
       generated_by_name: employeeName,
       message: returnMessage,
+      attachment: uploaded.object_path,
     });
 
     await transactionApprovalModel.updateStatusNotification(connection, approvalId, returnMessage);

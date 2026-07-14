@@ -1,7 +1,7 @@
 const db = require("../../config/db");
 const transactionApprovalModel = require("../../models/transaction-flow/transactionApproval.model");
 
-exports.resubmitSalesOrder = async (req, res) => {
+exports.resubmitPurchaseOrder = async (req, res) => {
   const connection = await db.getConnection();
 
   try {
@@ -46,62 +46,55 @@ exports.resubmitSalesOrder = async (req, res) => {
       default: throw new Error("Invalid returned_from_level value");
     }
     const updatedPayload = {
-  ...approval.payload_json,
-  ...req.body,
-};
+      ...approval.payload_json,
+      ...req.body,
+    };
 
- await connection.query(
-  ` UPDATE transaction_approvals
-  SET
-    payload_json = ?,
-    status = 'PENDING',
-    approval_level = ?,
-    current_approver_id = ?,
-    current_status_message = ?,
-    returned_to_user_id = NULL,
-    returned_from_level = NULL,
-    resubmission_count = resubmission_count + 1,
-    updated_at = CURRENT_TIMESTAMP
-  WHERE id = ? `,
-  [
-    JSON.stringify(updatedPayload),
-    nextLevel,
-    nextApprover,
-    `Pending at ${approverName}`,
-    approvalId,
-  ],
-);
+    await connection.query(
+      ` UPDATE transaction_approvals
+      SET
+        payload_json = ?,
+        status = 'PENDING',
+        approval_level = ?,
+        current_approver_id = ?,
+        current_status_message = ?,
+        returned_to_user_id = NULL,
+        returned_from_level = NULL,
+        resubmission_count = resubmission_count + 1,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? `,
+      [
+        JSON.stringify(updatedPayload),
+        nextLevel,
+        nextApprover,
+        `Pending at ${approverName}`,
+        approvalId,
+      ],
+    );
 
-    // await transactionApprovalModel.createHistory(connection, {
-    //   approval_id: approvalId,
-    //   action: "RESUBMITTED",
-    //   action_by: userId,
-    //   action_level: nextLevel,
-    //   remarks: "Resubmitted after return",
-    // });
     await transactionApprovalModel.createHistory(connection, {
-  approval_id: approvalId,
-  action: "RESUBMITTED",
-  action_by: req.user.id,
-  action_level: approval.returned_from_level,
-  remarks: "Resubmitted after return",
-});
+      approval_id: approvalId,
+      action: "RESUBMITTED",
+      action_by: req.user.id,
+      action_level: approval.returned_from_level,
+      remarks: "Resubmitted after return",
+    });
 
     // Approval notification to approver
     await transactionApprovalModel.createNotification(connection, {
       user_id: nextApprover,
       approval_id: approvalId,
-      module_type: "SALES",
+      module_type: "PURCHASE",
       notification_category: "APPROVAL",
-      title: "Sales Order Resubmitted",
-      message: "Returned Sales Order has been resubmitted for approval.",
-        generated_by_id: employeeId,
+      title: "Purchase Order Resubmitted",
+      message: "Returned Purchase Order has been resubmitted for approval.",
+       generated_by_id: employeeId,
       generated_by_name: employeeName,
     });
 
     // Update employee status notification
     await transactionApprovalModel.updateStatusNotification( connection, approvalId,
-      `Sales Order resubmitted and pending at ${approverName}.`,);
+      `Purchase Order resubmitted and pending at ${approverName}.`,);
 
     await connection.commit();
 

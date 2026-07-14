@@ -8,9 +8,6 @@ function validateApprover(approval, userId) {
         throw new Error("You are not authorized");
     }
 
-    if (approval.status !== "PENDING") {
-        throw new Error("Approval already processed");
-    }
 }
 
 module.exports = {

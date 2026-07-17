@@ -1,16 +1,14 @@
 const db = require("../config/db");
 
 exports.getCustomerDropdown = async () => {
-  const [rows] = await db.query(`
-      SELECT
+  const [rows] = await db.query(` SELECT
           l.id,
           l.ledger_name
       FROM ledgers l
       INNER JOIN account_groups ag
           ON ag.id = l.group_id
       WHERE ag.group_name = 'Sundry Debtors'
-      ORDER BY l.ledger_name ASC
-  `);
+      ORDER BY l.ledger_name ASC `);
 
   return rows;
 };
@@ -124,78 +122,32 @@ exports.createCreditNote = async (connection, creditNoteData) => {
 
 exports.insertCreditNoteItem = async (connection, item, creditNoteId) => {
   const [result] = await connection.query(
-    `
-    INSERT INTO credit_note_items (
-
-      credit_note_id,
-
-      stock_item_id,
-      godown_id,
-      batch_no,
-
-      available_qty,
-      return_qty,
-
+    ` INSERT INTO credit_note_items (
+      credit_note_id, stock_item_id, godown_id, batch_no,
+      available_qty, return_qty,
       rate,
-
-      unit_id,
-      alt_unit_id,
-      alt_unit_qty,
-
+      unit_id, alt_unit_id, alt_unit_qty,
       amount,
-
-      igst_percent,
-      igst_amount,
-
-      cgst_percent,
-      cgst_amount,
-
-      sgst_percent,
-      sgst_amount,
-
+      igst_percent, igst_amount,
+      cgst_percent, cgst_amount,
+      sgst_percent, sgst_amount,
       total_amount
 
     )
-    VALUES (
-      ?,
-      ?,?,?,
-      ?,?,
-      ?,
-      ?,?,?,
-      ?,
-      ?,?,
-      ?,?,
-      ?,?,
-      ?
-    )
-    `,
+    VALUES (  ?, ?,?,?, ?,?, ?, ?,?,?, ?, ?,?, ?,?, ?,?, ? ) `,
     [
       creditNoteId,
 
-      item.stock_item_id,
-      item.godown_id,
-      item.batch_no,
-
-      item.available_qty,
-      item.return_qty,
-
+      item.stock_item_id, item.godown_id, item.batch_no,
+      item.available_qty, item.return_qty,
       item.rate,
 
-      item.unit_id,
-      item.alt_unit_id,
-      item.alt_unit_qty,
+      item.unit_id, item.alt_unit_id, item.alt_unit_qty,
 
       item.amount,
-
-      item.igst_percent,
-      item.igst_amount,
-
-      item.cgst_percent,
-      item.cgst_amount,
-
-      item.sgst_percent,
-      item.sgst_amount,
-
+      item.igst_percent, item.igst_amount,
+      item.cgst_percent, item.cgst_amount,
+      item.sgst_percent, item.sgst_amount,
       item.total_amount,
     ]
   );
@@ -203,61 +155,24 @@ exports.insertCreditNoteItem = async (connection, item, creditNoteId) => {
   return result.insertId;
 };
 
-exports.insertCreditNoteStockTransaction = async (
-  connection,
-  item,
-  creditNoteId,
-  creditNoteDate,
-  createdBy
-) => {
+exports.insertCreditNoteStockTransaction = async ( connection, item, creditNoteId, creditNoteDate, createdBy ) => {
   await connection.query(
-    `
-    INSERT INTO stock_transactions (
-
-      transaction_type,
-      reference_type,
-      reference_id,
-      transaction_date,
-
-      stock_item_id,
-      godown_id,
-      batch_no,
-      unit_id,
-      qty_in,
-      qty_out,
-
-      rate,
-      amount,
-
-      created_by
-
+    ` INSERT INTO stock_transactions (
+      transaction_type, reference_type, reference_id, transaction_date,
+      stock_item_id, godown_id, batch_no, unit_id, qty_in, qty_out,
+      rate, amount, created_by
     )
-    VALUES (
-      'SALES_RETURN',
-      'CREDIT_NOTE',
-      ?,
-
-      ?, ?,?,
-      ?, ?,
-
-      ?,
-      0,
- ?, ?, ?  ) `,
+    VALUES ( 'SALES_RETURN', 'CREDIT_NOTE', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?  ) `,
     [
       creditNoteId,
       creditNoteDate,
-
       item.stock_item_id,
       item.godown_id,
       item.batch_no,
-
       item.unit_id,
-
       item.return_qty,
-
       item.rate,
       item.total_amount,
-
       createdBy,
     ]
   );
@@ -323,16 +238,9 @@ exports.insertCreditNoteBillReference = async (connection, data) => {
   return result.insertId;
 };
 
-exports.updateSalesBillReference = async (
-  connection,
-  salesBillReferenceId,
-  amount
-) => {
+exports.updateSalesBillReference = async ( connection, salesBillReferenceId, amount ) => {
   const [rows] = await connection.query(
-    ` SELECT
-      pending_amount
-    FROM sales_bill_references
-    WHERE id = ? `,
+    ` SELECT pending_amount FROM sales_bill_references WHERE id = ? `,
     [salesBillReferenceId]
   );
 
@@ -350,20 +258,12 @@ exports.updateSalesBillReference = async (
   }
 
   await connection.query(
-    ` UPDATE sales_bill_references SET
-      pending_amount = ?,
-      status = ?
-    WHERE id = ? `,
+    ` UPDATE sales_bill_references SET pending_amount = ?, status = ? WHERE id = ? `,
     [Math.max(newPending, 0), status, salesBillReferenceId]
   );
 };
 
-exports.getAvailableStock = async (
-  connection,
-  stockItemId,
-  godownId,
-  batchNo = null
-) => {
+exports.getAvailableStock = async ( connection, stockItemId, godownId, batchNo = null ) => {
   let sql = `
       SELECT
       COALESCE(SUM(qty_in),0)
@@ -377,24 +277,14 @@ exports.getAvailableStock = async (
 
   const params = [stockItemId, godownId];
 
-  if (batchNo) {
-    sql += `
-      AND batch_no = ?
-    `;
-
+  if (batchNo) { sql += ` AND batch_no = ? `;
     params.push(batchNo);
   }
   const [rows] = await connection.query(sql, params);
   return rows[0]?.available_stock || 0;
 };
 
-exports.getSoldQtyByInvoice = async (
-  connection,
-  saleId,
-  stockItemId,
-  godownId,
-  batchNo = null
-) => {
+exports.getSoldQtyByInvoice = async ( connection, saleId, stockItemId, godownId, batchNo = null ) => {
   let sql = `
     SELECT
       COALESCE(SUM(si.billed_qty),0) AS sold_qty
@@ -405,25 +295,12 @@ exports.getSoldQtyByInvoice = async (
   `;
 
   const params = [saleId, stockItemId, godownId];
-
-  if (batchNo && batchNo !== "NOT_APPLICABLE") {
-    sql += ` AND si.batch_no = ? `;
-    params.push(batchNo);
-  }
-
+  if (batchNo && batchNo !== "NOT_APPLICABLE") { sql += ` AND si.batch_no = ? `; params.push(batchNo); }
   const [rows] = await connection.query(sql, params);
-
   return Number(rows[0]?.sold_qty || 0);
 };
-exports.getReturnedQtyByInvoice = async (
-  connection,
-  saleId,
-  stockItemId,
-  godownId,
-  batchNo = null
-) => {
-  let sql = `
-        SELECT
+exports.getReturnedQtyByInvoice = async ( connection, saleId, stockItemId, godownId, batchNo = null ) => {
+  let sql = ` SELECT
             COALESCE(SUM(cni.return_qty),0)
             AS returned_qty
         FROM credit_note_items cni
@@ -432,8 +309,7 @@ exports.getReturnedQtyByInvoice = async (
         WHERE cn.original_sale_id = ?
         AND cni.stock_item_id = ?
         AND cni.godown_id = ?
-        AND cn.status = 'ACTIVE'
-    `;
+        AND cn.status = 'ACTIVE' `;
 
   const params = [saleId, stockItemId, godownId];
 
@@ -449,33 +325,25 @@ exports.getReturnedQtyByInvoice = async (
 
 exports.getSalesByCustomer = async (customerLedgerId) => {
   const [rows] = await db.query(
-    `
-    SELECT
+    ` SELECT
       s.id,
       s.voucher_no,
       s.sales_date,
       s.total_amount
     FROM sales s
-    WHERE s.customer_ledger_id = ?
-      AND s.status = 'ACTIVE'
-    ORDER BY s.sales_date DESC
-    `,
-    [customerLedgerId]
+    WHERE s.customer_ledger_id = ? AND s.status = 'ACTIVE'
+    ORDER BY s.sales_date DESC `, [customerLedgerId]
   );
   return rows;
 };
 
 exports.getSaleItemsById = async (connection, saleId) => {
   const [rows] = await connection.query(
-    `
-    SELECT
-      si.*,
+    ` SELECT si.*,
 
       st.item_name AS stock_item_name,
-
       st.alternative_unit_value,
       st.base_unit_value,
-
       u.symbol AS base_unit_name,
       au.symbol AS alternative_unit_name,
 
@@ -499,16 +367,9 @@ exports.getSaleItemsById = async (connection, saleId) => {
       ) AS available_to_return
 
     FROM sales_items si
-
-    LEFT JOIN stock_items st
-      ON st.id = si.stock_item_id
-
-    LEFT JOIN units u
-      ON st.unit_id = u.id
-
-    LEFT JOIN units au
-      ON st.alternative_unit_id = au.id
-
+    LEFT JOIN stock_items st ON st.id = si.stock_item_id
+    LEFT JOIN units u ON st.unit_id = u.id
+    LEFT JOIN units au ON st.alternative_unit_id = au.id
     WHERE si.sale_id = ?
     `,
     [saleId]
@@ -519,20 +380,11 @@ exports.getSaleItemsById = async (connection, saleId) => {
 
 exports.getSalesBillReferences = async (customerLedgerId, saleId) => {
   const [rows] = await db.query(
-    `
-        SELECT
-            id,
-            reference_no,
-            bill_amount,
-            pending_amount,
-            status,
-            due_date
+    ` SELECT id, reference_no, bill_amount, pending_amount, status, due_date
         FROM sales_bill_references
         WHERE ledger_id = ?
         AND sale_id = ?
-        ORDER BY id DESC
-        `,
-    [customerLedgerId, saleId]
+        ORDER BY id DESC `, [customerLedgerId, saleId]
   );
 
   return rows;
@@ -540,8 +392,7 @@ exports.getSalesBillReferences = async (customerLedgerId, saleId) => {
 
 exports.getCreditNoteInvoice = async (creditNoteId) => {
     const [creditNoteRows] = await db.query(
-        ` SELECT
-            cn.*,
+        ` SELECT cn.*,
             customer.ledger_name AS customer_name,
             customer.gst_no AS customer_gst,
 
@@ -559,24 +410,12 @@ exports.getCreditNoteInvoice = async (creditNoteId) => {
             s.sales_date AS original_invoice_date
 
         FROM credit_notes cn
-
-        LEFT JOIN ledgers customer
-            ON customer.id = cn.customer_ledger_id
-
-        LEFT JOIN ledger_other_details customerDetails
-            ON customerDetails.ledger_id = cn.customer_ledger_id
-
-        LEFT JOIN ledgers salesReturnLedger
-            ON salesReturnLedger.id = cn.sales_return_ledger_id
-
-        LEFT JOIN users assignUser
-            ON assignUser.id = cn.assign_employee_id
-
-        LEFT JOIN users underUser
-            ON underUser.id = cn.employee_under_id
-
-        LEFT JOIN sales s
-            ON s.id = cn.original_sale_id
+        LEFT JOIN ledgers customer ON customer.id = cn.customer_ledger_id
+        LEFT JOIN ledger_other_details customerDetails ON customerDetails.ledger_id = cn.customer_ledger_id
+        LEFT JOIN ledgers salesReturnLedger ON salesReturnLedger.id = cn.sales_return_ledger_id
+        LEFT JOIN users assignUser ON assignUser.id = cn.assign_employee_id
+        LEFT JOIN users underUser ON underUser.id = cn.employee_under_id
+        LEFT JOIN sales s ON s.id = cn.original_sale_id
 
         WHERE cn.id = ?
         `,
@@ -587,33 +426,15 @@ exports.getCreditNoteInvoice = async (creditNoteId) => {
     const creditNote = creditNoteRows[0];
     const [itemRows] = await db.query(
         ` SELECT
-            cni.id,
-            cni.stock_item_id,
-            cni.batch_no,
-            cni.return_qty,
-
-            cni.rate,
-            cni.amount,
-
-            cni.igst_percent,
-            cni.igst_amount,
-
-            cni.cgst_percent,
-            cni.cgst_amount,
-
-            cni.sgst_percent,
-            cni.sgst_amount,
-
-            cni.total_amount,
-
+            cni.id, cni.stock_item_id, cni.batch_no, cni.return_qty,
+            cni.rate, cni.amount,
+            cni.igst_percent, cni.igst_amount,
+            cni.cgst_percent, cni.cgst_amount,
+            cni.sgst_percent, cni.sgst_amount, cni.total_amount,
             gst.hsn_sac AS hsn_code,
 
             si.item_name,
-
-            si.alternative_unit_value,
-            si.base_unit_value,
-            si.bulk_unit_value,
-            salesItem.calculated_alt_unit,
+            si.alternative_unit_value, si.base_unit_value, si.bulk_unit_value, salesItem.calculated_alt_unit,
 
             u.symbol AS unit_name
 
@@ -640,11 +461,7 @@ exports.getCreditNoteInvoice = async (creditNoteId) => {
         [creditNoteId]
     );
 
-    return {
-        creditNote,
-        items: itemRows,
-        billReferences
-    };
+    return { creditNote, items: itemRows, billReferences };
 };
 
 // exports.getSaleItemsById = async (

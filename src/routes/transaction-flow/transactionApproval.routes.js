@@ -11,6 +11,10 @@ const purchaseApprove = require("../../controllers/transaction-flow/approvePurch
 const purchaseReject = require("../../controllers/transaction-flow/rejectPurchaseOrder.controller");
 const purchaseReturn = require("../../controllers/transaction-flow/returnPurchaseOrder.controller");
 const purchaseResubmit = require("../../controllers/transaction-flow/resubmitPurchaseOrder.controller");
+const creditNoteApprove = require("../../controllers/transaction-flow/approveCreditNote.controller");
+const creditNoteReject = require("../../controllers/transaction-flow/rejectCreditNoteOrder.controller");
+const creditNoteReturn = require("../../controllers/transaction-flow/returnCreditNoteOrder.controller");
+const creditNoteResubmit = require("../../controllers/transaction-flow/resubmitCreditNoteOrder.controller");
 
 router.post( "/create-sales-approval-request", auth,   
     upload.fields([ { name: "orderBillImage", maxCount: 1 } ]), 
@@ -35,7 +39,7 @@ router.post( "/resubmit-sale-order/:approvalId", auth, resubmitSales.resubmitSal
 router.get( "/next-order-number", auth, controller.getNextOrderNumber );
 
 router.post( "/create-purchase-approval-request", auth,
-  upload.fields([{ name: "supplierInvoiceImage", maxCount: 1 }]),
+  upload.fields([{ name: "orderBillImage", maxCount: 1 }]),
   controller.createPurchaseApprovalRequest
 );
 
@@ -47,5 +51,20 @@ router.post( "/approve-purchase-order/:approvalId", auth,
 router.post( "/return-purchase-order/:approvalId", auth, upload.fields([ { name: "returnImage", maxCount: 1 } ]), purchaseReturn.returnPurchaseOrder );
 router.post( "/reject-purchase-order/:approvalId", auth, purchaseReject.rejectPurchaseOrder );
 router.post( "/resubmit-purchase-order/:approvalId", auth, purchaseResubmit.resubmitPurchaseOrder );
+
+router.post( "/create-credit-note-approval-request", auth,
+  upload.fields([ { name: "bill_t_image", maxCount: 1 }, { name: "dispatch_doc_image", maxCount: 1 }, ]),
+  controller.createCreditNoteApprovalRequest
+);
+
+router.post( "/approve-credit-note-order/:approvalId", auth,
+  upload.fields([ { name: "dispatch_doc_image", maxCount: 1 }, { name: "bill_t_image", maxCount: 1 },]),
+  creditNoteApprove.approveCreditNoteOrder
+);
+router.post( "/return-credit-note-order/:approvalId", auth,
+  upload.fields([{ name: "returnImage", maxCount: 1 }]), creditNoteReturn.returnCreditNoteOrder
+);
+router.post("/reject-credit-note-order/:approvalId", auth, creditNoteReject.rejectCreditNoteOrder);
+router.post("/resubmit-credit-note-order/:approvalId", auth, creditNoteResubmit.resubmitCreditNoteOrder);
 
 module.exports = router;

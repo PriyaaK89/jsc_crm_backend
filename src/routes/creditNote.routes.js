@@ -5,8 +5,7 @@ const auth = require("../middleware/auth.middleware");
 const upload = require("../middleware/upload.middleware");
 
 router.post( "/create-credit-note", auth, upload.fields([
-    { name: "bill_t_image", maxCount: 1 },
-    { name: "dispatch_doc_image", maxCount: 1 }
+    { name: "bill_t_image", maxCount: 1 }, { name: "dispatch_doc_image", maxCount: 1 }
   ]), creditNoteController.createCreditNote);
 router.get("/get-sales-by-customer", auth, creditNoteController.getSalesByCustomer);
 router.get( "/get-sales-item/:saleId/items", creditNoteController.getSaleItemsById );

@@ -9,62 +9,58 @@ exports.createCreditNote = async (req, res) => {
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
-  const data = {
-  ...req.body,
-  items: JSON.parse(req.body.items || "[]"),
-  bill_references: JSON.parse(
-    req.body.bill_references || "[]"
-  ),
-    assign_employee_id:
-    req.body.assign_employee_id &&
-    req.body.assign_employee_id !== "null"
-      ? Number(req.body.assign_employee_id)
-      : null,
+    const data = {
+      ...req.body,
+      items: JSON.parse(req.body.items || "[]"),
+      bill_references: JSON.parse(
+        req.body.bill_references || "[]"
+      ),
+      assign_employee_id:
+        req.body.assign_employee_id &&
+          req.body.assign_employee_id !== "null"
+          ? Number(req.body.assign_employee_id)
+          : null,
 
-  employee_under_id:
-    req.body.employee_under_id &&
-    req.body.employee_under_id !== "null"
-      ? Number(req.body.employee_under_id)
-      : null,
-};
+      employee_under_id:
+        req.body.employee_under_id &&
+          req.body.employee_under_id !== "null"
+          ? Number(req.body.employee_under_id)
+          : null,
+    };
 
     let bill_t_image = null;
 
-if (req.files?.bill_t_image?.[0]) {
-  const uploadedBill = await uploadFileToMinio(
-    req.files.bill_t_image[0],
-    "txn_creditNote"
-  );
+    if (req.files?.bill_t_image?.[0]) {
+      const uploadedBill = await uploadFileToMinio(
+        req.files.bill_t_image[0],
+        "txn_creditNote"
+      );
 
-  bill_t_image = uploadedBill.object_path;
-}
+      bill_t_image = uploadedBill.object_path;
+    }
 
-// Upload Dispatch Document File
-let dispatch_doc_image = null;
+    // Upload Dispatch Document File
+    let dispatch_doc_image = null;
 
-if (req.files?.dispatch_doc_image?.[0]) {
-  const uploadedDispatch = await uploadFileToMinio(
-    req.files.dispatch_doc_image[0],
-    "txn_creditNote"
-  );
+    if (req.files?.dispatch_doc_image?.[0]) {
+      const uploadedDispatch = await uploadFileToMinio(
+        req.files.dispatch_doc_image[0],
+        "txn_creditNote"
+      );
 
-  dispatch_doc_image = uploadedDispatch.object_path;
-}
+      dispatch_doc_image = uploadedDispatch.object_path;
+    }
 
-await validateVoucherDate(
-  connection,
-  "CREDIT_NOTE",
-  data.credit_note_date
-);
+    await validateVoucherDate(
+      connection,
+      "CREDIT_NOTE",
+      data.credit_note_date
+    );
 
     const voucherData = await generateVoucherNo("CREDIT_NOTE");
     const { voucher_no, voucher_type_id, nextSequence } = voucherData;
 
-        /*
-=================================
-RETURN QTY VALIDATION
-=================================
-*/
+    /* RETURN QTY VALIDATION */
 
     for (const item of data.items) {
       const soldQty = await creditNoteModel.getSoldQtyByInvoice(
@@ -101,8 +97,8 @@ RETURN QTY VALIDATION
       voucher_no,
       bill_t_image,
       assign_employee_id: data.assign_employee_id || null,
-employee_under_id: data.employee_under_id || null,
-    dispatch_doc_image,
+      employee_under_id: data.employee_under_id || null,
+      dispatch_doc_image,
       voucher_type_id,
       created_by: req.user.id,
     });
@@ -125,30 +121,18 @@ employee_under_id: data.employee_under_id || null,
 
     await creditNoteModel.insertLedgerTransaction(connection, {
       transaction_type: "CREDIT_NOTE",
-
       reference_id: creditNoteId,
-
       voucher_no,
       voucher_type_id,
-
       transaction_date: data.credit_note_date,
-
       ledger_id: data.customer_ledger_id,
-
       entry_type: "Cr",
-
       amount: data.total_amount,
-
       remarks: "Customer Account",
-
       created_by: req.user.id,
     });
 
-    /*
-        ===========================
-        SALES RETURN DR
-        ===========================
-        */
+    /* SALES RETURN DR */
 
     await creditNoteModel.insertLedgerTransaction(connection, {
       transaction_type: "CREDIT_NOTE",
@@ -163,21 +147,13 @@ employee_under_id: data.employee_under_id || null,
       created_by: req.user.id,
     });
 
-    /*
-        ===========================
-        GST LEDGERS
-        ===========================
-        */
+    /* GST LEDGERS */
 
     const cgstLedger = await purchaseModel.getLedgerByName(connection, "CGST");
     const sgstLedger = await purchaseModel.getLedgerByName(connection, "SGST");
     const igstLedger = await purchaseModel.getLedgerByName(connection, "IGST");
 
-    /*
-        ===========================
-        IGST DR
-        ===========================
-        */
+    /* IGST DR */
 
     if (Number(data.igst_total) > 0 && igstLedger) {
       await creditNoteModel.insertLedgerTransaction(connection, {
@@ -260,13 +236,9 @@ employee_under_id: data.employee_under_id || null,
     }
 
     await connection.query(
-      ` UPDATE voucher_types
-            SET current_sequence = ?
-            WHERE id = ? `,
+      ` UPDATE voucher_types SET current_sequence = ? WHERE id = ? `,
       [nextSequence, voucher_type_id],
     );
-
-
 
     await connection.commit();
 
@@ -315,19 +287,10 @@ exports.getSalesByCustomer = async (req, res) => {
   }
 };
 
-exports.getSaleItemsById = async (
-  req,
-  res
-) => {
+exports.getSaleItemsById = async ( req, res ) => {
   try {
-
-    const { saleId } = req.params;
-
-    const data =
-      await creditNoteModel.getSaleItemsById(
-        db,
-        saleId
-      );
+   const { saleId } = req.params;
+   const data = await creditNoteModel.getSaleItemsById( db, saleId );
 
     res.status(200).json({
       success: true,
@@ -387,23 +350,23 @@ exports.getSalesBillReferences = async (req, res) => {
 
 exports.getCreditNoteInvoice = async (req, res) => {
   try {
-      const creditNoteId = req.params.id;
-      const invoice = await creditNoteModel.getCreditNoteInvoice( creditNoteId  );
-      if (!invoice) {
-          return res.status(404).json({
-              success: false,
-              message: "Credit Note Invoice not found"
-          });
-      }
-      return res.status(200).json({
-          success: true,
-          data: invoice
+    const creditNoteId = req.params.id;
+    const invoice = await creditNoteModel.getCreditNoteInvoice(creditNoteId);
+    if (!invoice) {
+      return res.status(404).json({
+        success: false,
+        message: "Credit Note Invoice not found"
       });
+    }
+    return res.status(200).json({
+      success: true,
+      data: invoice
+    });
   } catch (error) {
-      console.error(error);
-      return res.status(500).json({
-          success: false,
-          message: error.message
-      });
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };

@@ -5,24 +5,12 @@ const { uploadFileToMinio } = require("../../utils/fileUpload");
 const { getPresignedUrl } = require("../../utils/fileUpload");
 
 const addPresignedUrls = async (payload) => {
-  if (!payload) {
-    return payload;
-  }
+  if (!payload) { return payload; }
 
-  if (payload.orderBillImage) {
-    payload.orderBillImageUrl = await getPresignedUrl(payload.orderBillImage);
-  }
-
-  if (payload.dispatch_doc_image) {
-    payload.dispatchDocImageUrl = await getPresignedUrl( payload.dispatch_doc_image,);
-  }
-
-  if (payload.bill_t_image) {
-    payload.billTImageUrl = await getPresignedUrl(payload.bill_t_image);
-  }
-  if (payload.attachment) {
-  payload.attachmentUrl = await getPresignedUrl(payload.attachment);
-}
+  if (payload.orderBillImage) { payload.orderBillImageUrl = await getPresignedUrl(payload.orderBillImage); }
+  if (payload.dispatch_doc_image) { payload.dispatchDocImageUrl = await getPresignedUrl( payload.dispatch_doc_image,); }
+  if (payload.bill_t_image) { payload.billTImageUrl = await getPresignedUrl(payload.bill_t_image);}
+  if (payload.attachment) { payload.attachmentUrl = await getPresignedUrl(payload.attachment);}
 
   return payload;
 };
@@ -33,29 +21,18 @@ exports.createSalesApprovalRequest = async (req, res) => {
     await connection.beginTransaction();
     const data = req.body;
     const employeeId = req.user.id;
-
     const config = await transactionApprovalConfigModel.getApprovalConfigByEmployee( employeeId, );
 
-    if (!config) {
-      throw new Error("Approval configuration not found");
-    }
-    if (!config.junior_accountant_id) {
-      throw new Error("Junior Accountant not assigned");
-    }
+    if (!config) { throw new Error("Approval configuration not found"); }
+    if (!config.junior_accountant_id) { throw new Error("Junior Accountant not assigned"); }
 
     let orderBillImage = null;
 
     if (req.files?.orderBillImage?.[0]) {
-      const uploaded = await uploadFileToMinio(
-        req.files.orderBillImage[0],
-        "txn_sales",
-      );
+      const uploaded = await uploadFileToMinio(req.files.orderBillImage[0], "txn_sales", );
       orderBillImage = uploaded.object_path;
     }
-    const [userRows] = await connection.query(
-      `SELECT name FROM users WHERE id = ?`,
-      [employeeId],
-    );
+    const [userRows] = await connection.query( `SELECT name FROM users WHERE id = ?`, [employeeId],);
 
     const employeeName = userRows[0]?.name || "Employee";
     data.orderBillImage = orderBillImage;
@@ -413,10 +390,10 @@ exports.createPurchaseApprovalRequest = async (req, res) => {
       throw new Error("Junior Accountant not assigned");
     }
 
-    let supplierInvoiceImage = null;
-    if (req.files?.supplierInvoiceImage?.[0]) {
-      const uploaded = await uploadFileToMinio(req.files.supplierInvoiceImage[0], "txn_purchase");
-      supplierInvoiceImage = uploaded.object_path;
+    let orderBillImage = null;
+    if (req.files?.orderBillImage?.[0]) {
+      const uploaded = await uploadFileToMinio(req.files.orderBillImage[0], "txn_purchase");
+      orderBillImage = uploaded.object_path;
     }
 
     const [userRows] = await connection.query(`SELECT name FROM users WHERE id = ?`, [employeeId]);
@@ -427,7 +404,7 @@ exports.createPurchaseApprovalRequest = async (req, res) => {
       ...data,
       items: typeof data.items === "string" ? JSON.parse(data.items || "[]") : data.items || [],
       extra_ledgers: typeof data.extra_ledgers === "string" ? JSON.parse(data.extra_ledgers || "[]") : data.extra_ledgers || [],
-      supplierInvoiceImage,
+      orderBillImage,
     };
 
     const approvalId = await transactionApprovalModel.createApprovalRequest(connection, {
@@ -477,6 +454,113 @@ exports.createPurchaseApprovalRequest = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "Purchase order submitted for approval",
+      approval_id: approvalId,
+    });
+  } catch (error) {
+    await connection.rollback();
+    return res.status(500).json({ success: false, message: error.message });
+  } finally {
+    connection.release();
+  }
+};
+
+exports.createCreditNoteApprovalRequest = async (req, res) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const data = req.body;
+    const employeeId = req.user.id;
+
+    // Normalize values that arrive as JSON-encoded strings from the Flutter client
+    const originalSaleId =
+      data.original_sale_id && data.original_sale_id !== "null" && data.original_sale_id !== "undefined"
+        ? Number(data.original_sale_id)
+        : null;
+
+    const isConsignee = data.is_consignee === true || data.is_consignee === "true";
+
+    const config = await transactionApprovalConfigModel.getApprovalConfigByEmployee(employeeId);
+
+    if (!config) throw new Error("Approval configuration not found");
+    if (!config.junior_accountant_id) throw new Error("Junior Accountant not assigned");
+    if (!config.dispatcher_id) throw new Error("Dispatcher not assigned");
+    if (!config.senior_accountant_id) throw new Error("Senior Accountant not assigned");
+
+    let bill_t_image = null;
+    if (req.files?.bill_t_image?.[0]) {
+      const uploaded = await uploadFileToMinio(req.files.bill_t_image[0], "txn_creditNote");
+      bill_t_image = uploaded.object_path;
+    }
+
+    let dispatch_doc_image = null;
+    if (req.files?.dispatch_doc_image?.[0]) {
+      const uploaded = await uploadFileToMinio(req.files.dispatch_doc_image[0], "txn_creditNote");
+      dispatch_doc_image = uploaded.object_path;
+    }
+
+    const [userRows] = await connection.query(`SELECT name FROM users WHERE id = ?`, [employeeId]);
+    const employeeName = userRows[0]?.name || "Employee";
+
+    const payload = {
+      ...data,
+      original_sale_id: originalSaleId,
+      is_consignee: isConsignee,
+      items: typeof data.items === "string" ? JSON.parse(data.items || "[]") : data.items || [],
+      bill_references:
+        typeof data.bill_references === "string"
+          ? JSON.parse(data.bill_references || "[]")
+          : data.bill_references || [],
+      bill_t_image,
+      dispatch_doc_image,
+    };
+
+    const approvalId = await transactionApprovalModel.createApprovalRequest(connection, {
+      transaction_type: "CREDIT_NOTE",
+      created_by: employeeId,
+      junior_accountant_id: config.junior_accountant_id,
+      dispatcher_id: config.dispatcher_id,
+      senior_accountant_id: config.senior_accountant_id,
+      current_approver_id: config.junior_accountant_id,
+      approval_level: "JUNIOR",
+      payload_json: payload,
+      current_status_message: `Pending at Junior Accountant ${config.junior_accountant_name}.`,
+    });
+
+    await transactionApprovalModel.createHistory(connection, {
+      approval_id: approvalId,
+      action: "CREATED",
+      action_by: employeeId,
+      action_level: "EMPLOYEE",
+      remarks: "Credit note request submitted",
+    });
+
+    await transactionApprovalModel.createNotification(connection, {
+      user_id: config.junior_accountant_id,
+      approval_id: approvalId,
+      module_type: "CREDIT_NOTE",
+      notification_category: "APPROVAL",
+      title: "New Credit Note Request",
+      message: `Credit note request generated by ${employeeName}.`,
+      generated_by_id: employeeId,
+      generated_by_name: employeeName,
+    });
+
+    await transactionApprovalModel.createNotification(connection, {
+      user_id: employeeId,
+      approval_id: approvalId,
+      module_type: "CREDIT_NOTE",
+      notification_category: "STATUS",
+      title: "Credit Note Status",
+      message: `Your credit note request is pending for approval by ${config.junior_accountant_name}.`,
+      generated_by_id: employeeId,
+      generated_by_name: employeeName,
+    });
+
+    await connection.commit();
+
+    return res.status(201).json({
+      success: true,
+      message: "Credit note submitted for approval",
       approval_id: approvalId,
     });
   } catch (error) {

@@ -13,11 +13,7 @@ exports.executeApprovedSales = async (connection, payload, createdBy) => {
   const billTImage = data.bill_t_image || null;
 
   /* VOUCHER */
-  await validateVoucherDate(
-  connection,
-  "SALES",
-  data.sales_date
-);
+  await validateVoucherDate( connection, "SALES", data.sales_date);
   const voucherData = await generateVoucherNo("SALES");
   const { voucher_no, voucher_type_id, nextSequence } = voucherData;
 

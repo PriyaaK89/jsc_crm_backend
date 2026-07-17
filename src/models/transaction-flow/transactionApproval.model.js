@@ -450,11 +450,7 @@ exports.getNextOrderNumber = async (transactionType) => {
   const [rows] = await db.query(
     `
     SELECT COALESCE(
-      MAX(
-        CAST(
-          SUBSTRING_INDEX(order_no, '-', -1) AS UNSIGNED
-        )
-      ), 0
+      MAX( CAST( SUBSTRING_INDEX(order_no, '-', -1) AS UNSIGNED ) ), 0
     ) + 1 AS nextOrderNo
     FROM transaction_approvals
     WHERE transaction_type = ?

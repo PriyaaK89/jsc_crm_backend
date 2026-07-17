@@ -11,4 +11,8 @@ router.get("/get-sales-by-customer", auth, creditNoteController.getSalesByCustom
 router.get( "/get-sales-item/:saleId/items", creditNoteController.getSaleItemsById );
 router.get( "/sales-bill-references", creditNoteController.getSalesBillReferences );
 router.get( "/get-credit-note-invoice/:id", auth, creditNoteController.getCreditNoteInvoice);
+
+router.get("/sales-ledger-dropdown", auth, creditNoteController.getSalesReturnLedgerDropdown);
+router.get("/get-original-sale/:saleId", auth, creditNoteController.getOriginalSale);
+// router.get("/get-sales-bill-references", auth, creditNoteController.getSalesBillReferences);
 module.exports = router;

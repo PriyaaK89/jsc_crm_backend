@@ -38,6 +38,8 @@ exports.createCreditNote = async (connection, creditNoteData) => {
     dispatch_doc_no, transport_name, destination,
     bill_t_no, vehicle_no,
     transport_freight,
+    local_freight, load_freight, unload_freight, delivery_charge,
+    unique_number, transporter,
 
     eway_number, transporter_gst, delivery_place,
     subtotal,
@@ -68,6 +70,8 @@ exports.createCreditNote = async (connection, creditNoteData) => {
       vehicle_no,
 
       transport_freight,
+      local_freight, load_freight, unload_freight, delivery_charge,
+      unique_number, transporter,
       eway_number, transporter_gst, delivery_place,
       subtotal,
       igst_total, cgst_total, sgst_total,
@@ -78,7 +82,7 @@ exports.createCreditNote = async (connection, creditNoteData) => {
 
     )
     VALUES (
-      ?,?,?, ?, ?,?, ?,?, ?,?,?, ?,?, ?, ?,?,?, ?, ?,?,?, ?,?, ?, ?, ?, ?
+      ?,?,?, ?, ?,?, ?,?, ?,?,?, ?,?, ?, ?,?,?, ?, ?,?,?, ?,?, ?, ?, ?, ?,?,?, ?, ?, ?
     )  `,
     [
       voucher_type_id,
@@ -95,6 +99,12 @@ exports.createCreditNote = async (connection, creditNoteData) => {
       bill_t_no,
       vehicle_no,
       transport_freight,
+      local_freight || 0,
+      load_freight || 0,
+      unload_freight || 0,
+      delivery_charge || 0,
+      unique_number || null,
+      transporter || null,
       eway_number,
       transporter_gst,
       delivery_place,
@@ -462,6 +472,15 @@ exports.getCreditNoteInvoice = async (creditNoteId) => {
     );
 
     return { creditNote, items: itemRows, billReferences };
+};
+
+exports.getSaleById = async (saleId) => {
+  const [rows] = await db.query(
+    `SELECT id, voucher_no, sales_date, customer_ledger_id, total_amount
+     FROM sales WHERE id = ?`,
+    [saleId],
+  );
+  return rows[0] || null;
 };
 
 // exports.getSaleItemsById = async (

@@ -170,11 +170,7 @@ exports.createCreditNote = async (req, res) => {
       });
     }
 
-    /*
-        ===========================
-        CGST DR
-        ===========================
-        */
+    /* =========================== CGST DR =========================== */
 
     if (Number(data.cgst_total) > 0 && cgstLedger) {
       await creditNoteModel.insertLedgerTransaction(connection, {
@@ -191,11 +187,7 @@ exports.createCreditNote = async (req, res) => {
       });
     }
 
-    /*
-        ===========================
-        SGST DR
-        ===========================
-        */
+    /* =========================== SGST DR =========================== */
 
     if (Number(data.sgst_total) > 0 && sgstLedger) {
       await creditNoteModel.insertLedgerTransaction(connection, {
@@ -212,11 +204,7 @@ exports.createCreditNote = async (req, res) => {
       });
     }
 
-    /*
-        ===========================
-        BILL REFERENCES
-        ===========================
-        */
+    /* =========================== BILL REFERENCES =========================== */
 
     if (Array.isArray(data.bill_references)) {
       for (const billRef of data.bill_references) {
@@ -306,47 +294,38 @@ exports.getSaleItemsById = async ( req, res ) => {
 
   }
 };
-exports.getSalesBillReferences = async (req, res) => {
-  try {
-    const { sale_id } = req.query;
-    console.log("sale_id received:", sale_id);
+// exports.getSalesBillReferences = async (req, res) => {
+//   try {
+//     const { sale_id } = req.query;
+//     console.log("sale_id received:", sale_id);
 
-    if (!sale_id) {
-      return res.status(400).json({
-        success: false,
-        message: "sale_id is required",
-      });
-    }
+//     if (!sale_id) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "sale_id is required",
+//       });
+//     }
 
-    const [rows] = await db.query(
-      `
-      SELECT
-        id,
-        reference_no,
-        reference_amount,
-        pending_amount,
-        due_date
-      FROM sales_bill_references
-      WHERE sale_id = ?
-      AND pending_amount > 0
-      ORDER BY id DESC
-      `,
-      [sale_id]
-    );
+//     const [rows] = await db.query(
+//       ` SELECT
+//         id, reference_no, reference_amount, pending_amount, due_date
+//       FROM sales_bill_references
+//       WHERE sale_id = ?
+//       AND pending_amount > 0
+//       ORDER BY id DESC `, [sale_id] );
 
-    return res.status(200).json({
-      success: true,
-      data: rows,
-    });
-  } catch (error) {
-    console.log(error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
+//     return res.status(200).json({
+//       success: true,
+//       data: rows,
+//     });
+//   } catch (error) {
+//     console.log(error);
+//     return res.status(500).json({
+//       success: false,
+//       message: error.message,
+//     });
+//   }
+// };
 
 exports.getCreditNoteInvoice = async (req, res) => {
   try {
@@ -368,5 +347,42 @@ exports.getCreditNoteInvoice = async (req, res) => {
       success: false,
       message: error.message
     });
+  }
+};
+
+exports.getSalesReturnLedgerDropdown = async (req, res) => {
+  try {
+    const data = await creditNoteModel.getSalesReturnLedgerDropdown();
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getOriginalSale = async (req, res) => {
+  try {
+    const sale = await creditNoteModel.getSaleById(req.params.saleId);
+    if (!sale) {
+      return res.status(404).json({ success: false, message: "Sale not found" });
+    }
+    return res.status(200).json({ success: true, data: sale });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getSalesBillReferences = async (req, res) => {
+  try {
+    const { customer_ledger_id, sale_id } = req.query;
+    if (!customer_ledger_id || !sale_id) {
+      return res.status(400).json({
+        success: false,
+        message: "customer_ledger_id and sale_id are required",
+      });
+    }
+    const data = await creditNoteModel.getSalesBillReferences(customer_ledger_id, sale_id);
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
   }
 };

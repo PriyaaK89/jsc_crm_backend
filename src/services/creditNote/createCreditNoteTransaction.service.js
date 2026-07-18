@@ -39,7 +39,12 @@ exports.executeApprovedCreditNote = async (connection, payload, createdBy) => {
 
     if (Number(item.return_qty) > Number(availableToReturn)) {
       throw new Error(
-        `Return Qty exceeds sold qty for Item ID ${item.stock_item_id}. Available To Return: ${availableToReturn}, Trying To Return: ${item.return_qty}`,
+        // `Return Qty exceeds sold qty  Sold Qty: ${soldQty}, for Item ID ${item.stock_item_id}. Available To Return: ${availableToReturn}, Trying To Return: ${item.return_qty}`,
+        `Return Qty exceeds sold qty for Item ID ${item.stock_item_id}.
+        Sold Qty: ${soldQty},
+        Already Returned: ${alreadyReturnedQty},
+        Available To Return: ${availableToReturn},
+        Trying To Return: ${item.return_qty}`,
       );
     }
   }

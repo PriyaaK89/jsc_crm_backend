@@ -17,6 +17,7 @@ exports.resubmitReceiptOrder = async (req, res) => {
     if (!approval) { throw new Error("Approval request not found"); }
     if (approval.status !== "RETURNED") { throw new Error("Only returned requests can be resubmitted"); }
     if (approval.returned_to_user_id !== userId) { throw new Error("You are not allowed to resubmit this order"); }
+    await transactionApprovalModel.completeApprovalNotification(connection, approvalId, userId);
 
     let nextApprover = null;
     let nextLevel = null;

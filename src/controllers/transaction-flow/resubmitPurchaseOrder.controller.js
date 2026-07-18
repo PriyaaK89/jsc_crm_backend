@@ -19,6 +19,7 @@ exports.resubmitPurchaseOrder = async (req, res) => {
 
     // Security check
     if (approval.returned_to_user_id !== userId) { throw new Error("You are not allowed to resubmit this order") }
+    await transactionApprovalModel.completeApprovalNotification(connection, approvalId, userId);
 
     let nextApprover = null;
     let nextLevel = null;

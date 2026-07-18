@@ -54,18 +54,14 @@ const generateVoucherNo = async (voucherType) => {
   const formattedSequence = "0".repeat(decimal_digit || 0) + nextSequence;
 
   const parts = [];
-
-  if (prefix?.trim()) {
-    parts.push(prefix.trim());
-  }
-
-  parts.push(formattedSequence);
-
-  if (suffix?.trim()) {
-    parts.push(suffix.trim());
-  }
-
-  const voucher_no = parts.join("/");
+if (prefix?.trim()) {
+  parts.push(prefix.trim());
+}
+if (suffix?.trim()) {
+  parts.push(suffix.trim());
+}
+parts.push(formattedSequence);
+const voucher_no = parts.join("/");
 
   return {
     voucher_no,

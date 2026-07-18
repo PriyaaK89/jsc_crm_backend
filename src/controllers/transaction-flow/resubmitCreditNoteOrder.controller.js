@@ -19,6 +19,10 @@ exports.resubmitCreditNoteOrder = async (req, res) => {
 
     if (approval.returned_to_user_id !== userId) { throw new Error("You are not allowed to resubmit this order") }
 
+    // Mark the "Credit Note Returned" notification as read for this user —
+    // otherwise it stays unread forever and reappears (or duplicates on a second return).
+    await transactionApprovalModel.completeApprovalNotification(connection, approvalId, userId);
+
     let nextApprover = null;
     let nextLevel = null;
     let approverName = "";

@@ -42,12 +42,12 @@ const createUser = async (user) => {
       working_area,
       approver_id,
       login_time,
-      logout_time,
+      logout_time, visit_upto,
       pf,
       esi, profile_image, reporting_under
     )
     VALUES (
-      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
     [
       user.name || null,
@@ -98,6 +98,7 @@ const createUser = async (user) => {
 
       user.login_time || null,
       user.logout_time || null,
+      user.visit_upto || null,
       user.pf || null,
       user.esi || null,
       user.profile_image || null,
@@ -201,6 +202,7 @@ u.four_wheeler_allowance_per_km,
       u.working_area,
       u.login_time,
       u.logout_time,
+      u.visit_upto,
       u.pf,
       u.esi,
       u.is_active,
@@ -306,6 +308,7 @@ const getUserById = async (id) => {
 
       u.login_time,
       u.logout_time,
+      u.visit_upto,
       u.pf,
       u.esi,
 
@@ -388,7 +391,7 @@ const softDeleteUser = async (userId) => {
   avg_travel_km_per_day, city_allowance_per_km,
   daily_allowance_with_doc, daily_allowance_without_doc, hotel_allowance,
   total_leaves, authentication_amount, headquarter, working_area,
-  login_time, logout_time, pf, esi,
+  login_time, logout_time, visit_upto, pf, esi,
   must_change_password, week_off,
   deleted_at
 )
@@ -402,7 +405,7 @@ SELECT
   avg_travel_km_per_day, city_allowance_per_km,
   daily_allowance_with_doc, daily_allowance_without_doc, hotel_allowance,
   total_leaves, authentication_amount, headquarter, working_area,
-  login_time, logout_time, pf, esi,
+  login_time, logout_time, visit_upto, pf, esi,
   must_change_password, week_off,
   NOW()
 FROM users WHERE id = ?;`,

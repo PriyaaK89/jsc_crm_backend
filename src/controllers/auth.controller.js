@@ -418,7 +418,7 @@ exports.updateUserById = async (req, res) => {
       city_allowance_per_km, daily_allowance_with_doc,
       daily_allowance_without_doc, hotel_allowance,
       total_leaves, authentication_amount,
-      headquarter, working_area, login_time, logout_time,
+      headquarter, working_area, login_time, logout_time, visit_upto,
       pf, esi,
 
       approver_id, role_id,
@@ -480,7 +480,7 @@ exports.updateUserById = async (req, res) => {
       headquarter,
       working_area,
       login_time,
-      logout_time,
+      logout_time, visit_upto,
       pf,
       esi,
 

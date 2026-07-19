@@ -185,6 +185,47 @@ exports.getSalaryByDateRange = async (req, res) => {
   }
 };
 
+
+exports.getMySalaryByDateRange = async (req, res) => {
+  try {
+    const employeeId = req.user?.id;
+    const { startDate, endDate, page = 1, limit = 10 } = req.query;
+
+    if (!employeeId) {
+      return res.status(400).json({
+        message: "Unauthorized, please enter a valid token!",
+      });
+    }
+
+    const pageNumber = parseInt(page);
+    const pageSize = Math.min(parseInt(limit) || 10, 100);
+    const offset = (pageNumber - 1) * pageSize;
+
+    const result = await SalaryDaily.getMySalaryByDateRange(
+      employeeId,
+      startDate,
+      endDate,
+      pageSize,
+      offset
+    );
+
+    return res.json({
+      success: true,
+      count: result.rows.length,
+      total: result.total,
+      currentPage: pageNumber,
+      totalPages: Math.ceil(result.total / pageSize),
+      data: result.rows,
+    });
+
+  } catch (error) {
+    console.error("Get My Salary Error:", error);
+    return res.status(500).json({
+      message: "Server error",
+    });
+  }
+};
+
 // exports.getSalaryByDateRange = async (req, res) => {
 //   try {
 //     const { employeeId } = req.params;
@@ -267,45 +308,6 @@ exports.getSalaryByDateRange = async (req, res) => {
 //   }
 // };
 
-exports.getMySalaryByDateRange = async (req, res) => {
-  try {
-    const employeeId = req.user?.id;
-    const { startDate, endDate, page = 1, limit = 10 } = req.query;
-
-    if (!employeeId) {
-      return res.status(400).json({
-        message: "Unauthorized, please enter a valid token!",
-      });
-    }
-
-    const pageNumber = parseInt(page);
-    const pageSize = Math.min(parseInt(limit) || 10, 100);
-    const offset = (pageNumber - 1) * pageSize;
-
-    const result = await SalaryDaily.getMySalaryByDateRange(
-      employeeId,
-      startDate,
-      endDate,
-      pageSize,
-      offset
-    );
-
-    return res.json({
-      success: true,
-      count: result.rows.length,
-      total: result.total,
-      currentPage: pageNumber,
-      totalPages: Math.ceil(result.total / pageSize),
-      data: result.rows,
-    });
-
-  } catch (error) {
-    console.error("Get My Salary Error:", error);
-    return res.status(500).json({
-      message: "Server error",
-    });
-  }
-};
 
 // exports.getMySalaryByDateRange = async (req, res) => {
 //   try {

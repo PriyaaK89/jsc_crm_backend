@@ -5,12 +5,7 @@ const expenseModel = require("../models/EmpExpense.model");
 const { TYPES, TYPE_TO_SALARY_FIELD, isExpenseType } = holdModel;
 
 const LABELS = {
-  SALARY: "Salary",
-  TA: "TA",
-  DA: "DA",
-  HOTEL: "Hotel Expense",
-  OTHER: "Other Expense",
-  BUS_TRAIN_TOLL: "Bus/Train/Toll Expense",
+  SALARY: "Salary", TA: "TA", DA: "DA", HOTEL: "Hotel Expense", OTHER: "Other Expense", BUS_TRAIN_TOLL: "Bus/Train/Toll Expense",
 };
 
 // employee_expense_entries.expense_type values that correspond to our

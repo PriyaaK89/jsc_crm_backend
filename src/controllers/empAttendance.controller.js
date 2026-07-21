@@ -6,35 +6,238 @@ const { getHierarchyIds } = require("../controllers/rollingUser.controller");
 const { uploadFileToMinio,getPresignedUrl} = require("../utils/fileUpload");
 
 
+// const generateDailySalaryInternal = async (employeeId, date) => {
+//   const user = await SalaryDaily.getUserSalaryInfo(employeeId);
+//   console.log("USER =>", employeeId, user ? "found" : "NOT FOUND");
+//   if (!user) return;
+
+//   const attendance = await SalaryDaily.getAttendanceByDate(employeeId, date);
+//   console.log("ATTENDANCE =>", employeeId, date, attendance);
+//   if (!attendance) return;
+
+//   const year = new Date(date).getFullYear();
+//   const month = new Date(date).getMonth() + 1;
+
+//   // Check if month locked
+//   const [[lockedRow]] = await require("../config/db").query(
+//     `SELECT salary_locked FROM emp_salary 
+//      WHERE employee_id = ? AND month = ? AND year = ?`,
+//     [employeeId, month, year],
+//   );
+
+//   if (lockedRow && lockedRow.salary_locked === 1) return;
+
+//   const daysInMonth = new Date(year, month, 0).getDate();
+
+//   const yearlySalary = Number(user.salary);
+//   const monthlySalary = yearlySalary / 12;
+//   const perDaySalary = monthlySalary / daysInMonth;
+
+//   let basicSalary = 0;
+
+//   if (attendance.attendance_unit === "full") {
+//     basicSalary = perDaySalary;
+//   } else if (attendance.attendance_unit === "half") {
+//     basicSalary = perDaySalary * 0.5;
+//   } else if (["week_off", "absent", "leave"].includes(attendance.attendance_unit)) {
+//   basicSalary = 0;
+//   // Still continue — don't return early — so a ₹0 row gets saved
+// }
+
+//   /* ---------- Working Hours Format ---------- */
+//   const totalMinutes = attendance.working_minutes || 0;
+//   const hours = Math.floor(totalMinutes / 60);
+//   const minutes = totalMinutes % 60;
+//   const formattedWorkingHours = `${hours} hr ${minutes} min`;
+
+//   /* ---------- Travel & Daily Allowance ---------- */
+//   let travelAllowance = 0;
+//   let dailyAllowance = 0;
+//   let totalReading = 0;
+
+//   if (attendance.check_out_time && attendance.work_type !== "wfh") {
+//     const startKm = Number(attendance.odometer_reading) || 0;
+//     const endKm = Number(attendance.day_over_odometer_reading) || 0;
+
+//     let travelledKm = endKm - startKm;
+
+// if (travelledKm < 0) {
+//   travelledKm = 0;
+// }
+
+// totalReading = travelledKm;
+
+//     // Normalize vehicle type (prevents mismatch bugs)
+//     const vehicleType = (attendance.vehicle_type || "").toLowerCase();
+
+//     const rateMap = {
+//       two_wheeler: Number(user.two_wheeler_allowance_per_km) || 0,
+//       four_wheeler: Number(user.four_wheeler_allowance_per_km) || 0,
+//     };
+
+//     const perKmRate = rateMap[vehicleType] || 0;
+
+//     /* ---------- VALIDATION (No silent failure) ---------- */
+//     if (travelledKm > 0) {
+//       if (!vehicleType) {
+//         console.error(
+//           ` vehicle_type missing for employee ${employeeId} on ${date}`,
+//         );
+//       }
+
+//       if (!rateMap.hasOwnProperty(vehicleType)) {
+//         console.error(` Invalid vehicle_type: ${attendance.vehicle_type}`);
+//       }
+
+//       if (perKmRate === 0) {
+//         console.error(` Per KM rate is 0 for vehicle_type: ${vehicleType}`);
+//       }
+//     }
+
+//     //  Travel Allowance (ALWAYS FULL - as per your requirement)
+//     travelAllowance = travelledKm * perKmRate;
+
+//     //  Daily Allowance (ONLY for FULL DAY)
+//     if (
+//       attendance.attendance_unit === "full" &&
+//       travelledKm >= (user.avg_travel_km_per_day || 0)
+//     ) {
+//       dailyAllowance = Number(user.daily_allowance_with_doc) || 0;
+//     } else {
+//       dailyAllowance = 0;
+//     }
+
+//     /* ---------- Debug Logs ---------- */
+//     console.log({
+//       employeeId,
+//       date,
+//       vehicleType,
+//       travelledKm,
+//       perKmRate,
+//       travelAllowance,
+//       dailyAllowance,
+//     });
+//   }
+
+//   /* ---------- Expense Calculation ---------- */
+
+// let hotelExpense = 0;
+// let otherExpense = 0;
+// let busTrainTollExpense = 0;
+
+// const [expenses] = await db.query(
+//   `
+//   SELECT
+//     expense_type,
+//     SUM(amount) as total
+//   FROM employee_expense_entries
+//   WHERE user_id = ?
+//     AND DATE(expense_date) = ?
+//     AND status = 'APPROVED'
+//   GROUP BY expense_type
+//   `,
+//   [employeeId, date]
+// );
+
+// for (const exp of expenses) {
+
+//   const amount = Number(exp.total) || 0;
+
+//   if (exp.expense_type === "HOTEL") {
+//     hotelExpense = amount;
+//   }
+
+//   if (exp.expense_type === "OTHER") {
+//     otherExpense = amount;
+//   }
+
+//   if (exp.expense_type === "BUS_TRAIN_TOLL") {
+//     busTrainTollExpense = amount;
+//   }
+// }
+
+//   /* ---------- Final Salary ---------- */
+//   const grossSalary = basicSalary + travelAllowance + dailyAllowance + hotelExpense +
+//   otherExpense +
+//   busTrainTollExpense;
+//   const netSalary = grossSalary;
+
+//   try{
+//      await SalaryDaily.saveDailySalary([
+//     employeeId,
+//     date,
+//     attendance.attendance_unit,
+//     formattedWorkingHours,
+//     perDaySalary.toFixed(2),
+//     basicSalary.toFixed(2),
+//     travelAllowance.toFixed(2),
+//     dailyAllowance.toFixed(2),
+
+//      hotelExpense.toFixed(2),
+//   otherExpense.toFixed(2),
+//   busTrainTollExpense.toFixed(2),
+//   totalReading.toFixed(2),
+
+//     grossSalary.toFixed(2),
+//     netSalary.toFixed(2),
+//   ]);
+//   console.log("SAVED OK =>", employeeId, date);
+
+//   }catch(error){
+// // console.error("SAVE FAILED =>", employeeId, date, err.sqlMessage);
+// console.error("SAVE FAILED =>", employeeId, date, error.sqlMessage, error.message);
+//   }
+ 
+// };
+
+
 const generateDailySalaryInternal = async (employeeId, date) => {
   const user = await SalaryDaily.getUserSalaryInfo(employeeId);
   console.log("USER =>", employeeId, user ? "found" : "NOT FOUND");
   if (!user) return;
-
+ 
   const attendance = await SalaryDaily.getAttendanceByDate(employeeId, date);
   console.log("ATTENDANCE =>", employeeId, date, attendance);
   if (!attendance) return;
-
+ 
   const year = new Date(date).getFullYear();
   const month = new Date(date).getMonth() + 1;
-
+ 
   // Check if month locked
   const [[lockedRow]] = await require("../config/db").query(
     `SELECT salary_locked FROM emp_salary 
      WHERE employee_id = ? AND month = ? AND year = ?`,
     [employeeId, month, year],
   );
-
+ 
   if (lockedRow && lockedRow.salary_locked === 1) return;
-
+ 
+  /* ---------- NEW: Payment Hold awareness ---------- */
+  // If an admin has edited or held SALARY/TA/DA for this date via the
+  // Payment Hold screen, this regeneration must not silently overwrite
+  // that decision with a fresh attendance-based calculation.
+  const [holdRows] = await db.query(
+    `SELECT type, status FROM emp_payment_hold WHERE employee_id = ? AND salary_date = ?`,
+    [employeeId, date]
+  );
+  const holdByType = {};
+  holdRows.forEach((r) => (holdByType[r.type] = r));
+ 
+  const [[existingSalaryRow]] = await db.query(
+    `SELECT basic_salary, travelling_allowance, daily_allowance
+     FROM emp_salary_daily WHERE employee_id = ? AND salary_date = ?`,
+    [employeeId, date]
+  );
+  /* ---------------------------------------------------- */
+ 
   const daysInMonth = new Date(year, month, 0).getDate();
-
+ 
   const yearlySalary = Number(user.salary);
   const monthlySalary = yearlySalary / 12;
   const perDaySalary = monthlySalary / daysInMonth;
-
+ 
   let basicSalary = 0;
-
+ 
   if (attendance.attendance_unit === "full") {
     basicSalary = perDaySalary;
   } else if (attendance.attendance_unit === "half") {
@@ -43,40 +246,40 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   basicSalary = 0;
   // Still continue — don't return early — so a ₹0 row gets saved
 }
-
+ 
   /* ---------- Working Hours Format ---------- */
   const totalMinutes = attendance.working_minutes || 0;
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   const formattedWorkingHours = `${hours} hr ${minutes} min`;
-
+ 
   /* ---------- Travel & Daily Allowance ---------- */
   let travelAllowance = 0;
   let dailyAllowance = 0;
   let totalReading = 0;
-
+ 
   if (attendance.check_out_time && attendance.work_type !== "wfh") {
     const startKm = Number(attendance.odometer_reading) || 0;
     const endKm = Number(attendance.day_over_odometer_reading) || 0;
-
+ 
     let travelledKm = endKm - startKm;
-
+ 
 if (travelledKm < 0) {
   travelledKm = 0;
 }
-
+ 
 totalReading = travelledKm;
-
+ 
     // Normalize vehicle type (prevents mismatch bugs)
     const vehicleType = (attendance.vehicle_type || "").toLowerCase();
-
+ 
     const rateMap = {
       two_wheeler: Number(user.two_wheeler_allowance_per_km) || 0,
       four_wheeler: Number(user.four_wheeler_allowance_per_km) || 0,
     };
-
+ 
     const perKmRate = rateMap[vehicleType] || 0;
-
+ 
     /* ---------- VALIDATION (No silent failure) ---------- */
     if (travelledKm > 0) {
       if (!vehicleType) {
@@ -84,19 +287,19 @@ totalReading = travelledKm;
           ` vehicle_type missing for employee ${employeeId} on ${date}`,
         );
       }
-
+ 
       if (!rateMap.hasOwnProperty(vehicleType)) {
         console.error(` Invalid vehicle_type: ${attendance.vehicle_type}`);
       }
-
+ 
       if (perKmRate === 0) {
         console.error(` Per KM rate is 0 for vehicle_type: ${vehicleType}`);
       }
     }
-
+ 
     //  Travel Allowance (ALWAYS FULL - as per your requirement)
     travelAllowance = travelledKm * perKmRate;
-
+ 
     //  Daily Allowance (ONLY for FULL DAY)
     if (
       attendance.attendance_unit === "full" &&
@@ -106,7 +309,7 @@ totalReading = travelledKm;
     } else {
       dailyAllowance = 0;
     }
-
+ 
     /* ---------- Debug Logs ---------- */
     console.log({
       employeeId,
@@ -118,13 +321,41 @@ totalReading = travelledKm;
       dailyAllowance,
     });
   }
-
+ 
+  /* ---------- NEW: Apply Payment Hold overrides ---------- *
+   * Must run AFTER the attendance-driven calculation above and
+   * BEFORE expenses/gross/net, so a held field is forced to 0 and
+   * an edited-but-not-held field keeps its current stored value
+   * instead of being replaced by the recalculated figure.
+   */
+  if (holdByType.SALARY) {
+    basicSalary =
+      holdByType.SALARY.status === "HOLD"
+        ? 0
+        : Number(existingSalaryRow?.basic_salary ?? basicSalary);
+  }
+ 
+  if (holdByType.TA) {
+    travelAllowance =
+      holdByType.TA.status === "HOLD"
+        ? 0
+        : Number(existingSalaryRow?.travelling_allowance ?? travelAllowance);
+  }
+ 
+  if (holdByType.DA) {
+    dailyAllowance =
+      holdByType.DA.status === "HOLD"
+        ? 0
+        : Number(existingSalaryRow?.daily_allowance ?? dailyAllowance);
+  }
+  /* --------------------------------------------------------- */
+ 
   /* ---------- Expense Calculation ---------- */
-
+ 
 let hotelExpense = 0;
 let otherExpense = 0;
 let busTrainTollExpense = 0;
-
+ 
 const [expenses] = await db.query(
   `
   SELECT
@@ -134,34 +365,35 @@ const [expenses] = await db.query(
   WHERE user_id = ?
     AND DATE(expense_date) = ?
     AND status = 'APPROVED'
+    AND hold_status = 'UNHOLD'
   GROUP BY expense_type
   `,
   [employeeId, date]
 );
-
+ 
 for (const exp of expenses) {
-
+ 
   const amount = Number(exp.total) || 0;
-
+ 
   if (exp.expense_type === "HOTEL") {
     hotelExpense = amount;
   }
-
+ 
   if (exp.expense_type === "OTHER") {
     otherExpense = amount;
   }
-
+ 
   if (exp.expense_type === "BUS_TRAIN_TOLL") {
     busTrainTollExpense = amount;
   }
 }
-
+ 
   /* ---------- Final Salary ---------- */
   const grossSalary = basicSalary + travelAllowance + dailyAllowance + hotelExpense +
   otherExpense +
   busTrainTollExpense;
   const netSalary = grossSalary;
-
+ 
   try{
      await SalaryDaily.saveDailySalary([
     employeeId,
@@ -172,17 +404,17 @@ for (const exp of expenses) {
     basicSalary.toFixed(2),
     travelAllowance.toFixed(2),
     dailyAllowance.toFixed(2),
-
+ 
      hotelExpense.toFixed(2),
   otherExpense.toFixed(2),
   busTrainTollExpense.toFixed(2),
   totalReading.toFixed(2),
-
+ 
     grossSalary.toFixed(2),
     netSalary.toFixed(2),
   ]);
   console.log("SAVED OK =>", employeeId, date);
-
+ 
   }catch(error){
 // console.error("SAVE FAILED =>", employeeId, date, err.sqlMessage);
 console.error("SAVE FAILED =>", employeeId, date, error.sqlMessage, error.message);

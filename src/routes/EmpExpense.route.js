@@ -7,6 +7,7 @@ const auth = require("../middleware/auth.middleware");
 
 router.post("/set-expense-allocation",auth, expenseController.setExpenseAllocation);
 router.get("/admin-expense-summary",auth, expenseController.getAdminExpenseSummary);
+router.get("/admin-expense-by-date",auth, expenseController.getEmployeeExpenseByDate); // NEW
 router.put("/update-expense-allocation/:user_id", auth, expenseController.updateExpenseAllocation);
 
 // user side

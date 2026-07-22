@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const SalaryDaily = require("./empDailySalary.model");
 
 const TYPE_TO_SALARY_FIELD = {
   SALARY: "basic_salary",
@@ -24,6 +25,38 @@ exports.getSalaryDailyRow = async (employeeId, date, connection = db) => {
     [employeeId, date]
   );
   return row;
+};
+
+// Auto-creates a zero-value emp_salary_daily row if generateDailySalaryInternal
+// never ran for this employee/date (new hire, attendance never marked
+// that day, cron didn't reach them, etc.). Lets an admin still record a
+// manual hold/edit for that day instead of being hard-blocked.
+// NOTE: assumes attendance_type is nullable / not an ENUM restricted to
+// specific attendance values. Confirm with `SHOW CREATE TABLE
+// emp_salary_daily` — if attendance_type is NOT NULL or ENUM-constrained,
+// swap the `null` below for whatever value that column actually allows.
+exports.ensureSalaryDailyRow = async (employeeId, date, connection = db) => {
+  const existing = await exports.getSalaryDailyRow(employeeId, date, connection);
+  if (existing) return existing;
+
+  await SalaryDaily.saveDailySalary([
+    employeeId,
+    date,
+    null,          // attendance_type — no attendance data for this day
+    "0 hr 0 min",  // working_hours
+    "0.00",        // per_day_salary
+    "0.00",        // basic_salary
+    "0.00",        // travelling_allowance
+    "0.00",        // daily_allowance
+    "0.00",        // hotel_expense
+    "0.00",        // other_expense
+    "0.00",        // bus_train_toll_expense
+    "0.00",        // total_reading
+    "0.00",        // gross_salary
+    "0.00",        // net_salary
+  ]);
+
+  return exports.getSalaryDailyRow(employeeId, date, connection);
 };
 
 exports.isMonthLocked = async (employeeId, date, connection = db) => {
@@ -119,6 +152,36 @@ exports.setExpenseEntryHold = async (connection, employeeId, date, expenseType, 
      SET hold_status = ?, hold_reason = ?
      WHERE user_id = ? AND expense_type = ? AND DATE(expense_date) = ?`,
     [status, reason, employeeId, expenseType, date]
+  );
+};
+
+// Creates a brand-new expense entry when no bill was ever uploaded for
+// this employee/type/date (e.g. "forgot to upload"). No bill file —
+// this is an administrative entry, always recorded as APPROVED so it
+// counts toward payout like a normal approved bill would.
+// NOTE: relies on a unique key on (user_id, expense_type, expense_date)
+// in employee_expense_entries — the same one your uploadMyExpense
+// ER_DUP_ENTRY handling already assumes exists. Confirm it's actually
+// there; if not, add it before using this.
+exports.createAdminExpenseEntry = async (connection, {
+  allocationId,
+  employeeId,
+  date,
+  expenseType,
+  amount,
+  remarks,
+}) => {
+  await connection.query(
+    `
+    INSERT INTO employee_expense_entries
+      (allocation_id, user_id, expense_type, expense_date, amount, status, hold_status, remarks)
+    VALUES (?, ?, ?, ?, ?, 'APPROVED', 'UNHOLD', ?)
+    ON DUPLICATE KEY UPDATE
+      amount = VALUES(amount),
+      status = VALUES(status),
+      remarks = VALUES(remarks)
+    `,
+    [allocationId, employeeId, expenseType, date, amount, remarks]
   );
 };
 

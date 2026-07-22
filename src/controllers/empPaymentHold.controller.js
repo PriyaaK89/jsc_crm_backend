@@ -5,11 +5,14 @@ const expenseModel = require("../models/EmpExpense.model");
 const { TYPES, TYPE_TO_SALARY_FIELD, isExpenseType } = holdModel;
 
 const LABELS = {
-  SALARY: "Salary", TA: "TA", DA: "DA", HOTEL: "Hotel Expense", OTHER: "Other Expense", BUS_TRAIN_TOLL: "Bus/Train/Toll Expense",
+  SALARY: "Salary",
+  TA: "TA",
+  DA: "DA",
+  HOTEL: "Hotel Expense",
+  OTHER: "Other Expense",
+  BUS_TRAIN_TOLL: "Bus/Train/Toll Expense",
 };
 
-// employee_expense_entries.expense_type values that correspond to our
-// three expense rows (they already match 1:1 — HOTEL, OTHER, BUS_TRAIN_TOLL).
 const getAllocatedAmount = (allocation, type) => {
   if (type === "HOTEL") return Number(allocation.hotel_amount) || 0;
   if (type === "BUS_TRAIN_TOLL") return Number(allocation.bus_train_toll_amount) || 0;
@@ -19,6 +22,8 @@ const getAllocatedAmount = (allocation, type) => {
 
 /**
  * GET /payment-hold/search?employee_id=&date=YYYY-MM-DD
+ * Auto-creates a zero-value emp_salary_daily row if generation never
+ * ran for this date, instead of 404ing.
  */
 exports.searchPaymentHold = async (req, res) => {
   try {
@@ -33,12 +38,7 @@ exports.searchPaymentHold = async (req, res) => {
       return res.status(404).json({ message: "Employee not found" });
     }
 
-    const salaryRow = await holdModel.getSalaryDailyRow(employee_id, date);
-    if (!salaryRow) {
-      return res.status(404).json({
-        message: "No salary record generated for this employee on this date",
-      });
-    }
+    const salaryRow = await holdModel.ensureSalaryDailyRow(employee_id, date);
 
     const holdRows = await holdModel.getHoldRows(employee_id, date);
     const holdByType = {};
@@ -100,13 +100,7 @@ exports.updateAmount = async (req, res) => {
       return res.status(400).json({ message: "Invalid amount" });
     }
 
-    const salaryRow = await holdModel.getSalaryDailyRow(employee_id, date);
-    if (!salaryRow) {
-      connection.release();
-      return res.status(404).json({
-        message: "No salary record generated for this employee on this date",
-      });
-    }
+    const salaryRow = await holdModel.ensureSalaryDailyRow(employee_id, date);
 
     if (await holdModel.isMonthLocked(employee_id, date)) {
       connection.release();
@@ -129,40 +123,54 @@ exports.updateAmount = async (req, res) => {
     }
 
     let expenseEntry = null;
+    let allocation = null;
 
     if (isExpenseType(type)) {
+      // May legitimately be null — that's the "employee never uploaded
+      // a bill" case, handled below by creating one.
       expenseEntry = await holdModel.getExpenseEntry(employee_id, date, type);
-      if (!expenseEntry) {
+
+      allocation = await expenseModel.getAllocationByUserId(employee_id);
+      if (!allocation) {
         connection.release();
-        return res.status(404).json({
-          message: `No ${LABELS[type]} entry found for this employee on this date`,
+        return res.status(400).json({
+          message: "No expense allocation set for this employee. Set an allocation before adding an expense.",
         });
       }
 
-      // Respect the same allocation cap uploadMyExpense enforces —
-      // editing shouldn't silently push the employee over budget.
-      const allocation = await expenseModel.getAllocationByUserId(employee_id);
-      if (allocation) {
-        const allocated = getAllocatedAmount(allocation, type);
-        const usedTotal = parseFloat(await expenseModel.getUsedAmountByType(employee_id, type)) || 0;
-        const usedExcludingThis = usedTotal - Number(expenseEntry.amount);
-        const remaining = allocated - usedExcludingThis;
+      // Allocation is a per-day cap — scope "already used" to this date.
+      const allocated = getAllocatedAmount(allocation, type);
+      const usedTotal = parseFloat(await expenseModel.getUsedAmountByTypeForDate(employee_id, type, date)) || 0;
+      const usedExcludingThis = usedTotal - (expenseEntry ? Number(expenseEntry.amount) : 0);
+      const remaining = allocated - usedExcludingThis;
 
-        if (parsedAmount > remaining) {
-          connection.release();
-          return res.status(400).json({
-            message: "Updated amount exceeds remaining allocation",
-            allocated_amount: allocated,
-            remaining_amount: remaining < 0 ? 0 : remaining,
-          });
-        }
+      if (parsedAmount > remaining) {
+        connection.release();
+        return res.status(400).json({
+          message: "Updated amount exceeds remaining allocation",
+          allocated_amount: allocated,
+          remaining_amount: remaining < 0 ? 0 : remaining,
+        });
       }
     }
 
     await connection.beginTransaction();
 
     if (isExpenseType(type)) {
-      await holdModel.writeExpenseEntryAmount(connection, employee_id, date, type, parsedAmount.toFixed(2));
+      if (expenseEntry) {
+        await holdModel.writeExpenseEntryAmount(connection, employee_id, date, type, parsedAmount.toFixed(2));
+      } else {
+        // No bill was ever uploaded for this day — record it as an
+        // administrative entry so it still counts toward payout.
+        await holdModel.createAdminExpenseEntry(connection, {
+          allocationId: allocation.id,
+          employeeId: employee_id,
+          date,
+          expenseType: type,
+          amount: parsedAmount.toFixed(2),
+          remarks: reason,
+        });
+      }
     }
 
     const { grossSalary, netSalary } = await holdModel.writeSalaryField(
@@ -227,13 +235,7 @@ exports.toggleStatus = async (req, res) => {
       return res.status(400).json({ message: "Reason is required to hold a payment" });
     }
 
-    const salaryRow = await holdModel.getSalaryDailyRow(employee_id, date);
-    if (!salaryRow) {
-      connection.release();
-      return res.status(404).json({
-        message: "No salary record generated for this employee on this date",
-      });
-    }
+    const salaryRow = await holdModel.ensureSalaryDailyRow(employee_id, date);
 
     if (await holdModel.isMonthLocked(employee_id, date)) {
       connection.release();
@@ -246,7 +248,7 @@ exports.toggleStatus = async (req, res) => {
       if (!expenseEntry) {
         connection.release();
         return res.status(404).json({
-          message: `No ${LABELS[type]} entry found for this employee on this date`,
+          message: `No ${LABELS[type]} entry found for this employee on this date. Add an amount first before holding it.`,
         });
       }
     }

@@ -3,15 +3,14 @@ const db = require("../config/db");
 exports.getTodayAttendance = async (employeeId) => {
   const [rows] = await db.query(
     `SELECT * FROM emp_attendance WHERE employee_id = ? AND attendance_date = CURDATE() `,
-    [employeeId]
+    [employeeId],
   );
   return rows[0];
 };
 
 exports.createAttendance = async (data) => {
   const [result] = await db.query(
-    `
-    INSERT INTO emp_attendance (
+    ` INSERT INTO emp_attendance (
  employee_id,
  attendance_date,
  status,
@@ -24,19 +23,15 @@ exports.createAttendance = async (data) => {
  odometer_reading,
  visit_location,
  check_in_time,
- leave_reason
-) VALUES (?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    data
+ leave_reason ) VALUES (?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) `,
+    data,
   );
   return result.insertId;
 };
 
 exports.updateDayOver = async (data) => {
   return db.query(
-    `
-    UPDATE emp_attendance
-    SET
+    ` UPDATE emp_attendance SET
       status = 'day_over',
       check_out_time = NOW(),
       working_minutes = ?,
@@ -44,12 +39,9 @@ exports.updateDayOver = async (data) => {
       late_login = ?,
       day_over_odometer_reading = ?,
       day_over_location = ?
-    WHERE id = ?
-    `,
-    data
+    WHERE id = ? `, data,
   );
 };
-
 
 // exports.saveAttendanceImage = async (data) => {
 //   return db.query(
@@ -62,26 +54,16 @@ exports.updateDayOver = async (data) => {
 // };
 
 exports.saveAttendanceImage = async (data) => {
-  const query = `
-    INSERT INTO emp_attendance_images
+  const query = ` INSERT INTO emp_attendance_images
     ( attendance_id, image_type, storage_bucket, object_path, file_url, mime_type, file_size_kb )
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `;
+    VALUES (?, ?, ?, ?, ?, ?, ?) `;
 
   const [result] = await db.query(query, data);
   return result.insertId;
 };
 
-exports.getDayWiseAttendance = async ({
-  employeeId,
-  search,
-  startDate,
-  endDate,
-  limit,
-  offset,
-}) => {
-  let query = `
-    SELECT
+exports.getDayWiseAttendance = async ({ employeeId, search, startDate, endDate, limit, offset, }) => {
+  let query = ` SELECT
       ea.attendance_date,
       ea.status,
       ea.attendance_unit,
@@ -127,18 +109,9 @@ exports.getDayWiseAttendance = async ({
   return rows;
 };
 
-exports.getDayWiseAttendanceCount = async ({
-  employeeId,
-  search,
-  startDate,
-  endDate,
-}) => {
-  let query = `
-    SELECT COUNT(*) AS total
-    FROM emp_attendance ea
-    JOIN users u ON u.id = ea.employee_id
-    WHERE 1=1
-  `;
+exports.getDayWiseAttendanceCount = async ({ employeeId, search, startDate, endDate, }) => {
+  let query = ` SELECT COUNT(*) AS total
+    FROM emp_attendance ea JOIN users u ON u.id = ea.employee_id WHERE 1=1 `;
 
   const params = [];
 
@@ -161,11 +134,9 @@ exports.getDayWiseAttendanceCount = async ({
   return row.total;
 };
 
-
 exports.getMonthlyAttendanceSummary = async (employeeId, month, year) => {
   const [[row]] = await db.query(
-    `
-    SELECT
+    ` SELECT
 
       -- Leave Days
       SUM(
@@ -208,7 +179,7 @@ exports.getMonthlyAttendanceSummary = async (employeeId, month, year) => {
       AND MONTH(attendance_date) = ?
       AND YEAR(attendance_date) = ?
     `,
-    [employeeId, month, year]
+    [employeeId, month, year],
   );
 
   return {
@@ -221,8 +192,7 @@ exports.getMonthlyAttendanceSummary = async (employeeId, month, year) => {
 };
 exports.getAttendanceImagesByDate = async (employeeId, date) => {
   const [rows] = await db.query(
-    `
-    SELECT
+    ` SELECT
       ea.id AS attendance_id,
       ea.attendance_date,
       eai.image_type,
@@ -236,39 +206,12 @@ exports.getAttendanceImagesByDate = async (employeeId, date) => {
       ON ea.id = eai.attendance_id
     WHERE ea.employee_id = ?
       AND ea.attendance_date = ?
-    `,
-    [employeeId, date]
-  );
+    `, [employeeId, date], );
 
   return rows;
 };
-// exports.getAttendanceImagesByDate = async (employeeId, date) => {
-//   const [rows] = await db.query(
-//     `
-//     SELECT 
-//       ea.id AS attendance_id,
-//       ea.attendance_date,
-//       eai.image_type,
-//       eai.file_url
-//     FROM emp_attendance ea
-//     LEFT JOIN emp_attendance_images eai 
-//       ON ea.id = eai.attendance_id
-//     WHERE ea.employee_id = ?
-//       AND ea.attendance_date = ?
-//     `,
-//     [employeeId, date]
-//   );
 
-//   return rows;
-// };
-
-exports.getMyTeamAttendance = async ({
-  hierarchyIds,
-  date,
-  level,
-  user_id
-}) => {
-
+exports.getMyTeamAttendance = async ({ hierarchyIds, date, level, user_id, }) => {
   let query = `
     SELECT
       ea.id,
@@ -305,8 +248,7 @@ exports.getMyTeamAttendance = async ({
     JOIN job_roles jr
       ON jr.id = u.job_role_id
 
-    WHERE ea.employee_id IN (${hierarchyIds.map(() => "?").join(",")})
-  `;
+    WHERE ea.employee_id IN (${hierarchyIds.map(() => "?").join(",")})`;
 
   const params = [...hierarchyIds];
 
@@ -334,8 +276,7 @@ exports.getMyTeamAttendance = async ({
 
 exports.getDailyAttendanceSummary = async (date) => {
   const [rows] = await db.query(
-    `
-    SELECT 
+    ` SELECT 
       COUNT(DISTINCT u.id) AS total_employees,
 
       -- Active / Inactive
@@ -394,7 +335,7 @@ SUM(
       ON u.id = ea.employee_id
       AND ea.attendance_date = ?
     `,
-    [date]
+    [date],
   );
 
   return rows[0];

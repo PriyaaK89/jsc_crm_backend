@@ -3,7 +3,7 @@ const { calculateAttendanceUnit } = require("../utils/attendanceCalculator");
 const SalaryDaily = require("../models/empDailySalary.model");
 const db = require("../config/db");
 const { getHierarchyIds } = require("../controllers/rollingUser.controller");
-const { uploadFileToMinio,getPresignedUrl} = require("../utils/fileUpload");
+const { uploadFileToMinio, getPresignedUrl } = require("../utils/fileUpload");
 
 
 // const generateDailySalaryInternal = async (employeeId, date) => {
@@ -187,7 +187,7 @@ const { uploadFileToMinio,getPresignedUrl} = require("../utils/fileUpload");
 // // console.error("SAVE FAILED =>", employeeId, date, err.sqlMessage);
 // console.error("SAVE FAILED =>", employeeId, date, error.sqlMessage, error.message);
 //   }
- 
+
 // };
 
 
@@ -195,91 +195,107 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   const user = await SalaryDaily.getUserSalaryInfo(employeeId);
   console.log("USER =>", employeeId, user ? "found" : "NOT FOUND");
   if (!user) return;
- 
+
   const attendance = await SalaryDaily.getAttendanceByDate(employeeId, date);
   console.log("ATTENDANCE =>", employeeId, date, attendance);
   if (!attendance) return;
- 
+
   const year = new Date(date).getFullYear();
   const month = new Date(date).getMonth() + 1;
- 
+
   // Check if month locked
   const [[lockedRow]] = await require("../config/db").query(
     `SELECT salary_locked FROM emp_salary 
      WHERE employee_id = ? AND month = ? AND year = ?`,
     [employeeId, month, year],
   );
- 
+
   if (lockedRow && lockedRow.salary_locked === 1) return;
- 
-  /* ---------- NEW: Payment Hold awareness ---------- */
-  // If an admin has edited or held SALARY/TA/DA for this date via the
-  // Payment Hold screen, this regeneration must not silently overwrite
-  // that decision with a fresh attendance-based calculation.
+
+/* ---------- NEW: Payment Hold awareness (fail-open) ---------- */
+// If an admin has edited or held SALARY/TA/DA for this date via the
+// Payment Hold screen, this regeneration must not silently overwrite
+// that decision with a fresh attendance-based calculation.
+// Wrapped so any failure here (missing table, bad data, DB hiccup)
+// can never block attendance submission or daily salary generation —
+// it just falls back to the normal freshly-calculated values.
+let holdByType = {};
+let existingSalaryRow = null;
+
+try {
   const [holdRows] = await db.query(
     `SELECT type, status FROM emp_payment_hold WHERE employee_id = ? AND salary_date = ?`,
     [employeeId, date]
   );
-  const holdByType = {};
   holdRows.forEach((r) => (holdByType[r.type] = r));
- 
-  const [[existingSalaryRow]] = await db.query(
+
+  const [[row]] = await db.query(
     `SELECT basic_salary, travelling_allowance, daily_allowance
      FROM emp_salary_daily WHERE employee_id = ? AND salary_date = ?`,
     [employeeId, date]
   );
-  /* ---------------------------------------------------- */
- 
+  existingSalaryRow = row;
+} catch (error) {
+  console.error(
+    "PAYMENT HOLD CHECK FAILED =>", employeeId, date,
+    error.sqlMessage || error.message
+  );
+  // fail-open: holdByType stays {}, existingSalaryRow stays null,
+  // so the code below just uses the fresh attendance-based calculation
+  // as if no hold existed — salary still generates.
+}
+/* --------------------------------------------------------------- */
+
   const daysInMonth = new Date(year, month, 0).getDate();
- 
+
   const yearlySalary = Number(user.salary);
   const monthlySalary = yearlySalary / 12;
   const perDaySalary = monthlySalary / daysInMonth;
- 
+
   let basicSalary = 0;
- 
+
   if (attendance.attendance_unit === "full") {
     basicSalary = perDaySalary;
   } else if (attendance.attendance_unit === "half") {
     basicSalary = perDaySalary * 0.5;
   } else if (["week_off", "absent", "leave"].includes(attendance.attendance_unit)) {
-  basicSalary = 0;
-  // Still continue — don't return early — so a ₹0 row gets saved
-}
- 
+    basicSalary = 0;
+    // Still continue — don't return early — so a ₹0 row gets saved
+  }
+
   /* ---------- Working Hours Format ---------- */
   const totalMinutes = attendance.working_minutes || 0;
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   const formattedWorkingHours = `${hours} hr ${minutes} min`;
- 
+
   /* ---------- Travel & Daily Allowance ---------- */
   let travelAllowance = 0;
   let dailyAllowance = 0;
   let totalReading = 0;
- 
+
   if (attendance.check_out_time && attendance.work_type !== "wfh") {
     const startKm = Number(attendance.odometer_reading) || 0;
     const endKm = Number(attendance.day_over_odometer_reading) || 0;
- 
+
     let travelledKm = endKm - startKm;
- 
-if (travelledKm < 0) {
-  travelledKm = 0;
-}
- 
-totalReading = travelledKm;
- 
+
+    if (travelledKm < 0) {
+      travelledKm = 0;
+    }
+
+    totalReading = travelledKm;
+
     // Normalize vehicle type (prevents mismatch bugs)
     const vehicleType = (attendance.vehicle_type || "").toLowerCase();
- 
+
     const rateMap = {
       two_wheeler: Number(user.two_wheeler_allowance_per_km) || 0,
       four_wheeler: Number(user.four_wheeler_allowance_per_km) || 0,
     };
- 
+
     const perKmRate = rateMap[vehicleType] || 0;
- 
+
     /* ---------- VALIDATION (No silent failure) ---------- */
     if (travelledKm > 0) {
       if (!vehicleType) {
@@ -287,19 +303,19 @@ totalReading = travelledKm;
           ` vehicle_type missing for employee ${employeeId} on ${date}`,
         );
       }
- 
+
       if (!rateMap.hasOwnProperty(vehicleType)) {
         console.error(` Invalid vehicle_type: ${attendance.vehicle_type}`);
       }
- 
+
       if (perKmRate === 0) {
         console.error(` Per KM rate is 0 for vehicle_type: ${vehicleType}`);
       }
     }
- 
+
     //  Travel Allowance (ALWAYS FULL - as per your requirement)
     travelAllowance = travelledKm * perKmRate;
- 
+
     //  Daily Allowance (ONLY for FULL DAY)
     if (
       attendance.attendance_unit === "full" &&
@@ -309,7 +325,7 @@ totalReading = travelledKm;
     } else {
       dailyAllowance = 0;
     }
- 
+
     /* ---------- Debug Logs ---------- */
     console.log({
       employeeId,
@@ -321,7 +337,7 @@ totalReading = travelledKm;
       dailyAllowance,
     });
   }
- 
+
   /* ---------- NEW: Apply Payment Hold overrides ---------- *
    * Must run AFTER the attendance-driven calculation above and
    * BEFORE expenses/gross/net, so a held field is forced to 0 and
@@ -334,14 +350,14 @@ totalReading = travelledKm;
         ? 0
         : Number(existingSalaryRow?.basic_salary ?? basicSalary);
   }
- 
+
   if (holdByType.TA) {
     travelAllowance =
       holdByType.TA.status === "HOLD"
         ? 0
         : Number(existingSalaryRow?.travelling_allowance ?? travelAllowance);
   }
- 
+
   if (holdByType.DA) {
     dailyAllowance =
       holdByType.DA.status === "HOLD"
@@ -349,15 +365,15 @@ totalReading = travelledKm;
         : Number(existingSalaryRow?.daily_allowance ?? dailyAllowance);
   }
   /* --------------------------------------------------------- */
- 
+
   /* ---------- Expense Calculation ---------- */
- 
-let hotelExpense = 0;
-let otherExpense = 0;
-let busTrainTollExpense = 0;
- 
-const [expenses] = await db.query(
-  `
+
+  let hotelExpense = 0;
+  let otherExpense = 0;
+  let busTrainTollExpense = 0;
+
+  const [expenses] = await db.query(
+    `
   SELECT
     expense_type,
     SUM(amount) as total
@@ -368,58 +384,58 @@ const [expenses] = await db.query(
     AND hold_status = 'UNHOLD'
   GROUP BY expense_type
   `,
-  [employeeId, date]
-);
- 
-for (const exp of expenses) {
- 
-  const amount = Number(exp.total) || 0;
- 
-  if (exp.expense_type === "HOTEL") {
-    hotelExpense = amount;
+    [employeeId, date]
+  );
+
+  for (const exp of expenses) {
+
+    const amount = Number(exp.total) || 0;
+
+    if (exp.expense_type === "HOTEL") {
+      hotelExpense = amount;
+    }
+
+    if (exp.expense_type === "OTHER") {
+      otherExpense = amount;
+    }
+
+    if (exp.expense_type === "BUS_TRAIN_TOLL") {
+      busTrainTollExpense = amount;
+    }
   }
- 
-  if (exp.expense_type === "OTHER") {
-    otherExpense = amount;
-  }
- 
-  if (exp.expense_type === "BUS_TRAIN_TOLL") {
-    busTrainTollExpense = amount;
-  }
-}
- 
+
   /* ---------- Final Salary ---------- */
   const grossSalary = basicSalary + travelAllowance + dailyAllowance + hotelExpense +
-  otherExpense +
-  busTrainTollExpense;
+    otherExpense +
+    busTrainTollExpense;
   const netSalary = grossSalary;
- 
-  try{
-     await SalaryDaily.saveDailySalary([
-    employeeId,
-    date,
-    attendance.attendance_unit,
-    formattedWorkingHours,
-    perDaySalary.toFixed(2),
-    basicSalary.toFixed(2),
-    travelAllowance.toFixed(2),
-    dailyAllowance.toFixed(2),
- 
-     hotelExpense.toFixed(2),
-  otherExpense.toFixed(2),
-  busTrainTollExpense.toFixed(2),
-  totalReading.toFixed(2),
- 
-    grossSalary.toFixed(2),
-    netSalary.toFixed(2),
-  ]);
-  console.log("SAVED OK =>", employeeId, date);
- 
-  }catch(error){
-// console.error("SAVE FAILED =>", employeeId, date, err.sqlMessage);
-console.error("SAVE FAILED =>", employeeId, date, error.sqlMessage, error.message);
+
+  try {
+    await SalaryDaily.saveDailySalary([
+      employeeId,
+      date,
+      attendance.attendance_unit,
+      formattedWorkingHours,
+      perDaySalary.toFixed(2),
+      basicSalary.toFixed(2),
+      travelAllowance.toFixed(2),
+      dailyAllowance.toFixed(2),
+
+      hotelExpense.toFixed(2),
+      otherExpense.toFixed(2),
+      busTrainTollExpense.toFixed(2),
+      totalReading.toFixed(2),
+
+      grossSalary.toFixed(2),
+      netSalary.toFixed(2),
+    ]);
+    console.log("SAVED OK =>", employeeId, date);
+
+  } catch (error) {
+    // console.error("SAVE FAILED =>", employeeId, date, err.sqlMessage);
+    console.error("SAVE FAILED =>", employeeId, date, error.sqlMessage, error.message);
   }
- 
+
 };
 
 const autoClosePreviousDay = async (employeeId) => {
@@ -473,9 +489,7 @@ exports.markAttendance = async (req, res) => {
   try {
     const { employee_id, status } = req.body;
 
-    if (!employee_id || !status) {
-      return res.status(400).json({ message: "Required fields missing" });
-    }
+    if (!employee_id || !status) { return res.status(400).json({ message: "Required fields missing" }); }
 
     // await autoClosePreviousDay(employee_id);
     const todayAttendance = await Attendance.getTodayAttendance(employee_id);
@@ -513,38 +527,19 @@ exports.markAttendance = async (req, res) => {
 
     /* ======================= PRESENT ======================= */
     if (status === "present") {
-      if (todayAttendance) {
-        return res.status(400).json({ message: "Attendance already marked" });
-      }
+      if (todayAttendance) { return res.status(400).json({ message: "Attendance already marked" }); }
 
-      const {
-        work_type,
-        field_work_type,
-        travel_mode,
-        vehicle_type,
-        public_transport,
-        odometer_reading,
-        visit_location,
-      } = req.body;
+      const { work_type, field_work_type, travel_mode, vehicle_type, public_transport, odometer_reading, visit_location, } = req.body;
+      if (!work_type) { return res.status(400).json({ message: "Work type required" }); }
+      if (work_type === "field" && !field_work_type) { return res.status(400).json({ message: "Field work type required" }); }
 
-      if (!work_type) {
-        return res.status(400).json({ message: "Work type required" });
-      }
-
-      if (work_type === "field" && !field_work_type) {
-        return res.status(400).json({ message: "Field work type required" });
-      }
       if (!["office", "field", "wfh"].includes(work_type)) {
         return res.status(400).json({
           message: "Invalid work type",
         });
       }
 
-      if (
-        work_type === "field" &&
-        travel_mode === "private" &&
-        !odometer_reading
-      ) {
+      if (work_type === "field" && travel_mode === "private" && !odometer_reading) {
         return res.status(400).json({ message: "Odometer reading required" });
       }
 
@@ -567,20 +562,20 @@ exports.markAttendance = async (req, res) => {
         for (const field in req.files) {
           const file = req.files[field][0];
 
-const upload = await uploadFileToMinio(
-  file,
-  "attendance_photo"
-);
+          const upload = await uploadFileToMinio(
+            file,
+            "attendance_photo"
+          );
 
-await Attendance.saveAttendanceImage([
-  attendanceId,                 // attendance_id
-  field,                        // image_type
- process.env.MINIO_BUCKET || "jsc-crm",                 // storage_bucket
-  upload.object_path,           // object_path
-  upload.file_url,              // file_url
-  file.mimetype,                // mime_type
-  Math.ceil(file.size / 1024),  // file_size_kb
-]);
+          await Attendance.saveAttendanceImage([
+            attendanceId,                 // attendance_id
+            field,                        // image_type
+            process.env.MINIO_BUCKET ,                 // storage_bucket
+            upload.object_path,           // object_path
+            upload.file_url,              // file_url
+            file.mimetype,                // mime_type
+            Math.ceil(file.size / 1024),  // file_size_kb
+          ]);
         }
       }
 
@@ -607,28 +602,17 @@ await Attendance.saveAttendanceImage([
 
       const { day_over_odometer_reading, day_over_location } = req.body;
 
-      if (
-        todayAttendance.work_type === "field" &&
-        todayAttendance.travel_mode === "private" &&
-        !day_over_odometer_reading
+      if ( todayAttendance.work_type === "field" && todayAttendance.travel_mode === "private" && !day_over_odometer_reading
       ) {
         return res.status(400).json({ message: "Odometer reading required" });
       }
 
       if (!req.files?.day_over_selfie) {
-        return res.status(400).json({
-          message: "Day over selfie required",
-        });
+        return res.status(400).json({ message: "Day over selfie required", });
       }
 
-      if (
-        todayAttendance.work_type === "field" &&
-        todayAttendance.travel_mode === "private" &&
-        !req.files?.day_over_odometer
-      ) {
-        return res.status(400).json({
-          message: "Day over odometer image required",
-        });
+      if ( todayAttendance.work_type === "field" && todayAttendance.travel_mode === "private" && !req.files?.day_over_odometer ) {
+        return res.status(400).json({ message: "Day over odometer image required", });
       }
 
       const checkIn = new Date(todayAttendance.check_in_time);
@@ -664,7 +648,7 @@ await Attendance.saveAttendanceImage([
       //  FORCE HALF DAY IF VISITS < 4
       if (todayAttendance.work_type === "field" && totalVisits < 4) {
         unit = "half";
-        message = `Only ${totalVisits} visits completed. Minimum 4 required. Half day counted.`;
+        message = `Day over marked successfully. Only ${totalVisits} visits completed. Minimum 4 required. Half day counted.`;
       }
 
       // ================== NEW LOGIC END ==================
@@ -677,29 +661,23 @@ await Attendance.saveAttendanceImage([
         day_over_location,
         todayAttendance.id,
       ]);
-      await generateDailySalaryInternal(
-        employee_id,
-        new Date().toISOString().split("T")[0],
-      );
+      await generateDailySalaryInternal( employee_id, new Date().toISOString().split("T")[0], );
 
       // Upload images
       for (const field in req.files) {
         const file = req.files[field][0];
 
-const upload = await uploadFileToMinio(
-  file,
-  "attendance_photo"
-);
+        const upload = await uploadFileToMinio( file, "attendance_photo" );
 
-await Attendance.saveAttendanceImage([
-  todayAttendance.id,           // attendance_id
-  field,                        // image_type
-  process.env.MINIO_BUCKET || "jsc-crm",                // storage_bucket
-  upload.object_path,           // object_path
-  upload.file_url,              // file_url
-  file.mimetype,                // mime_type
-  Math.ceil(file.size / 1024),  // file_size_kb
-]);
+        await Attendance.saveAttendanceImage([
+          todayAttendance.id,           // attendance_id
+          field,                        // image_type
+          process.env.MINIO_BUCKET || "jsc-crm",                // storage_bucket
+          upload.object_path,           // object_path
+          upload.file_url,              // file_url
+          file.mimetype,                // mime_type
+          Math.ceil(file.size / 1024),  // file_size_kb
+        ]);
       }
 
       return res.json({

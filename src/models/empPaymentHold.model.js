@@ -42,7 +42,7 @@ exports.ensureSalaryDailyRow = async (employeeId, date, connection = db) => {
   await SalaryDaily.saveDailySalary([
     employeeId,
     date,
-    null,          // attendance_type — no attendance data for this day
+    "absent",          // attendance_type — no attendance data for this day
     "0 hr 0 min",  // working_hours
     "0.00",        // per_day_salary
     "0.00",        // basic_salary

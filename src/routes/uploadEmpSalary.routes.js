@@ -1,6 +1,5 @@
 const express = require("express");
 const router = express.Router();
-
 const upload = require("../middleware/upload.middleware"); 
 const salaryController = require("../controllers/uploadEmpSalary.controller");
 const auth = require('../middleware/auth.middleware');

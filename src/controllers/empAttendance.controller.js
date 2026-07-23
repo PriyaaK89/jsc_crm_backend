@@ -570,7 +570,7 @@ exports.markAttendance = async (req, res) => {
           await Attendance.saveAttendanceImage([
             attendanceId,                 // attendance_id
             field,                        // image_type
-            process.env.MINIO_BUCKET ,                 // storage_bucket
+            process.env.MINIO_BUCKET || "jsc-crm",                 // storage_bucket
             upload.object_path,           // object_path
             upload.file_url,              // file_url
             file.mimetype,                // mime_type

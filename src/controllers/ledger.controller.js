@@ -1,28 +1,35 @@
 const {
-  createLedger,
-  createLedgerBankDetails,
-  createLedgerOtherDetails,
-  createLedgerInterestConfigs,
-  findLedgerByName,
-  getLedgersModel,
-  getLedgerCountModel,
-  getLedgerByIdModel,
-  updateLedgerModel,
-  updateLedgerBankDetailsModel,
-  replaceLedgerInterestConfigsModel,
-  updateLedgerOtherDetailsModel,
+ createLedger, createLedgerBankDetails, createLedgerOtherDetails,
+  createLedgerInterestConfigs, findLedgerByName, getLedgersModel, getLedgerCountModel, getLedgerByIdModel,
+  updateLedgerModel, updateLedgerBankDetailsModel, replaceLedgerInterestConfigsModel, updateLedgerOtherDetailsModel,
   deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel
 } = require("../models/ledger.model");
-
 const { getGroupById } = require("../models/accountGroup.model");
-
-// FIX: import db so controllers can use getConnection()
 const db = require("../config/db");
 
-const isValidBoolean = (value) => {
-  return value === 0 || value === 1;
-};
+const isValidBoolean = (value) => { return value === 0 || value === 1;};
 
+const INTEREST_SLAB_TYPES = ["debit", "credit", "security"];
+
+const normalizeInterestConfigs = (interest_configs = []) => {
+  return interest_configs.map((config, index) => ({
+    slab_no: config.slab_no ?? index + 1,
+    slab_type: config.slab_type || INTEREST_SLAB_TYPES[index] || null,
+    calculate_transaction_by_transaction:
+      config.calculate_transaction_by_transaction ?? 0,
+    interest_based_on: config.interest_based_on ?? null,
+    amount_added: config.amount_added ?? 0,
+    amount_deducted: config.amount_deducted ?? 0,
+    rate: config.rate ?? 0,
+    rate_per: config.rate_per ?? null,
+    rate_on: config.rate_on ?? null,
+    applicability: config.applicability ?? null,
+    applicability_days: config.applicability_days ?? 0,
+    grace_period: config.grace_period ?? 0,
+    security_enabled: config.security_enabled ?? 0,
+    security_amount: config.security_amount ?? 0,
+  }));
+};
 
 // ===============================
 // CREATE LEDGER
@@ -184,22 +191,7 @@ const createLedgerController = async (req, res) => {
     ) {
       await createLedgerInterestConfigs(
         ledgerId,
-        interest_configs.map((config, index) => ({
-          slab_no: config.slab_no ?? index + 1,
-          calculate_transaction_by_transaction:
-            config.calculate_transaction_by_transaction ?? 0,
-          interest_based_on: config.interest_based_on ?? null,
-          amount_added: config.amount_added ?? 0,
-          amount_deducted: config.amount_deducted ?? 0,
-          rate: config.rate ?? 0,
-          rate_per: config.rate_per ?? null,
-          rate_on: config.rate_on ?? null,
-          applicability: config.applicability ?? null,
-          applicability_days: config.applicability_days ?? 0,
-          grace_period: config.grace_period ?? 0,
-          security_enabled: config.security_enabled ?? 0,
-          security_amount: config.security_amount ?? 0,
-        }))
+        normalizeInterestConfigs(interest_configs)
       );
     }
 
@@ -500,7 +492,11 @@ const updateLedgerController = async (req, res) => {
     }
 
     if (interest_configs && Array.isArray(interest_configs)) {
-      await replaceLedgerInterestConfigsModel(connection, id, interest_configs);
+      await replaceLedgerInterestConfigsModel(
+        connection,
+        id,
+        normalizeInterestConfigs(interest_configs)
+      );
     }
 
     if (other_details) {
@@ -707,10 +703,7 @@ const getMyAssignedLedgers = async (req, res) => {
         data: ledgers,
       });
     } catch (error) {
-      console.error(
-        "getMyAssignedLedgers Error:",
-        error
-      );
+      console.error( "getMyAssignedLedgers Error:", error );
 
       return res.status(500).json({
         success: false,

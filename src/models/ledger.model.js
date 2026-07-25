@@ -15,102 +15,38 @@ const createLedger = async (ledgerData) => {
   } = ledgerData;
 
   const [result] = await db.query(
-    `
-    INSERT INTO ledgers (
-      ledger_name,
-      group_id,
-      employee_under,
-
-      opening_balance,
-      balance_type,
-      opening_date,
-
-      mailing_name,
-      location,
-      country,
-      state,
-      pincode,
-
-      pan_no,
-      gst_no,
-
-      maintain_bill_by_bill,
-      default_credit_period,
-      check_credit_days,
-      credit_limit,
-
-      inventory_values_affected,
-      use_for_payroll,
-
+    ` INSERT INTO ledgers (
+      ledger_name, group_id, employee_under,
+      opening_balance, balance_type, opening_date,
+      mailing_name, location, country, state, pincode,
+      pan_no, gst_no,
+      maintain_bill_by_bill, default_credit_period, check_credit_days, credit_limit,
+      inventory_values_affected, use_for_payroll,
       activate_interest_calculation,
-
       od_limit,
-
       created_by
     )
-    VALUES (
-      ?, ?, ?,
-      ?, ?, ?,
-      ?, ?, ?, ?, ?,
-      ?, ?,
-      ?, ?, ?, ?,
-      ?, ?,
-      ?,
-      ?,
-      ?
-    )
-    `,
+    VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ) `,
     [
-      ledger_name,
-      group_id,
-      employee_under || null,
-
-      opening_balance || 0,
-      balance_type || "Dr",
-      opening_date || null,
-
-      mailing_name || null,
-      location || null,
-      country || null,
-      state || null,
-      pincode || null,
-
-      pan_no || null,
-      gst_no || null,
-
-      maintain_bill_by_bill || 0,
-      default_credit_period || 0,
-      check_credit_days || 0,
-      credit_limit || 0,
-
-      inventory_values_affected || 0,
-      use_for_payroll || 0,
-
+      ledger_name, group_id, employee_under || null,
+      opening_balance || 0, balance_type || "Dr", opening_date || null,
+      mailing_name || null, location || null, country || null, state || null, pincode || null,
+      pan_no || null, gst_no || null,
+      maintain_bill_by_bill || 0, default_credit_period || 0, check_credit_days || 0, credit_limit || 0,
+      inventory_values_affected || 0, use_for_payroll || 0,
       activate_interest_calculation || 0,
-
-      od_limit || 0,
-
-      created_by || null,
+      od_limit || 0, created_by || null,
     ]
   );
 
   return result.insertId;
 };
 
-const createLedgerBankDetails = async (
-  ledger_id,
-  bankData
-) => {
+const createLedgerBankDetails = async ( ledger_id, bankData ) => {
 
   const {
-    account_holder_name,
-    account_number,
-    ifsc_code,
-    bank_name,
-    branch_name,
-    cheque_book_enabled,
-    cheque_printing_enabled,
-  } = bankData;
+    account_holder_name, account_number, ifsc_code,
+    bank_name, branch_name, cheque_book_enabled, cheque_printing_enabled, } = bankData;
 
   await db.query(
     `
@@ -139,15 +75,9 @@ const createLedgerBankDetails = async (
   );
 };
 
-const createLedgerInterestConfigs = async (
-  ledger_id,
-  interestConfigs
-) => {
+const createLedgerInterestConfigs = async ( ledger_id, interestConfigs ) => {
 
-  if (
-    !Array.isArray(interestConfigs) ||
-    interestConfigs.length === 0
-  ) {
+  if (!Array.isArray(interestConfigs) || interestConfigs.length === 0) {
     return;
   }
 
@@ -155,6 +85,7 @@ const createLedgerInterestConfigs = async (
 
     const {
       slab_no,
+      slab_type,
       calculate_transaction_by_transaction,
       interest_based_on,
       amount_added,
@@ -174,6 +105,7 @@ const createLedgerInterestConfigs = async (
       INSERT INTO ledger_interest_config (
         ledger_id,
         slab_no,
+        slab_type,
         calculate_transaction_by_transaction,
         interest_based_on,
         amount_added,
@@ -187,11 +119,12 @@ const createLedgerInterestConfigs = async (
         security_enabled,
         security_amount
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         ledger_id,
         slab_no ?? 1,
+        slab_type ?? null,
         calculate_transaction_by_transaction ?? 0,
         interest_based_on ?? null,
         amount_added ?? 0,
@@ -281,30 +214,13 @@ const createLedgerOtherDetails = async (ledger_id, crmData) => {
 };
 
 const findLedgerByName = async (ledger_name) => {
-
-  const [rows] = await db.query(
-    `
-    SELECT * FROM ledgers
-    WHERE ledger_name = ?
-    `,
-    [ledger_name]
-  );
-
+  const [rows] = await db.query( ` SELECT * FROM ledgers WHERE ledger_name = ? `, [ledger_name] );
   return rows[0];
 };
 
-const getLedgersModel = async (
-  filters,
-  limit,
-  offset
-) => {
+const getLedgersModel = async ( filters, limit, offset ) => {
 
-  const {
-    search,
-    group_id,
-    state,
-    activate_interest_calculation,
-  } = filters;
+  const { search, group_id, state, activate_interest_calculation, } = filters;
 
   let whereConditions = [];
   let queryParams = [];
@@ -463,6 +379,7 @@ const getLedgersModel = async (
               JSON_OBJECT(
                 'interest_config_id', lic.id,
                 'slab_no', lic.slab_no,
+                'slab_type', lic.slab_type,
                 'calculate_transaction_by_transaction', lic.calculate_transaction_by_transaction,
                 'interest_based_on', lic.interest_based_on,
                 'amount_added', lic.amount_added,
@@ -769,35 +686,18 @@ ON u.id = l.employee_under
   }
 
   const [interestConfigs] = await connection.query(
-    `
-    SELECT
+    ` SELECT
 
-      id AS interest_config_id,
-      slab_no,
-
-      calculate_transaction_by_transaction,
-      interest_based_on,
-
-      amount_added,
-      amount_deducted,
-
-      rate,
-      rate_per,
-      rate_on,
-
-      applicability,
-      applicability_days,
-      grace_period,
-
-      security_enabled,
-      security_amount
+      id AS interest_config_id, slab_no, slab_type,
+      calculate_transaction_by_transaction, interest_based_on,
+      amount_added, amount_deducted,
+      rate, rate_per, rate_on,
+      applicability, applicability_days, grace_period,
+      security_enabled, security_amount
 
     FROM ledger_interest_config
-
     WHERE ledger_id = ?
-
-    ORDER BY slab_no ASC
-    `,
+    ORDER BY slab_no ASC `,
     [id]
   );
 
@@ -812,11 +712,7 @@ ON u.id = l.employee_under
 // UPDATE LEDGER
 // ===============================
 
-const updateLedgerModel = async (
-  connection,  // FIX: now actually uses the passed connection for transaction support
-  id,
-  ledgerData
-) => {
+const updateLedgerModel = async ( connection,  id, ledgerData ) => {
 
   const {
     ledger_name,
@@ -911,24 +807,12 @@ const updateLedgerModel = async (
   );
 };
 
-const updateLedgerBankDetailsModel = async (   connection,
-  ledger_id,
-  bankData
-) => {
+const updateLedgerBankDetailsModel = async (   connection, ledger_id, bankData ) => {
 
-  const {
-    account_holder_name,
-    account_number,
-    ifsc_code,
-    bank_name,
-    branch_name,
-    cheque_book_enabled,
-    cheque_printing_enabled,
-  } = bankData;
+  const { account_holder_name, account_number, ifsc_code, bank_name, branch_name, cheque_book_enabled, cheque_printing_enabled, } = bankData;
 
   await connection.query(
-    `
-    UPDATE ledger_bank_details SET
+    ` UPDATE ledger_bank_details SET
 
       account_holder_name = ?,
       account_number = ?,
@@ -938,8 +822,7 @@ const updateLedgerBankDetailsModel = async (   connection,
       cheque_book_enabled = ?,
       cheque_printing_enabled = ?
 
-    WHERE ledger_id = ?
-    `,
+    WHERE ledger_id = ? `,
     [
       account_holder_name || null,
       account_number || null,
@@ -953,24 +836,15 @@ const updateLedgerBankDetailsModel = async (   connection,
   );
 };
 
-const replaceLedgerInterestConfigsModel = async (
-    connection,
-  ledger_id,
-  interestConfigs
-) => {
+const replaceLedgerInterestConfigsModel = async ( connection, ledger_id, interestConfigs ) => {
 
-  await db.query(
-    `
-    DELETE FROM ledger_interest_config
-    WHERE ledger_id = ?
-    `,
-    [ledger_id]
-  );
+  await db.query( ` DELETE FROM ledger_interest_config WHERE ledger_id = ? `, [ledger_id] );
 
   for (const interestData of interestConfigs) {
 
     const {
       slab_no,
+      slab_type,
       calculate_transaction_by_transaction,
       interest_based_on,
       amount_added,
@@ -990,6 +864,7 @@ const replaceLedgerInterestConfigsModel = async (
       INSERT INTO ledger_interest_config (
         ledger_id,
         slab_no,
+        slab_type,
 
         calculate_transaction_by_transaction,
         interest_based_on,
@@ -1009,7 +884,7 @@ const replaceLedgerInterestConfigsModel = async (
         security_amount
       )
       VALUES (
-        ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
         ?, ?,
         ?, ?, ?,
         ?, ?, ?,
@@ -1019,6 +894,7 @@ const replaceLedgerInterestConfigsModel = async (
       [
         ledger_id,
         slab_no || 1,
+        slab_type || null,
 
         calculate_transaction_by_transaction || 0,
         interest_based_on || null,
@@ -1041,11 +917,7 @@ const replaceLedgerInterestConfigsModel = async (
   }
 };
 
-const updateLedgerOtherDetailsModel = async (
- connection,
-  ledger_id,
-  crmData
-) => {
+const updateLedgerOtherDetailsModel = async (connection, ledger_id, crmData ) => {
 
   const {
     customer_name,
@@ -1171,26 +1043,10 @@ const updateLedgerOtherDetailsModel = async (
 // Previously used db.query independently — if the final DELETE FROM ledgers
 // failed, child rows would already be gone with no way to roll back.
 const deleteLedgerModel = async (connection, id) => {
-
-  await connection.query(
-    `DELETE FROM ledger_bank_details WHERE ledger_id = ?`,
-    [id]
-  );
-
-  await connection.query(
-    `DELETE FROM ledger_interest_config WHERE ledger_id = ?`,
-    [id]
-  );
-
-  await connection.query(
-    `DELETE FROM ledger_other_details WHERE ledger_id = ?`,
-    [id]
-  );
-
-  await connection.query(
-    `DELETE FROM ledgers WHERE id = ?`,
-    [id]
-  );
+  await connection.query( `DELETE FROM ledger_bank_details WHERE ledger_id = ?`, [id] );
+  await connection.query( `DELETE FROM ledger_interest_config WHERE ledger_id = ?`, [id] );
+  await connection.query( `DELETE FROM ledger_other_details WHERE ledger_id = ?`, [id] );
+  await connection.query( `DELETE FROM ledgers WHERE id = ?`, [id] );
 };
 
 const getLedgerDropdownModel = async (search = "") => {
@@ -1310,45 +1166,22 @@ const reassignLedgerEmployeeModel = async (
 
 // models/ledgerModel.js
 
-const getCurrentLedgerBalance = async (
-  connection,
-  ledgerId
-) => {
+const getCurrentLedgerBalance = async ( connection, ledgerId ) => {
 
-  const [[ledger]] = await connection.query(
-    `
-    SELECT
-      opening_balance,
-      balance_type
-    FROM ledgers
-    WHERE id = ?
-    `,
-    [ledgerId]
-  );
+  const [[ledger]] = await connection.query( ` SELECT opening_balance, balance_type FROM ledgers WHERE id = ? `, [ledgerId] );
 
   if (!ledger) return 0;
 
   let balance = Number(ledger.opening_balance);
 
   const [transactions] = await connection.query(
-    `
-    SELECT
-      entry_type,
-      amount
-    FROM ledger_transactions
-    WHERE ledger_id = ?
-    AND is_cancelled = 0
-    `,
-    [ledgerId]
+    ` SELECT entry_type, amount FROM ledger_transactions WHERE ledger_id = ? AND is_cancelled = 0 `, [ledgerId]
   );
 
   for (const trx of transactions) {
 
-    if (trx.entry_type === "Dr") {
-      balance += Number(trx.amount);
-    } else {
-      balance -= Number(trx.amount);
-    }
+    if (trx.entry_type === "Dr") { balance += Number(trx.amount);
+    } else { balance -= Number(trx.amount); }
   }
 
   return balance;
@@ -1372,11 +1205,30 @@ const getMyAssignedLedgersModel = async (employeeId) => {
       l.pan_no,
       l.gst_no,
       l.credit_limit,
-      lic.security_amount,
+
+      (
+        SELECT lic.security_amount
+        FROM ledger_interest_config lic
+        WHERE lic.ledger_id = l.id AND lic.slab_type = 'security'
+        LIMIT 1
+      ) AS security_amount,
+
+      (
+        SELECT lic.rate
+        FROM ledger_interest_config lic
+        WHERE lic.ledger_id = l.id AND lic.slab_type = 'debit'
+        LIMIT 1
+      ) AS debit_interest_rate,
+
+      (
+        SELECT lic.rate
+        FROM ledger_interest_config lic
+        WHERE lic.ledger_id = l.id AND lic.slab_type = 'credit'
+        LIMIT 1
+      ) AS credit_interest_rate,
+
       l.created_at
     FROM ledgers l
-    LEFT JOIN ledger_interest_config lic
-      ON lic.ledger_id = l.id
     WHERE l.employee_under = ?
     ORDER BY l.ledger_name ASC
     `,
@@ -1386,18 +1238,7 @@ const getMyAssignedLedgersModel = async (employeeId) => {
   return rows;
 };
 
-module.exports = {
-  createLedger,
-  createLedgerBankDetails,
-  createLedgerInterestConfigs,
-  createLedgerOtherDetails,
-  findLedgerByName,
-  getLedgersModel,
-  getLedgerCountModel,
-  getLedgerByIdModel,
-  updateLedgerModel,
-  updateLedgerBankDetailsModel,
-  replaceLedgerInterestConfigsModel,
-  updateLedgerOtherDetailsModel,
-  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel
-};
+module.exports = { createLedger, createLedgerBankDetails, createLedgerInterestConfigs, createLedgerOtherDetails,
+  findLedgerByName, getLedgersModel, getLedgerCountModel, getLedgerByIdModel, updateLedgerModel,
+  updateLedgerBankDetailsModel, replaceLedgerInterestConfigsModel, updateLedgerOtherDetailsModel,
+  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel };

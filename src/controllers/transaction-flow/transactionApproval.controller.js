@@ -21,8 +21,40 @@ exports.createSalesApprovalRequest = async (req, res) => {
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
-    const data = req.body;
+    // const data = req.body;
+    //  let data;
+    // try {
+    //   data = JSON.parse(req.body.payload_json);
+    // } catch (e) {
+    //   throw new Error("Invalid payload_json");
+    // }
+      if (req.body.payload_json) {
+      // Web client: everything wrapped in one JSON string
+      try {
+        data = JSON.parse(req.body.payload_json);
+      } catch (e) {
+        throw new Error("Invalid payload_json");
+      }
+      if (typeof data.items === "string") {
+        data.items = JSON.parse(data.items);
+      }
+    } else {
+      // Mobile client: individual fields, each JSON-encoded
+      data = {};
+      for (const key of Object.keys(req.body)) {
+        try {
+          data[key] = JSON.parse(req.body[key]);
+        } catch (e) {
+          data[key] = req.body[key]; // fallback for plain strings
+        }
+      }
+    }
+     data.sales_date = data.sales_date || new Date().toISOString().split("T")[0];
+     console.log("RECEIVED sales_date from client:", data.sales_date)
+
     const employeeId = req.user.id;
+    console.log("customer_ledger_id raw:", JSON.stringify(data.customer_ledger_id), typeof data.customer_ledger_id);
+console.log("full req.body keys:", Object.keys(data));
     const config = await transactionApprovalConfigModel.getApprovalConfigByEmployee( employeeId, );
 
     if (!config) { throw new Error("Approval configuration not found"); }
@@ -31,6 +63,7 @@ exports.createSalesApprovalRequest = async (req, res) => {
 if (!data.customer_ledger_id) {
   throw new Error("Customer ledger is required");
 }
+// console.log("customer_ledger_id raw:", JSON.stringify(data.customer_ledger_id), typeof data.customer_ledger_id);
 
 const customerLedger = await purchaseModal.getLedgerById(
   connection,

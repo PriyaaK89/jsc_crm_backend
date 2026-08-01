@@ -69,6 +69,7 @@ if (!data.customer_ledger_id) {
     const customerLedger = await purchaseModal.getLedgerById( connection, data.customer_ledger_id, );
     console.log("DEBUG customerLedger:", customerLedger);
 console.log("DEBUG total_amount:", data.total_amount, typeof data.total_amount);
+
     await salesModel.enforceSalesRules(
       connection,
       customerLedger,

@@ -117,7 +117,7 @@ exports.createJournal = async (req, res) => {
                     );
 
                     if (
-                        bill.reference_type === "AGAINST REF" ||
+                        bill.reference_type === "AGST REF" ||
                         bill.reference_type === "AGST REF"
                     ) {
                         if (bill.source === "PURCHASE") {

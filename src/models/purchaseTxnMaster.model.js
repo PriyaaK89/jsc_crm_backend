@@ -312,12 +312,23 @@ exports.insertPurchaseBillReference = async (connection, data) => {
   return result.insertId;
 };
 
+// exports.getLedgerById = async (connection, ledgerId) => {
+//   const [rows] = await connection.query(
+//     ` SELECT id, maintain_bill_by_bill FROM ledgers WHERE id = ? `, [ledgerId] );
+
+//   return rows[0];
+// };
 exports.getLedgerById = async (connection, ledgerId) => {
   const [rows] = await connection.query(
     `
     SELECT
       id,
-      maintain_bill_by_bill
+      maintain_bill_by_bill,
+      credit_limit,
+      default_credit_period,
+      check_credit_days,
+      opening_balance,
+      balance_type
     FROM ledgers
     WHERE id = ?
     `,

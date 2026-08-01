@@ -72,6 +72,7 @@ const visitTargetTemplate = require("../src/routes/visitTargetTemplate.routes");
 const receiptApproval = require("../src/routes/transaction-flow/receiptApproval.routes");
 const empPaymentHold = require("../src/routes/empPaymentHold.routes");
 const transactionDocumentRoute = require("../src/routes/reports/transactionDocuments.routes");
+const testRoute = require("../src/routes/test.route");
 
 // Health check
 app.get('/', (req, res) => {
@@ -137,6 +138,7 @@ app.use(visitTargetTemplate);
 app.use(receiptApproval);
 app.use(empPaymentHold);
 app.use(transactionDocumentRoute);
+app.use(testRoute);
 
 // 404 handler
 app.use((req, res) => {

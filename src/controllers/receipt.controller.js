@@ -10,126 +10,229 @@ exports.createReceipt = async (req, res) => {
 
   try {
     await connection.beginTransaction();
-    const { receipt_date } = req.body;
-    await validateVoucherDate(
-  connection,
-  "RECEIPT",
-  receipt_date
-);
 
-    const voucherData = await generateVoucherNo("RECEIPT");
-
-    const { voucher_no, voucher_type_id, nextSequence } = voucherData;
-
-    let receiptData = {
+    const data = {
       ...req.body,
-      voucher_no,
-      voucher_type_id,
       entries: JSON.parse(req.body.entries || "[]"),
     };
 
-    let attachment = null;
+    await validateVoucherDate(connection, "RECEIPT", data.receipt_date);
 
+    const voucherData = await generateVoucherNo("RECEIPT");
+    const { voucher_no, voucher_type_id, nextSequence } = voucherData;
+
+    let attachment = null;
     if (req.file) {
       const uploadedFile = await uploadFileToMinio(req.file, "txn_receipt");
-
       attachment = uploadedFile.object_path;
     }
 
-    receiptData.attachment = attachment;
+    const receiptId = await receiptModel.createReceipt(connection, {
+      ...data,
+      voucher_no,
+      voucher_type_id,
+      attachment,
+      created_by: req.user.id,
+    });
 
-    const { entries } = receiptData;
-
-    const receiptId = await receiptModel.createReceipt(connection, receiptData);
-
-    for (const entry of entries) {
+    for (const entry of data.entries) {
       const receiptEntryId = await receiptModel.insertReceiptEntry(
         connection,
         receiptId,
-        entry,
+        entry
       );
 
-      /*  Customer Ledger Cr */
-
+      // 1) Ledger transaction for the receipt entry
       await paymentModal.insertLedgerTransaction(connection, {
         transaction_type: "RECEIPT",
         reference_id: receiptId,
-        voucher_no: receiptData.voucher_no,
-        voucher_type_id: receiptData.voucher_type_id,
-        transaction_date: receiptData.receipt_date,
+        voucher_no,
+        voucher_type_id,
+        transaction_date: data.receipt_date,
         ledger_id: entry.ledger_id,
         entry_type: "Cr",
-        amount: entry.amount,
-        remarks: receiptData.narration,
-        created_by: receiptData.created_by,
+        amount: Number(entry.amount),
+        remarks: data.narration,
+        created_by: req.user.id,
       });
 
-      if (entry.bill_references && entry.bill_references.length) {
-        for (const bill of entry.bill_references) {
+      const billRefs = Array.isArray(entry.bill_references) ? entry.bill_references : [];
+
+      if (billRefs.length > 0) {
+        const agstRefs = billRefs.filter(
+          (b) => b.reference_type === "AGST REF" && b.sales_bill_reference_id
+        );
+
+        const otherRefs = billRefs.filter(
+          (b) => b.reference_type !== "AGST REF"
+        );
+
+        // 2) AGST REF: deduct from selected sales bills
+        if (agstRefs.length > 0) {
+          await receiptModel.allocateReceiptAgainstSelectedBills(connection, {
+            receiptId,
+            receiptEntryId,
+            customerLedgerId: entry.ledger_id,
+            billReferences: agstRefs,
+          });
+        }
+
+        // 3) Non-AGST rows: save only, no deduction from sales pending amount
+        for (const bill of otherRefs) {
           await receiptModel.insertReceiptBillReference(
             connection,
             receiptId,
             receiptEntryId,
             entry.ledger_id,
-            bill,
+            bill
           );
-
-          if (
-            bill.reference_type === "AGST REF" &&
-            bill.sales_bill_reference_id
-          ) {
-            await receiptModel.updateSalesBillPendingAmount(
-              connection,
-              bill.sales_bill_reference_id,
-              bill.reference_amount,
-            );
-          }
         }
       }
     }
 
     await paymentModal.insertLedgerTransaction(connection, {
       transaction_type: "RECEIPT",
-
       reference_id: receiptId,
-
-      voucher_no: receiptData.voucher_no,
-      voucher_type_id: receiptData.voucher_type_id,
-      transaction_date: receiptData.receipt_date,
-      ledger_id: receiptData.account_ledger_id,
+      voucher_no,
+      voucher_type_id,
+      transaction_date: data.receipt_date,
+      ledger_id: data.account_ledger_id,
       entry_type: "Dr",
-      amount: receiptData.total_amount,
-      remarks: receiptData.narration,
-      created_by: receiptData.created_by,
+      amount: Number(data.total_amount),
+      remarks: data.narration,
+      created_by: req.user.id,
     });
+
     await connection.query(
-  `
-  UPDATE voucher_types
-  SET current_sequence = ?
-  WHERE id = ?
-  `,
-  [nextSequence, voucher_type_id]
-);
+      `UPDATE voucher_types SET current_sequence = ? WHERE id = ?`,
+      [nextSequence, voucher_type_id]
+    );
+
     await connection.commit();
-    res.status(201).json({
+
+    return res.status(201).json({
       success: true,
       message: "Receipt created successfully",
+      receipt_id: receiptId,
+      voucher_no,
     });
-  } 
-  catch (error) {
-  console.log("FULL ERROR =>", error);
-  console.log(error.stack);
-
-  await connection.rollback();
-
-  res.status(500).json({
-    success: false,
-    message: error.message,
-  });
-} finally {
+  } catch (error) {
+    await connection.rollback();
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  } finally {
     connection.release();
   }
 };
+
+// exports.createReceipt = async (req, res) => {
+//   const connection = await db.getConnection();
+
+//   try {
+//     await connection.beginTransaction();
+//     const { receipt_date } = req.body;
+//     await validateVoucherDate( connection, "RECEIPT", receipt_date );
+
+//     const voucherData = await generateVoucherNo("RECEIPT");
+
+//     const { voucher_no, voucher_type_id, nextSequence } = voucherData;
+
+//     let receiptData = {
+//       ...req.body,
+//       voucher_no,
+//       voucher_type_id,
+//       entries: JSON.parse(req.body.entries || "[]"),
+//     };
+
+//     let attachment = null;
+
+//     if (req.file) {
+//       const uploadedFile = await uploadFileToMinio(req.file, "txn_receipt");
+//       attachment = uploadedFile.object_path;
+//     }
+
+//     receiptData.attachment = attachment;
+
+//     const { entries } = receiptData;
+//     const receiptId = await receiptModel.createReceipt(connection, receiptData);
+
+//     for (const entry of entries) {
+//       const receiptEntryId = await receiptModel.insertReceiptEntry( connection, receiptId, entry, );
+
+//       /*  Customer Ledger Cr */
+
+//       await paymentModal.insertLedgerTransaction(connection, {
+//         transaction_type: "RECEIPT",
+//         reference_id: receiptId,
+//         voucher_no: receiptData.voucher_no,
+//         voucher_type_id: receiptData.voucher_type_id,
+//         transaction_date: receiptData.receipt_date,
+//         ledger_id: entry.ledger_id,
+//         entry_type: "Cr",
+//         amount: entry.amount,
+//         remarks: receiptData.narration,
+//         created_by: receiptData.created_by,
+//       });
+
+//       if (entry.bill_references && entry.bill_references.length) {
+//         for (const bill of entry.bill_references) {
+//           await receiptModel.insertReceiptBillReference(
+//             connection,
+//             receiptId,
+//             receiptEntryId,
+//             entry.ledger_id,
+//             bill,
+//           );
+
+//           if ( bill.reference_type === "AGST REF" && bill.sales_bill_reference_id ) {
+//             await receiptModel.updateSalesBillPendingAmount(
+//               connection,
+//               bill.sales_bill_reference_id,
+//               bill.reference_amount,
+//             );
+//           }
+//         }
+//       }
+//     }
+
+//     await paymentModal.insertLedgerTransaction(connection, {
+//       transaction_type: "RECEIPT",
+//       reference_id: receiptId,
+//       voucher_no: receiptData.voucher_no,
+//       voucher_type_id: receiptData.voucher_type_id,
+//       transaction_date: receiptData.receipt_date,
+//       ledger_id: receiptData.account_ledger_id,
+//       entry_type: "Dr",
+//       amount: receiptData.total_amount,
+//       remarks: receiptData.narration,
+//       created_by: receiptData.created_by,
+//     });
+//     await connection.query(
+//   ` UPDATE voucher_types SET current_sequence = ? WHERE id = ? `,
+//   [nextSequence, voucher_type_id]
+// );
+//     await connection.commit();
+//     res.status(201).json({
+//       success: true,
+//       message: "Receipt created successfully",
+//     });
+//   } 
+//   catch (error) {
+//   console.log("FULL ERROR =>", error);
+//   console.log(error.stack);
+
+//   await connection.rollback();
+
+//   res.status(500).json({
+//     success: false,
+//     message: error.message,
+//   });
+// } finally {
+//     connection.release();
+//   }
+// };
 
 exports.getPendingBills = async (req, res) => {
   try {
@@ -152,8 +255,7 @@ exports.getReceiptInvoice = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const receipt =
-      await receiptModel.getReceiptInvoice(id);
+    const receipt = await receiptModel.getReceiptInvoice(id);
 
     if (!receipt) {
       return res.status(404).json({

@@ -3,6 +3,8 @@ const transactionApprovalModel = require("../../models/transaction-flow/transact
 const transactionApprovalConfigModel = require("../../models/transaction-flow/transactionApprovalConfig.model");
 const { uploadFileToMinio } = require("../../utils/fileUpload");
 const { getPresignedUrl } = require("../../utils/fileUpload");
+const salesModel = require("../../models/sales.model");
+const purchaseModal = require("../../models/purchaseTxnMaster.model");
 
 const addPresignedUrls = async (payload) => {
   if (!payload) { return payload; }
@@ -26,7 +28,27 @@ exports.createSalesApprovalRequest = async (req, res) => {
     if (!config) { throw new Error("Approval configuration not found"); }
     if (!config.junior_accountant_id) { throw new Error("Junior Accountant not assigned"); }
 
-    let orderBillImage = null;
+if (!data.customer_ledger_id) {
+  throw new Error("Customer ledger is required");
+}
+
+const customerLedger = await purchaseModal.getLedgerById(
+  connection,
+  data.customer_ledger_id,
+);
+
+if (!customerLedger) {
+  throw new Error("Customer ledger not found");
+}
+
+await salesModel.enforceSalesRules(
+  connection,
+  customerLedger,
+  data.total_amount,
+  data.sales_date,
+);
+
+let orderBillImage = null;
 
     if (req.files?.orderBillImage?.[0]) {
       const uploaded = await uploadFileToMinio(req.files.orderBillImage[0], "txn_sales", );
@@ -95,15 +117,18 @@ exports.createSalesApprovalRequest = async (req, res) => {
       generated_by_id: employeeId,
       generated_by_name: employeeName,
     });
-  } catch (error) {
-    await connection.rollback();
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  } finally {
-    connection.release();
-  }
+  }  catch (error) {
+  await connection.rollback();
+  return res.status(error.code ? 400 : 500).json({
+    success: false,
+    message: error.message,
+    ...(error.code ? { error_type: error.code } : {}),
+    ...(error.overdueBills ? { overdue_bills: error.overdueBills } : {}),
+    ...(error.creditLimitInfo ? { credit_limit_info: error.creditLimitInfo } : {}),
+  });
+} finally {
+  connection.release();
+}
 };
 
 exports.getPendingApprovals = async (req, res) => {

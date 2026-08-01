@@ -2,8 +2,7 @@ const db = require("../../config/db");
 
 exports.generateOrderNo = async (connection, transactionType) => {
   const [rows] = await connection.query(
-    `
-    SELECT COALESCE(
+    ` SELECT COALESCE(
       MAX(
         CAST(
           SUBSTRING_INDEX(order_no, '-', -1) AS UNSIGNED
@@ -30,8 +29,7 @@ exports.createApprovalRequest = async (connection, data) => {
   );
 
   const [result] = await connection.query(
-    `
-    INSERT INTO transaction_approvals
+    ` INSERT INTO transaction_approvals
     (
       transaction_type,
       created_by,
@@ -65,8 +63,7 @@ exports.createApprovalRequest = async (connection, data) => {
 
 exports.createNotification = async (connection, data) => {
   const [result] = await connection.query(
-    `
-    INSERT INTO order_notifications
+    ` INSERT INTO order_notifications
     (
       user_id,
       approval_id,
@@ -75,8 +72,7 @@ exports.createNotification = async (connection, data) => {
       title,
       message, attachment,  generated_by_id, generated_by_name
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) `,
     [
       data.user_id,
       data.approval_id,
@@ -118,17 +114,11 @@ exports.createHistory = async (connection, data) => {
 
 exports.createPayloadHistory = async (connection, data) => {
   await connection.query(
-    `
-    INSERT INTO approval_payload_history
+    ` INSERT INTO approval_payload_history
     (
-      approval_id,
-      modified_by,
-      modified_level,
-      old_payload,
-      new_payload
+      approval_id, modified_by, modified_level, old_payload, new_payload
     )
-    VALUES (?, ?, ?, ?, ?)
-    `,
+    VALUES (?, ?, ?, ?, ?) `,
     [
       data.approval_id,
       data.modified_by,
@@ -138,17 +128,6 @@ exports.createPayloadHistory = async (connection, data) => {
     ],
   );
 };
-
-// exports.getPendingApprovals = async (userId) => {
-//   const [rows] = await db.query(
-//     ` SELECT ta.*, u.name FROM transaction_approvals ta
-//       INNER JOIN users u ON u.id = ta.created_by
-//       WHERE ta.current_approver_id = ?
-//       AND ta.status = 'PENDING'
-//       ORDER BY ta.created_at DESC `, [userId],
-//   );
-//   return rows;
-// };
 
 exports.getPendingApprovals = async (userId) => {
   const [rows] = await db.query(
@@ -273,33 +252,6 @@ exports.getNotifications = async (userId, moduleType = null, notificationCategor
   const [rows] = await db.query(sql, params);
   return rows;
 };
-// exports.getNotifications = async ( userId, moduleType = null, notificationCategory = null, ) => {
-//   let sql = `
-//     SELECT
-//       n.*,
-//       ta.status,
-//       ta.transaction_type,
-//       ta.created_at AS approval_created_at
-
-//     FROM order_notifications n
-
-//     LEFT JOIN transaction_approvals ta
-//       ON ta.id = n.approval_id
-
-//     WHERE n.user_id = ?
-//     AND n.is_read = 0
-//   `;
-
-//   const params = [userId];
-
-//   if (moduleType) { sql += ` AND n.module_type = ?`; params.push(moduleType) }
-//   if (notificationCategory) { sql += ` AND n.notification_category = ?`; params.push(notificationCategory) }
-//   sql += ` ORDER BY n.created_at DESC`;
-
-//   const [rows] = await db.query(sql, params);
-
-//   return rows;
-// };
 
 exports.getNotificationCounts = async (userId) => {
   const [rows] = await db.query(

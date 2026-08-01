@@ -12,6 +12,22 @@ exports.executeApprovedSales = async (connection, payload, createdBy) => {
   const dispatchDocImage = data.dispatch_doc_image || null;
   const billTImage = data.bill_t_image || null;
 
+   const customerLedger = await purchaseModal.getLedgerById(
+    connection,
+    data.customer_ledger_id,
+  );
+
+  if (!customerLedger) {
+    throw new Error("Customer ledger not found");
+  }
+
+  await salesModel.enforceSalesRules(
+    connection,
+    customerLedger,
+    data.total_amount,
+    data.sales_date,
+  );
+
   /* VOUCHER */
   await validateVoucherDate( connection, "SALES", data.sales_date);
   const voucherData = await generateVoucherNo("SALES");
@@ -172,7 +188,7 @@ exports.executeApprovedSales = async (connection, payload, createdBy) => {
   }
 
   /* BILL REFERENCE */
-  const customerLedger = await purchaseModal.getLedgerById( connection, data.customer_ledger_id, );
+  // const customerLedger = await purchaseModal.getLedgerById( connection, data.customer_ledger_id, );
 
   if (customerLedger && customerLedger.maintain_bill_by_bill) {
     await salesModel.insertSalesBillReference(connection, {

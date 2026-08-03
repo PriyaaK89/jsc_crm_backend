@@ -9,6 +9,14 @@
 require('dotenv').config({
   path: require('path').resolve(__dirname, '../.env')
 });
+
+process.on("uncaughtException", (err) => {
+  console.error("UNCAUGHT EXCEPTION:", err);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("UNHANDLED REJECTION:", reason);
+});
 console.log("SERVER FILE STARTED");
 // require('dotenv').config();
 require('../src/jobs/cleanup.job');

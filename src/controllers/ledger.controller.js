@@ -258,14 +258,7 @@ const createLedgerController = async (req, res) => {
 
 const getLedgers = async (req, res) => {
   try {
-    let {
-      page = 1,
-      limit = 10,
-      search = "",
-      group_id,
-      state,
-      activate_interest_calculation,
-    } = req.query;
+    let { page = 1, limit = 10, search = "", group_id, state, activate_interest_calculation } = req.query;
 
     page = parseInt(page);
     limit = parseInt(limit);
@@ -349,6 +342,7 @@ const getLedgers = async (req, res) => {
             id: row.crm_detail_id,
             customer_name: row.customer_name,
             customer_dob: row.customer_dob,
+            contact: row.contact,
 
             firm_details: {
               firm_name: row.firm_name,

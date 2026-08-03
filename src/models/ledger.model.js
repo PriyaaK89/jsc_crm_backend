@@ -331,6 +331,7 @@ const getLedgersModel = async (filters, limit, offset) => {
       lod.id AS crm_detail_id,
       lod.customer_name,
       lod.customer_dob,
+      lod.contact,
 
       lod.firm_name,
       lod.firm_type,

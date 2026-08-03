@@ -9,14 +9,6 @@ exports.createCustomer = async (data) => {
   return result.insertId;
 };
 
-// exports.getCustomersByType = async (type) => {
-//   const [rows] = await db.query(
-//     "SELECT id, name FROM customers WHERE type = ?",
-//     [type]
-//   );
-//   return rows;
-// };
-
 exports.getCustomersByType = async (type) => {
   const [rows] = await db.query(
     "SELECT id, name, contact_number FROM customers WHERE type = ?",

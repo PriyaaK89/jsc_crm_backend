@@ -11,6 +11,21 @@ app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+app.use((req, res, next) => {
+    const start = Date.now();
+
+    console.log(`[START] ${req.method} ${req.originalUrl}`);
+
+    res.on("finish", () => {
+        const duration = Date.now() - start;
+
+        console.log(
+            `[END] ${req.method} ${req.originalUrl} ${res.statusCode} (${duration}ms)`
+        );
+    });
+
+    next();
+});
 
 
 const departmentRoute = require("../src/routes/department.routes");

@@ -605,10 +605,7 @@ const getLedgerDropdown = async (req, res) => {
   }
 };
 
-const reassignLedgerEmployee = async (
-  req,
-  res
-) => {
+const reassignLedgerEmployee = async ( req, res ) => {
 
   const connection = await db.getConnection();
 
@@ -616,20 +613,11 @@ const reassignLedgerEmployee = async (
 
     console.log("BODY:", req.body);
 
-    const {
-      ledger_id,
-      employee_under,
-    } = req.body;
+    const { ledger_id, employee_under, } = req.body;
 
-    console.log(
-      "CONTROLLER ledger_id:",
-      ledger_id
-    );
+    console.log( "CONTROLLER ledger_id:", ledger_id );
 
-    console.log(
-      "CONTROLLER employee_under:",
-      employee_under
-    );
+    console.log( "CONTROLLER employee_under:", employee_under );
 
     if (
       ledger_id === undefined ||
@@ -655,10 +643,7 @@ const reassignLedgerEmployee = async (
       });
     }
 
-    await reassignLedgerEmployeeModel(
-      ledger_id,
-      employee_under
-    );
+    await reassignLedgerEmployeeModel( ledger_id, employee_under );
 
     return res.status(200).json({
       success: true,
@@ -680,9 +665,7 @@ const reassignLedgerEmployee = async (
     });
 
   } finally {
-
     connection.release();
-
   }
 };
 

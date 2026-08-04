@@ -644,9 +644,7 @@ exports.updateStockItem = async (req, res) => {
     });
   } catch (error) {
     await connection.rollback();
-
     console.log("UPDATE STOCK ITEM ERROR:", error);
-
     return res.status(500).json({
       success: false,
       message: "Internal server error",

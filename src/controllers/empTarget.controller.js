@@ -37,15 +37,7 @@ exports.createEmployeeTarget = async (req, res) => {
 
   try {
 
-    const {
-      user_id,
-      role,
-      target_type,
-      duration_type,
-      start_date,
-      categories,
-      target_amount
-    } = req.body;
+    const { user_id, role, target_type, duration_type, start_date, categories, target_amount } = req.body;
 
     if (
       !user_id ||
@@ -64,10 +56,7 @@ exports.createEmployeeTarget = async (req, res) => {
 
     const created_by = req.user.id;
 
-    const end_date = calculateEndDate(
-      start_date,
-      duration_type
-    );
+    const end_date = calculateEndDate( start_date, duration_type );
 
     await connection.beginTransaction();
 
@@ -83,11 +72,7 @@ exports.createEmployeeTarget = async (req, res) => {
     created_by
   });
 
-    await empTargetModel.insertTargetCategories(
-      connection,
-      employeeTargetId,
-      categories
-    );
+    await empTargetModel.insertTargetCategories( connection, employeeTargetId, categories );
 
     await connection.commit();
 
@@ -97,9 +82,7 @@ exports.createEmployeeTarget = async (req, res) => {
     });
 
   } catch (error) {
-
     await connection.rollback();
-
     res.status(500).json({
       message: error.message
     });
@@ -148,13 +131,8 @@ exports.getEmployeeTargets = async (req, res) => {
 
 // ================= GET SINGLE =================
 exports.getEmployeeTargetById = async (req, res) => {
-
   try {
-
-    const target =
-      await empTargetModel.getEmployeeTargetById(
-        req.params.id
-      );
+    const target = await empTargetModel.getEmployeeTargetById( req.params.id );
 
     if (!target) {
       return res.status(404).json({
@@ -168,7 +146,6 @@ exports.getEmployeeTargetById = async (req, res) => {
     });
 
   } catch (error) {
-
     res.status(500).json({
       message: error.message
     });
@@ -178,27 +155,11 @@ exports.getEmployeeTargetById = async (req, res) => {
 
 // ================= UPDATE =================
 exports.updateEmployeeTarget = async (req, res) => {
-
   const connection = await db.getConnection();
-
   try {
-
     const { id } = req.params;
-
-    const {
-      user_id,
-      role,
-      target_type,
-      duration_type,
-      start_date,
-      categories,
-      target_amount
-    } = req.body;
-
-    const end_date = calculateEndDate(
-      start_date,
-      duration_type
-    );
+    const { user_id, role, target_type, duration_type, start_date, categories, target_amount } = req.body;
+    const end_date = calculateEndDate( start_date, duration_type );
 
     await connection.beginTransaction();
 
@@ -217,17 +178,10 @@ exports.updateEmployeeTarget = async (req, res) => {
     );
 
     // delete old categories
-    await empTargetModel.deleteTargetCategories(
-      connection,
-      id
-    );
+    await empTargetModel.deleteTargetCategories( connection, id );
 
     // insert new categories
-    await empTargetModel.insertTargetCategories(
-      connection,
-      id,
-      categories
-    );
+    await empTargetModel.insertTargetCategories( connection, id, categories );
 
     await connection.commit();
 
@@ -236,9 +190,7 @@ exports.updateEmployeeTarget = async (req, res) => {
     });
 
   } catch (error) {
-
     await connection.rollback();
-
     res.status(500).json({
       message: error.message
     });
@@ -251,24 +203,13 @@ exports.updateEmployeeTarget = async (req, res) => {
 
 // ================= DELETE =================
 exports.deleteEmployeeTarget = async (req, res) => {
-
   const connection = await db.getConnection();
 
   try {
-
     const { id } = req.params;
-
     await connection.beginTransaction();
-
-    await empTargetModel.deleteTargetCategories(
-      connection,
-      id
-    );
-
-    await empTargetModel.deleteEmployeeTarget(
-      connection,
-      id
-    );
+    await empTargetModel.deleteTargetCategories( connection, id );
+    await empTargetModel.deleteEmployeeTarget( connection, id );
 
     await connection.commit();
 
@@ -277,9 +218,7 @@ exports.deleteEmployeeTarget = async (req, res) => {
     });
 
   } catch (error) {
-
     await connection.rollback();
-
     res.status(500).json({
       message: error.message
     });

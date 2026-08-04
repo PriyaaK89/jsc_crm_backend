@@ -445,8 +445,7 @@ const updateSubTeam = async ({
 
 const deleteSubTeam = async (id) => {
 
-  const connection =
-    await db.getConnection();
+  const connection = await db.getConnection();
 
   try {
 
@@ -456,36 +455,21 @@ const deleteSubTeam = async (id) => {
 
     const [subTeamRows] =
       await connection.query(
-
-        `SELECT
-            id,
-            parent_team_id,
-            pending_target_amount
-
-         FROM sub_teams
-         WHERE id = ?`,
-
+        `SELECT id, parent_team_id, pending_target_amount FROM sub_teams WHERE id = ?`,
         [id]
       );
 
-    const subTeam =
-      subTeamRows[0];
+    const subTeam = subTeamRows[0];
 
     if (!subTeam) {
-
-      throw new Error(
-        "Sub team not found"
-      );
+      throw new Error( "Sub team not found");
     }
 
     // ================= CHECK ASSIGNMENTS =================
 
     const [assignments] =
       await connection.query(
-        `SELECT id
-         FROM target_assignments
-         WHERE sub_team_id = ?
-         LIMIT 1`,
+        `SELECT id FROM target_assignments WHERE sub_team_id = ? LIMIT 1`,
         [id]
       );
     if ( assignments.length > 0 ) {

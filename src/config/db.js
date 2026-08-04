@@ -14,12 +14,6 @@ const pool = mysql.createPool({
   dateStrings: true,
 });
 
-console.log("ENV CHECK:", {
-  user: process.env.DB_USER,
-  password: process.env.DB_PASS,
-});
-
-console.log(process.env.DB_HOST, process.env.DB_USER, process.env.DB_PASS, process.env.DB_NAME, process.env.DB_PORT, "werty");
 // Test connection
 (async () => {
   try {

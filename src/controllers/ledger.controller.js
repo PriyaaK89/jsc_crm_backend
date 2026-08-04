@@ -630,11 +630,7 @@ const reassignLedgerEmployee = async ( req, res ) => {
       });
     }
 
-    const ledger =
-      await getLedgerByIdModel(
-        connection,
-        Number(ledger_id)
-      );
+    const ledger = await getLedgerByIdModel( connection, Number(ledger_id) );
 
     if (!ledger) {
       return res.status(404).json({
@@ -652,7 +648,6 @@ const reassignLedgerEmployee = async ( req, res ) => {
     });
 
   } catch (error) {
-
     console.log(
       "Reassign Ledger Error:",
       error

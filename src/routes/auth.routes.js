@@ -65,18 +65,10 @@ router.post(
 
 router.post( "/update-status", authMiddleware, auth.updateUserStatus);
 
-router.put(
-  "/upload-profile-image",
-  authMiddleware,
-  upload.fields([{ name: "profile_image", maxCount: 1 }]),
-  auth.uploadOwnProfileImage
-);
+router.put( "/upload-profile-image", authMiddleware,
+  upload.fields([{ name: "profile_image", maxCount: 1 }]), auth.uploadOwnProfileImage );
 
-router.get(
-  "/my-profile",
-  authMiddleware,
-  auth.getMyProfile
-);
+router.get( "/my-profile", authMiddleware, auth.getMyProfile);
 
 router.get("/get-notifications", authMiddleware, auth.getNotifications);
 router.get("/get-unreadCount", authMiddleware, auth.getUnreadCount)
@@ -86,6 +78,5 @@ router.delete("/deleteAllNotifications", authMiddleware, auth.clearNotifications
 router.delete("/delete-notification/:id", authMiddleware, auth.deleteNotification);
 router.get('/user-permissions/:userId', authMiddleware, auth.getUserPermissions);
 router.post('/user-permissions', authMiddleware, isAdmin, auth.updateUserPermissions);
-
 
 module.exports = router;

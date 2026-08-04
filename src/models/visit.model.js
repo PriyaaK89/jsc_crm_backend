@@ -262,7 +262,6 @@ exports.getHierarchyVisitSummary = async ( filters) => {
 };
 
 exports.getUserVisitDetails = async (userId, date) => {
-
   let query = `
     SELECT
       v.id, v.created_at, v.visit_type, v.customer_type, v.visit_purpose, v.comment, v.reminder_date, v.image_path,
@@ -280,11 +279,8 @@ exports.getUserVisitDetails = async (userId, date) => {
     query += ` AND DATE(v.created_at) = ?`;
     params.push(date);
   }
-
   query += ` ORDER BY v.created_at DESC`;
-
   const [rows] = await db.query(query, params);
-
   return rows;
 };
 

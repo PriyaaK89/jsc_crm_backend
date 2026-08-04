@@ -6,7 +6,6 @@ const User = require("../models/user.model");
 const { getSubordinates, getHierarchyIds } = require("../controllers/rollingUser.controller");
 const { getUsersByLevelAndHierarchy } = require("../models/rollingUser.model");
 
-
 const validPurposes = [ "new_dist_planning", "sales_order", "sales_return", "collection", "others"];
 
 exports.createVisit = async (req, res) => {
@@ -23,7 +22,7 @@ exports.createVisit = async (req, res) => {
     //  NEW CUSTOMER FLOW
     if (customer_type === "new") {
       if (!name) { return res.status(400).json({ message: "Customer name required" }); }
-      const existing = await customerModel.findCustomer( contact_number );
+      const existing = await customerModel.findCustomer( contact_number, visit_type );
 
       if (existing) {
         return res.status(400).json({
@@ -311,12 +310,11 @@ exports.getHierarchyVisits = async (req, res) => {
 
 exports.getUserVisitDetails = async (req, res) => {
   try {
-
     const userId = req.params.userId;
-     const date = req.query.date;
+    const date = req.query.date;
 
     const visits = await visitModel.getUserVisitDetails(userId, date);
-   const data = await Promise.all(
+    const data = await Promise.all(
   visits.map(async (visit) => ({
     ...visit,
     image_url: visit.image_path

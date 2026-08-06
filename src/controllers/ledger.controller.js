@@ -2,38 +2,66 @@ const {
   createLedger, createLedgerBankDetails, createLedgerOtherDetails,
   createLedgerInterestConfigs, findLedgerByName, getLedgersModel, getLedgerCountModel, getLedgerByIdModel,
   updateLedgerModel, updateLedgerBankDetailsModel, replaceLedgerInterestConfigsModel, updateLedgerOtherDetailsModel,
-  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel
+  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel, getLedgerWhatsappData
 } = require("../models/ledger.model");
 const { getGroupById } = require("../models/accountGroup.model");
 const db = require("../config/db");
+const whatsappService = require("../services/whatsapp.service");
+const companyConfig = require("../config/company");
+
+// console.log(companyConfig, "company bank details")
 
 const isValidBoolean = (value) => { return value === 0 || value === 1; };
 
 const INTEREST_SLAB_TYPES = ["debit", "credit", "security"];
 
-const normalizeInterestConfigs = (interest_configs = []) => {
-  return interest_configs.map((config, index) => ({
-    slab_no: config.slab_no ?? index + 1,
-    slab_type: config.slab_type || INTEREST_SLAB_TYPES[index] || null,
-    calculate_transaction_by_transaction:
-      config.calculate_transaction_by_transaction ?? 0,
-    interest_based_on: config.interest_based_on ?? null,
-    amount_added: config.amount_added ?? 0,
-    amount_deducted: config.amount_deducted ?? 0,
-    rate: config.rate ?? 0,
-    rate_per: config.rate_per ?? null,
-    rate_on: config.rate_on ?? null,
-    applicability: config.applicability ?? null,
-    applicability_days: config.applicability_days ?? 0,
-    grace_period: config.grace_period ?? 0,
-    security_enabled: config.security_enabled ?? 0,
-    security_amount: config.security_amount ?? 0,
-  }));
-};
+// const normalizeInterestConfigs = (interest_configs = []) => {
+//   return interest_configs.map((config, index) => ({
+//     slab_no: config.slab_no ?? index + 1,
+//     slab_type: config.slab_type || INTEREST_SLAB_TYPES[index] || null,
+//     calculate_transaction_by_transaction: config.calculate_transaction_by_transaction ?? 0,
+//     interest_based_on: config.interest_based_on ?? null,
+//     amount_added: config.amount_added ?? 0,
+//     amount_deducted: config.amount_deducted ?? 0,
+//     rate: config.rate ?? 0,
+//     rate_per: config.rate_per ?? null,
+//     rate_on: config.rate_on ?? null,
+//     applicability: config.applicability ?? null,
+//     applicability_days: config.applicability_days ?? 0,
+//     grace_period: config.grace_period ?? 0,
+//     security_enabled: config.security_enabled ?? 0,
+//     security_amount: config.security_amount ?? 0,
+//   }));
+// };
 
 // ===============================
 // CREATE LEDGER
 // ===============================
+
+const normalizeInterestConfigs = (interest_configs = []) => {
+  return interest_configs.map((config, index) => {
+    const security_enabled = config.security_enabled ?? 0;
+
+    return {
+      slab_no: config.slab_no ?? index + 1,
+      slab_type: config.slab_type || INTEREST_SLAB_TYPES[index] || null,
+      calculate_transaction_by_transaction: config.calculate_transaction_by_transaction ?? 0,
+      interest_based_on: config.interest_based_on ?? null,
+      amount_added: config.amount_added ?? 0,
+      amount_deducted: config.amount_deducted ?? 0,
+      rate: config.rate ?? 0,
+      rate_per: config.rate_per ?? null,
+      rate_on: config.rate_on ?? null,
+      applicability: config.applicability ?? null,
+      applicability_days: config.applicability_days ?? 0,
+      grace_period: config.grace_period ?? 0,
+      security_enabled,
+      // FIX: never persist a security_amount when security is disabled,
+      // regardless of what the frontend sends
+      security_amount: security_enabled ? (config.security_amount ?? 0) : 0,
+    };
+  });
+};
 
 const createLedgerController = async (req, res) => {
   try {
@@ -186,13 +214,9 @@ const createLedgerController = async (req, res) => {
 
     if (
       Array.isArray(interest_configs) &&
-      interest_configs.length > 0 &&
-      activate_interest_calculation === 1
+      interest_configs.length > 0 && activate_interest_calculation === 1
     ) {
-      await createLedgerInterestConfigs(
-        ledgerId,
-        normalizeInterestConfigs(interest_configs)
-      );
+      await createLedgerInterestConfigs( ledgerId, normalizeInterestConfigs(interest_configs) );
     }
 
     // --- CRM / Other Details ---
@@ -233,6 +257,62 @@ const createLedgerController = async (req, res) => {
         security_cheque_no1: crm_details.security_cheque_no1 || null,
         security_cheque_no2: crm_details.security_cheque_no2 || null,
       });
+    }
+    try {
+
+      const ledger = await getLedgerWhatsappData(ledgerId);
+      if (ledger && ledger.contact && ledger.customer_name) {
+
+        let mobile = ledger.contact.replace(/\D/g, "");
+        if (!mobile.startsWith("91")) {
+          mobile = "91" + mobile;
+        }
+        // Generate display ledger code
+    const ledgerCode = `JSC-${ledger.id + 100}`;
+
+        await whatsappService.sendTemplateMessage(
+          mobile, "ledger_created", "en_US",
+          [
+            {
+              type: "body",
+              parameters: [
+                {
+                  type: "text",
+                  text: ledger.customer_name
+                },
+                {
+                  type: "text",
+                  text: ledgerCode
+                },
+                {
+                  type: "text",
+                  text: ledger.ledger_name
+                },
+                // {
+                //   type: "text",
+                //   text: companyConfig.bank.bankName
+                // },
+                // {
+                //   type: "text",
+                //   text: companyConfig.bank.accountName
+                // },
+                // {
+                //   type: "text",
+                //   text: companyConfig.bank.accountNumber
+                // },
+                // {
+                //   type: "text",
+                //   text: companyConfig.bank.ifscCode
+                // }
+              ]
+            }
+          ]
+        );
+        console.log("Ledger WhatsApp sent");
+      }
+
+    } catch (err) {
+      console.error("Ledger WhatsApp Error:", err.response?.data || err.message);
     }
 
     return res.status(201).json({
@@ -447,7 +527,7 @@ const getLedgerByIdController = async (req, res) => {
       data: ledger,
     });
 
-  }  catch (error) {
+  } catch (error) {
     return res.status(500).json({
       success: false,
       message: "Failed to fetch ledger",
@@ -605,7 +685,7 @@ const getLedgerDropdown = async (req, res) => {
   }
 };
 
-const reassignLedgerEmployee = async ( req, res ) => {
+const reassignLedgerEmployee = async (req, res) => {
 
   const connection = await db.getConnection();
 
@@ -615,9 +695,9 @@ const reassignLedgerEmployee = async ( req, res ) => {
 
     const { ledger_id, employee_under, } = req.body;
 
-    console.log( "CONTROLLER ledger_id:", ledger_id );
+    console.log("CONTROLLER ledger_id:", ledger_id);
 
-    console.log( "CONTROLLER employee_under:", employee_under );
+    console.log("CONTROLLER employee_under:", employee_under);
 
     if (
       ledger_id === undefined ||
@@ -630,7 +710,7 @@ const reassignLedgerEmployee = async ( req, res ) => {
       });
     }
 
-    const ledger = await getLedgerByIdModel( connection, Number(ledger_id) );
+    const ledger = await getLedgerByIdModel(connection, Number(ledger_id));
 
     if (!ledger) {
       return res.status(404).json({
@@ -639,7 +719,7 @@ const reassignLedgerEmployee = async ( req, res ) => {
       });
     }
 
-    await reassignLedgerEmployeeModel( ledger_id, employee_under );
+    await reassignLedgerEmployeeModel(ledger_id, employee_under);
 
     return res.status(200).json({
       success: true,

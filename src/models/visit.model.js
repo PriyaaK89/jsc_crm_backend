@@ -284,6 +284,36 @@ exports.getUserVisitDetails = async (userId, date) => {
   return rows;
 };
 
+exports.getVisitWhatsappData = async (visitId) => {
+
+  const [rows] = await db.query(
+    `
+    SELECT
+      c.name AS customer_name,
+      c.contact_number,
+
+      u.name AS employee_name,
+
+      v.visit_type,
+      v.visit_purpose,
+
+      DATE_FORMAT(v.created_at,'%d-%m-%Y') AS visit_date
+
+    FROM visits v
+
+    INNER JOIN customers c
+      ON c.id = v.customer_id
+
+    INNER JOIN users u
+      ON u.id = v.user_id
+
+    WHERE v.id = ?
+    `,
+    [visitId]
+  );
+
+  return rows[0];
+};
 // exports.getUserVisitDetails = async (userId) => {
 //   const [rows] = await db.query(
 //     ` SELECT

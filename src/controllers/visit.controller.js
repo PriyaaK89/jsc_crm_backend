@@ -1,16 +1,31 @@
-const { uploadFileToMinio,getPresignedUrl } = require("../utils/fileUpload");
+const { uploadFileToMinio, getPresignedUrl } = require("../utils/fileUpload");
 const visitModel = require("../models/visit.model");
 const customerModel = require("../models/customer.model");
 const db = require("../config/db");
 const User = require("../models/user.model");
 const { getSubordinates, getHierarchyIds } = require("../controllers/rollingUser.controller");
 const { getUsersByLevelAndHierarchy } = require("../models/rollingUser.model");
+const whatsappService = require("../services/whatsapp.service");
 
-const validPurposes = [ "new_dist_planning", "sales_order", "sales_return", "collection", "others"];
+const validPurposes = ["new_dist_planning", "sales_order", "sales_return", "collection", "others"];
+
+const visitPurposeLabels = {
+    new_dist_planning: "New Distributor Planning",
+    sales_order: "Sales Order",
+    sales_return: "Sales Return",
+    collection: "Collection",
+    others: "Others"
+};
+
+const visitTypeLabels = {
+    farmer: "Farmer",
+    retailer: "Retailer",
+    distributor: "Distributor"
+};
 
 exports.createVisit = async (req, res) => {
   try {
-    const { user_id, visit_type,customer_type,  customer_id, name, firm_name, firm_address, contact_number, address, area, district, pincode, visit_purpose, comment, reminder_date } = req.body;
+    const { user_id, visit_type, customer_type, customer_id, name, firm_name, firm_address, contact_number, address, area, district, pincode, visit_purpose, comment, reminder_date } = req.body;
 
     // Validate purpose
     if (!validPurposes.includes(visit_purpose)) {
@@ -22,7 +37,7 @@ exports.createVisit = async (req, res) => {
     //  NEW CUSTOMER FLOW
     if (customer_type === "new") {
       if (!name) { return res.status(400).json({ message: "Customer name required" }); }
-      const existing = await customerModel.findCustomer( contact_number, visit_type );
+      const existing = await customerModel.findCustomer(contact_number, visit_type);
 
       if (existing) {
         return res.status(400).json({
@@ -31,7 +46,7 @@ exports.createVisit = async (req, res) => {
       }
 
       finalCustomerId = await customerModel.createCustomer([
-         visit_type, name, firm_name, firm_address,
+        visit_type, name, firm_name, firm_address,
         contact_number, address, area, district, pincode, user_id
       ]);
     }
@@ -45,13 +60,13 @@ exports.createVisit = async (req, res) => {
       }
     }
     if (!req.file) {
-  return res.status(400).json({
-    success: false,
-    message: "Image is mandatory. Please upload an image."
-  });
-}
+      return res.status(400).json({
+        success: false,
+        message: "Image is mandatory. Please upload an image."
+      });
+    }
 
-const cleanedReminderDate = clean(reminder_date);
+    const cleanedReminderDate = clean(reminder_date);
     // Upload Image
     let imagePath = null;
     if (req.file) {
@@ -71,6 +86,73 @@ const cleanedReminderDate = clean(reminder_date);
       imagePath
     ]);
 
+    try {
+
+      const visit = await visitModel.getVisitWhatsappData(visitId);
+
+      if (
+        visit &&
+        visit.contact_number &&
+        visit.customer_name &&
+        visit.employee_name
+      ) {
+
+        let mobile = visit.contact_number.replace(/\D/g, "");
+
+        if (!mobile.startsWith("91")) {
+          mobile = "91" + mobile;
+        }
+
+        // Resolve human-readable labels for THIS visit only
+        const resolvedVisitType =
+          visitTypeLabels[visit.visit_type] || visit.visit_type;
+
+        const resolvedVisitPurpose =
+          visitPurposeLabels[visit.visit_purpose] || visit.visit_purpose;
+
+        const response = await whatsappService.sendTemplateMessage(
+          mobile,
+          "visit_submitted",
+          "en_US",
+          [
+            {
+              type: "body",
+              parameters: [
+                {
+                  type: "text",
+                  text: visit.customer_name
+                },
+                {
+                  type: "text",
+                  text: visit.employee_name
+                },
+                {
+                  type: "text",
+                  text: resolvedVisitType
+                },
+                {
+                  type: "text",
+                  text: resolvedVisitPurpose
+                },
+                {
+                  type: "text",
+                  text: visit.visit_date
+                }
+              ]
+            }
+          ]
+        );
+
+        console.log(
+          "Visit WhatsApp sent:",
+          response.messages?.[0]?.id
+        );
+      }
+
+    } catch (err) {
+      console.error("WhatsApp Error:", err.response?.data || err.message);
+    }
+
     return res.status(201).json({
       success: true,
       message: "Visit created successfully",
@@ -80,12 +162,12 @@ const cleanedReminderDate = clean(reminder_date);
     });
 
   } catch (err) {
-  console.error(" ERROR:", err);
-  return res.status(500).json({
-    message: err.message,   //  SHOW REAL ERROR
-    error: err
-  });
-}
+    console.error(" ERROR:", err);
+    return res.status(500).json({
+      message: err.message,   //  SHOW REAL ERROR
+      error: err
+    });
+  }
 };
 
 const clean = (value) => {
@@ -100,7 +182,7 @@ exports.getVisits = async (req, res) => {
     const loggedInUser = req.user;
 
     const filters = {
-       user_id: clean(req.query.user_id),
+      user_id: clean(req.query.user_id),
       visit_type: clean(req.query.visit_type),
       district: clean(req.query.district),
       from_date: clean(req.query.from_date),
@@ -108,7 +190,7 @@ exports.getVisits = async (req, res) => {
       search: clean(req.query.search),
       page: req.query.page || 1,
       limit: req.query.limit || 10,
-       
+
     };
 
     let userIds = null; //  default = no restriction
@@ -186,12 +268,12 @@ exports.getMyVisits = async (req, res) => {
   }
 };
 
-exports.getTodayVisit =  async (req, res) => {
+exports.getTodayVisit = async (req, res) => {
   try {
     const today = new Date().toISOString().split("T")[0];
 
     const result = await visitModel.getVisits({
-       user_ids: [req.user.id], 
+      user_ids: [req.user.id],
       from_date: today,
       to_date: today,
       page: 1,
@@ -271,7 +353,7 @@ exports.getUsersBySelectedLevel = async (req, res) => {
     }
 
     const hierarchyUsers = await getSubordinates(loginUserId);
-    const users = hierarchyUsers.filter( user => Number(user.level) === selectedLevel );
+    const users = hierarchyUsers.filter(user => Number(user.level) === selectedLevel);
     return res.status(200).json({ success: true, data: users });
 
   } catch (error) {
@@ -315,13 +397,13 @@ exports.getUserVisitDetails = async (req, res) => {
 
     const visits = await visitModel.getUserVisitDetails(userId, date);
     const data = await Promise.all(
-  visits.map(async (visit) => ({
-    ...visit,
-    image_url: visit.image_path
-      ? await getPresignedUrl(visit.image_path)
-      : null
-  }))
-);
+      visits.map(async (visit) => ({
+        ...visit,
+        image_url: visit.image_path
+          ? await getPresignedUrl(visit.image_path)
+          : null
+      }))
+    );
     return res.status(200).json({
       success: true,
       total_visits: visits.length,

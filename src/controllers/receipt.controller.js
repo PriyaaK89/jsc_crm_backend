@@ -127,6 +127,50 @@ exports.createReceipt = async (req, res) => {
   }
 };
 
+exports.getPendingBills = async (req, res) => {
+  try {
+    const { ledgerId } = req.params;
+    const data = await receiptModel.getPendingBills(ledgerId);
+
+    res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.getReceiptInvoice = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const receipt = await receiptModel.getReceiptInvoice(id);
+
+    if (!receipt) {
+      return res.status(404).json({
+        success: false,
+        message: "Receipt not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: receipt,
+    });
+  } catch (error) {
+    console.error("Get Receipt Invoice Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
 // exports.createReceipt = async (req, res) => {
 //   const connection = await db.getConnection();
 
@@ -233,47 +277,3 @@ exports.createReceipt = async (req, res) => {
 //     connection.release();
 //   }
 // };
-
-exports.getPendingBills = async (req, res) => {
-  try {
-    const { ledgerId } = req.params;
-    const data = await receiptModel.getPendingBills(ledgerId);
-
-    res.status(200).json({
-      success: true,
-      data,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-exports.getReceiptInvoice = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const receipt = await receiptModel.getReceiptInvoice(id);
-
-    if (!receipt) {
-      return res.status(404).json({
-        success: false,
-        message: "Receipt not found",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      data: receipt,
-    });
-  } catch (error) {
-    console.error("Get Receipt Invoice Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};

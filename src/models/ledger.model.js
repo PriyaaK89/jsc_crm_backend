@@ -691,13 +691,14 @@ const updateLedgerModel = async ( connection,  id, ledgerData ) => {
   );
 };
 
-const updateLedgerBankDetailsModel = async (   connection, ledger_id, bankData ) => {
+const updateLedgerBankDetailsModel = async (connection, ledger_id, bankData) => {
+  const {
+    account_holder_name, account_number, ifsc_code,
+    bank_name, branch_name, cheque_book_enabled, cheque_printing_enabled,
+  } = bankData;
 
-  const { account_holder_name, account_number, ifsc_code, bank_name, branch_name, cheque_book_enabled, cheque_printing_enabled, } = bankData;
-
-  await connection.query(
-    ` UPDATE ledger_bank_details SET
-
+  const [result] = await connection.query(
+    `UPDATE ledger_bank_details SET
       account_holder_name = ?,
       account_number = ?,
       ifsc_code = ?,
@@ -705,8 +706,7 @@ const updateLedgerBankDetailsModel = async (   connection, ledger_id, bankData )
       branch_name = ?,
       cheque_book_enabled = ?,
       cheque_printing_enabled = ?
-
-    WHERE ledger_id = ? `,
+    WHERE ledger_id = ?`,
     [
       account_holder_name || null,
       account_number || null,
@@ -718,6 +718,28 @@ const updateLedgerBankDetailsModel = async (   connection, ledger_id, bankData )
       ledger_id,
     ]
   );
+
+  // FIX: if creation never inserted a row for this ledger (bank section
+  // wasn't filled/visible at create time), UPDATE matches 0 rows and
+  // silently does nothing. Insert instead when that happens.
+  if (result.affectedRows === 0) {
+    await connection.query(
+      `INSERT INTO ledger_bank_details (
+        ledger_id, account_holder_name, account_number, ifsc_code,
+        bank_name, branch_name, cheque_book_enabled, cheque_printing_enabled
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        ledger_id,
+        account_holder_name || null,
+        account_number || null,
+        ifsc_code || null,
+        bank_name || null,
+        branch_name || null,
+        cheque_book_enabled || 0,
+        cheque_printing_enabled || 0,
+      ]
+    );
+  }
 };
 
 const replaceLedgerInterestConfigsModel = async ( connection, ledger_id, interestConfigs ) => {
@@ -1119,7 +1141,39 @@ const getMyAssignedLedgersModel = async (employeeId) => {
   return rows;
 };
 
+const getLedgerWhatsappData = async (ledgerId) => {
+
+    const [rows] = await db.query(
+        `
+        SELECT
+            l.id,
+            l.ledger_name,
+            lo.customer_name,
+            lo.contact
+
+        FROM ledgers l
+
+        LEFT JOIN ledger_other_details lo
+            ON lo.ledger_id = l.id
+
+        WHERE l.id = ?
+        `,
+        [ledgerId]
+    );
+
+    return rows[0];
+};
+
+const getLedgerContactById = async (ledger_id) => {
+  const [rows] = await db.query(
+    `SELECT contact FROM ledger_other_details WHERE ledger_id = ? LIMIT 1`,
+    [ledger_id]
+  );
+  return rows[0]?.contact || null;
+};
+
+
 module.exports = { createLedger, createLedgerBankDetails, createLedgerInterestConfigs, createLedgerOtherDetails,
   findLedgerByName, getLedgersModel, getLedgerCountModel, getLedgerByIdModel, updateLedgerModel,
   updateLedgerBankDetailsModel, replaceLedgerInterestConfigsModel, updateLedgerOtherDetailsModel,
-  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel };
+  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel, getLedgerWhatsappData ,getLedgerContactById };

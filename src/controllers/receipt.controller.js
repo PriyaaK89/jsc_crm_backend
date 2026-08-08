@@ -4,6 +4,9 @@ const { uploadFileToMinio } = require("../utils/fileUpload");
 const paymentModal = require("../models/payment.model");
 const generateVoucherNo = require("../utils/generateVoucherNo");
 const validateVoucherDate = require("../utils/validateVoucherDate");
+const ledgerModel = require("../models/ledger.model");
+const receiptNotifications = require("../services/sales/receiptNotifications.service");
+const { formatMobileForWhatsapp } = require("../utils/helper");
 
 exports.createReceipt = async (req, res) => {
   const connection = await db.getConnection();
@@ -170,6 +173,118 @@ exports.getReceiptInvoice = async (req, res) => {
     });
   }
 };
+
+exports.sendReceiptWhatsapp = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const data = await receiptModel.getReceiptInvoice(id);
+    if (!data) {
+      return res.status(404).json({ success: false, message: "Receipt not found" });
+    }
+
+    const { receipt, entries } = data;
+    const results = [];
+
+    for (const entry of entries) {
+      const rawPhone = await ledgerModel.getLedgerContactById(entry.ledger_id);
+      const phone = formatMobileForWhatsapp(rawPhone);
+
+      if (!phone) {
+        results.push({ ledger_id: entry.ledger_id, sent: false, reason: "No contact number" });
+        continue;
+      }
+
+      try {
+        const response = await receiptNotifications.sendPaymentConfirmationNotification({
+          phone,
+          recipientName: entry.ledger_name || "Customer",
+          receiptNo: receipt.voucher_no,
+          amount: entry.amount,
+          paymentDate: receipt.receipt_date,
+        });
+
+        results.push({
+          ledger_id: entry.ledger_id,
+          sent: true,
+          messageId: response.messages?.[0]?.id,
+        });
+      } catch (err) {
+        console.error("[WhatsApp] payment_confirmation failed:", err.response?.data || err.message);
+        results.push({ ledger_id: entry.ledger_id, sent: false, reason: err.message });
+      }
+    }
+
+    const anySent = results.some((r) => r.sent);
+    const allSent = results.every((r) => r.sent);
+
+    return res.status(allSent ? 200 : anySent ? 207 : 400).json({
+      success: allSent,
+      partial: anySent && !allSent,
+      message: allSent
+        ? "WhatsApp notification sent"
+        : anySent
+        ? "Some WhatsApp notifications could not be sent"
+        : "WhatsApp notification could not be sent",
+      data: results,
+    });
+  } catch (err) {
+    console.error("[WhatsApp] sendReceiptWhatsapp error:", err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// exports.sendReceiptWhatsapp = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+
+//     const data = await receiptModel.getReceiptInvoice(id);
+//     if (!data) {
+//       return res.status(404).json({ success: false, message: "Receipt not found" });
+//     }
+
+//     const { receipt, entries } = data;
+//     const results = [];
+
+//     for (const entry of entries) {
+//       const rawPhone = await ledgerModel.getLedgerContactById(entry.ledger_id);
+//       const phone = formatMobileForWhatsapp(rawPhone);
+
+//       if (!phone) {
+//         results.push({ ledger_id: entry.ledger_id, sent: false, reason: "No contact number" });
+//         continue;
+//       }
+
+//       try {
+//         const response = await receiptNotifications.sendPaymentConfirmationNotification({
+//           phone,
+//           recipientName: entry.ledger_name || "Customer",
+//           receiptNo: receipt.voucher_no,
+//           amount: entry.amount,
+//           paymentDate: receipt.receipt_date,
+//         });
+
+//         results.push({
+//           ledger_id: entry.ledger_id,
+//           sent: true,
+//           messageId: response.messages?.[0]?.id,
+//         });
+//       } catch (err) {
+//         console.error("[WhatsApp] payment_confirmation failed:", err.response?.data || err.message);
+//         results.push({ ledger_id: entry.ledger_id, sent: false, reason: err.message });
+//       }
+//     }
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "WhatsApp notification processed",
+//       data: results,
+//     });
+//   } catch (err) {
+//     console.error("[WhatsApp] sendReceiptWhatsapp error:", err.message);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// };
 
 // exports.createReceipt = async (req, res) => {
 //   const connection = await db.getConnection();

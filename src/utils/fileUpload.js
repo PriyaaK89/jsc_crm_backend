@@ -1,3 +1,4 @@
+const  axios  = require("axios");
 const minioClient = require("../config/minio");
 const { v4: uuidv4 } = require("uuid");
 
@@ -73,4 +74,16 @@ const getPresignedUrl = async (objectPath, expiry = 60 * 60) => {
   }
 };
 
-module.exports = { uploadFileToMinio, getPresignedUrl };
+ async function fetchMinioObjectAsBuffer(objectPath) {
+  if (!objectPath) return null;
+
+  const url = await getPresignedUrl(objectPath);
+  const response = await axios.get(url, { responseType: "arraybuffer" });
+
+  return {
+    buffer: Buffer.from(response.data),
+    mimeType: response.headers["content-type"] || "image/jpeg",
+  };
+}
+
+module.exports = { uploadFileToMinio, getPresignedUrl , fetchMinioObjectAsBuffer};

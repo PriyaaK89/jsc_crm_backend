@@ -17,7 +17,7 @@ exports.createReceipt = async (connection, receiptData) => {
       voucher_no,
       receipt_date,
       account_ledger_id,
-      employee_under_id,
+      employee_under_id || null,
       total_amount,
       narration,
       attachment,

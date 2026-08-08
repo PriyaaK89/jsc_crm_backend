@@ -2,14 +2,14 @@ const db = require("../../config/db");
 const transactionApprovalModel = require("../../models/transaction-flow/transactionApproval.model");
 const { validateApprover } = require("./validation");
 const salesApprovalService = require("../../services/sales/createSalesTransaction.service");
-const { uploadFileToMinio } = require("../../utils/fileUpload");
+const { uploadFileToMinio,getPresignedUrl, fetchMinioObjectAsBuffer } = require("../../utils/fileUpload");
 const salesOrderNotifications = require("../../services/sales/salesOrderNotifications.service");
 const ledgerModel = require("../../models/ledger.model");
 const {formatMobileForWhatsapp, formatOrderNoForWhatsapp} = require("../../utils/helper");
 
 exports.approveSalesOrder = async (req, res) => {
   const connection = await db.getConnection();
-  let whatsappTask = null;
+  // let whatsappTask = null;
 
   try {
     await connection.beginTransaction();
@@ -114,16 +114,16 @@ exports.approveSalesOrder = async (req, res) => {
       await transactionApprovalModel.updateStatusNotification(connection, approvalId, employeeMessage);
 
       //  JUNIOR approval → send order_confirmed to customer
-      whatsappTask = () =>
-        salesOrderNotifications.sendOrderConfirmedNotification({
-          phone:         recipientPhone,
-          recipientName,
-          orderNo:       formatOrderNoForWhatsapp(newPayload.order_no || approval.order_no),
-          orderDate:     newPayload.order_date  || approval.created_at,
-          amount:        newPayload.grand_total || newPayload.total_amount || 0,
-        }).catch((err) =>
-          console.error("[WhatsApp] order_confirmed failed:", err.message)
-        );
+      // whatsappTask = () =>
+      //   salesOrderNotifications.sendOrderConfirmedNotification({
+      //     phone:         recipientPhone,
+      //     recipientName,
+      //     orderNo:       formatOrderNoForWhatsapp(newPayload.order_no || approval.order_no),
+      //     orderDate:     newPayload.order_date  || approval.created_at,
+      //     amount:        newPayload.grand_total || newPayload.total_amount || 0,
+      //   }).catch((err) =>
+      //     console.error("[WhatsApp] order_confirmed failed:", err.message)
+      //   );
 
     // ── DISPATCHER → SENIOR ──────────────────────────────────────────────
     } else if (approval.approval_level === "DISPATCHER") {
@@ -145,18 +145,18 @@ exports.approveSalesOrder = async (req, res) => {
       await transactionApprovalModel.updateStatusNotification(connection, approvalId, employeeMessage);
 
       //  DISPATCHER approval → send order_dispatched_image to customer
-      whatsappTask = () =>
-        salesOrderNotifications.sendOrderDispatchedNotification({
-          phone:              recipientPhone,
-          recipientName,
-          orderNo:            formatOrderNoForWhatsapp(newPayload.order_no || approval.order_no),
-          transportName:      newPayload.transport_name || "",
-          biltyNo:            newPayload.bilty_no       || newPayload.bill_t_no || "",
-          biltyImageBuffer:   billTFile ? billTFile.buffer   : null,
-          biltyImageMimeType: billTFile ? billTFile.mimetype : null,
-        }).catch((err) =>
-          console.error("[WhatsApp] order_dispatched_image failed:", err.message)
-        );
+      // whatsappTask = () =>
+      //   salesOrderNotifications.sendOrderDispatchedNotification({
+      //     phone:              recipientPhone,
+      //     recipientName,
+      //     orderNo:            formatOrderNoForWhatsapp(newPayload.order_no || approval.order_no),
+      //     transportName:      newPayload.transport_name || "",
+      //     biltyNo:            newPayload.bilty_no       || newPayload.bill_t_no || "",
+      //     biltyImageBuffer:   billTFile ? billTFile.buffer   : null,
+      //     biltyImageMimeType: billTFile ? billTFile.mimetype : null,
+      //   }).catch((err) =>
+      //     console.error("[WhatsApp] order_dispatched_image failed:", err.message)
+      //   );
 
     // ── SENIOR → FINALIZE ────────────────────────────────────────────────
     } else if (approval.approval_level === "SENIOR") {
@@ -213,7 +213,7 @@ exports.approveSalesOrder = async (req, res) => {
     // WhatsApp is fire-and-forget: its failure must never roll back the DB
     await connection.commit();
 
-    if (whatsappTask) whatsappTask();
+    // if (whatsappTask) whatsappTask();
 
     return res.status(200).json({ success: true, message: "Approved successfully" });
 
@@ -222,6 +222,85 @@ exports.approveSalesOrder = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   } finally {
     connection.release();
+  }
+};
+
+exports.sendSalesOrderWhatsapp = async (req, res) => {
+  try {
+    const { approvalId } = req.params;
+    const { level } = req.body || {};
+
+    if (!["JUNIOR", "DISPATCHER"].includes(level)) {
+      return res.status(400).json({ success: false, message: "Invalid or unsupported level for WhatsApp notification" });
+    }
+
+    const approval = await transactionApprovalModel.getApprovalById(approvalId);
+    if (!approval) {
+      return res.status(404).json({ success: false, message: "Approval request not found" });
+    }
+
+    const payload = approval.payload_json;
+ console.log("customer_ledger_id being looked up:", payload?.customer_ledger_id, typeof payload?.customer_ledger_id);
+
+    const recipientName =
+      approval.ledger_name   || payload.ledger_name ||
+      approval.customer_name || payload.customer_name ||
+      "Customer";
+
+    const rawPhone = await ledgerModel.getLedgerContactById(payload.customer_ledger_id);
+    const recipientPhone = formatMobileForWhatsapp(rawPhone);
+
+    if (!recipientPhone) {
+      return res.status(400).json({ success: false, message: "No valid contact number for this customer" });
+    }
+
+    let response;
+
+    if (level === "JUNIOR") {
+      response = await salesOrderNotifications.sendOrderConfirmedNotification({
+        phone:      recipientPhone,
+        recipientName,
+        orderNo:    formatOrderNoForWhatsapp(payload.order_no || approval.order_no),
+        orderDate:  payload.order_date  || approval.created_at,
+        amount:     payload.grand_total || payload.total_amount || 0,
+      });
+    } else {
+      if (!payload.bill_t_image) {
+        return res.status(400).json({
+          success: false,
+          message: "No Bill-T image found for this order — cannot send dispatch WhatsApp message",
+        });
+      }
+
+      const { buffer, mimeType } = await fetchMinioObjectAsBuffer(payload.bill_t_image);
+
+      response = await salesOrderNotifications.sendOrderDispatchedNotification({
+        phone:              recipientPhone,
+        recipientName,
+        orderNo:            formatOrderNoForWhatsapp(payload.order_no || approval.order_no),
+        transportName:      payload.transport_name || "",
+        biltyNo:            payload.bilty_no || payload.bill_t_no || "",
+        biltyImageBuffer:   buffer,
+        biltyImageMimeType: mimeType,
+      });
+    }
+
+    if (!response) {
+      // Service returned undefined = it silently skipped (no phone/no image at send-time)
+      return res.status(400).json({
+        success: false,
+        message: "WhatsApp notification was not sent — check phone number and required attachments",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "WhatsApp notification sent",
+      messageId: response?.messages?.[0]?.id,
+    });
+  } catch (err) {
+    console.error("[WhatsApp] sendSalesOrderWhatsapp failed:", err.response?.data || err.message);
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 

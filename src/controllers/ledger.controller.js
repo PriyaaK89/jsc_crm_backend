@@ -8,6 +8,7 @@ const { getGroupById } = require("../models/accountGroup.model");
 const db = require("../config/db");
 const whatsappService = require("../services/whatsapp.service");
 const companyConfig = require("../config/company");
+const { formatMobileForWhatsapp } = require("../utils/helper"); 
 
 // console.log(companyConfig, "company bank details")
 
@@ -258,62 +259,62 @@ const createLedgerController = async (req, res) => {
         security_cheque_no2: crm_details.security_cheque_no2 || null,
       });
     }
-    try {
+    // try {
 
-      const ledger = await getLedgerWhatsappData(ledgerId);
-      if (ledger && ledger.contact && ledger.customer_name) {
+    //   const ledger = await getLedgerWhatsappData(ledgerId);
+    //   if (ledger && ledger.contact && ledger.customer_name) {
 
-        let mobile = ledger.contact.replace(/\D/g, "");
-        if (!mobile.startsWith("91")) {
-          mobile = "91" + mobile;
-        }
-        // Generate display ledger code
-    const ledgerCode = `JSC-${ledger.id + 100}`;
+    //     let mobile = ledger.contact.replace(/\D/g, "");
+    //     if (!mobile.startsWith("91")) {
+    //       mobile = "91" + mobile;
+    //     }
+    //     // Generate display ledger code
+    // const ledgerCode = `JSC-${ledger.id + 100}`;
 
-        await whatsappService.sendTemplateMessage(
-          mobile, "ledger_created", "en_US",
-          [
-            {
-              type: "body",
-              parameters: [
-                {
-                  type: "text",
-                  text: ledger.customer_name
-                },
-                {
-                  type: "text",
-                  text: ledgerCode
-                },
-                {
-                  type: "text",
-                  text: ledger.ledger_name
-                },
-                // {
-                //   type: "text",
-                //   text: companyConfig.bank.bankName
-                // },
-                // {
-                //   type: "text",
-                //   text: companyConfig.bank.accountName
-                // },
-                // {
-                //   type: "text",
-                //   text: companyConfig.bank.accountNumber
-                // },
-                // {
-                //   type: "text",
-                //   text: companyConfig.bank.ifscCode
-                // }
-              ]
-            }
-          ]
-        );
-        console.log("Ledger WhatsApp sent");
-      }
+    //     await whatsappService.sendTemplateMessage(
+    //       mobile, "ledger_created", "en_US",
+    //       [
+    //         {
+    //           type: "body",
+    //           parameters: [
+    //             {
+    //               type: "text",
+    //               text: ledger.customer_name
+    //             },
+    //             {
+    //               type: "text",
+    //               text: ledgerCode
+    //             },
+    //             {
+    //               type: "text",
+    //               text: ledger.ledger_name
+    //             },
+    //             // {
+    //             //   type: "text",
+    //             //   text: companyConfig.bank.bankName
+    //             // },
+    //             // {
+    //             //   type: "text",
+    //             //   text: companyConfig.bank.accountName
+    //             // },
+    //             // {
+    //             //   type: "text",
+    //             //   text: companyConfig.bank.accountNumber
+    //             // },
+    //             // {
+    //             //   type: "text",
+    //             //   text: companyConfig.bank.ifscCode
+    //             // }
+    //           ]
+    //         }
+    //       ]
+    //     );
+    //     console.log("Ledger WhatsApp sent");
+    //   }
 
-    } catch (err) {
-      console.error("Ledger WhatsApp Error:", err.response?.data || err.message);
-    }
+    // } catch (err) {
+    //   console.error("Ledger WhatsApp Error:", err.response?.data || err.message);
+    // }
 
     return res.status(201).json({
       success: true,
@@ -768,11 +769,59 @@ const getMyAssignedLedgers = async (req, res) => {
   }
 };
 
+const sendLedgerCreatedWhatsapp = async (req, res) => {
+  try {
+    const { ledgerId } = req.params;
+
+    const ledger = await getLedgerWhatsappData(ledgerId);
+
+    if (!ledger) {
+      return res.status(404).json({ success: false, message: "Ledger not found" });
+    }
+
+    const mobile = formatMobileForWhatsapp(ledger.contact);
+
+    if (!mobile || !ledger.customer_name) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing contact number or customer name for this ledger",
+      });
+    }
+
+    const ledgerCode = `JSC-${ledger.id}`;
+
+    const response = await whatsappService.sendTemplateMessage(
+      mobile,
+      "ledger_created",
+      "en_US",
+      [
+        {
+          type: "body",
+          parameters: [
+            { type: "text", text: ledger.customer_name },
+            { type: "text", text: ledgerCode },
+            { type: "text", text: ledger.ledger_name },
+            // { type: "text", text: companyConfig.bank.bankName },
+            // { type: "text", text: companyConfig.bank.accountName },
+            // { type: "text", text: companyConfig.bank.accountNumber },
+            // { type: "text", text: companyConfig.bank.ifscCode }
+          ],
+        },
+      ]
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "WhatsApp notification sent",
+      messageId: response.messages?.[0]?.id,
+    });
+  } catch (err) {
+    console.error("Ledger WhatsApp Error:", err.response?.data || err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
 
 module.exports = {
-  createLedgerController,
-  getLedgers,
-  getLedgerByIdController,
-  updateLedgerController,
-  deleteLedgerController, getLedgerDropdown, reassignLedgerEmployee, getMyAssignedLedgers
+  createLedgerController, getLedgers, getLedgerByIdController, updateLedgerController,
+  deleteLedgerController, getLedgerDropdown, reassignLedgerEmployee, getMyAssignedLedgers, sendLedgerCreatedWhatsapp
 };

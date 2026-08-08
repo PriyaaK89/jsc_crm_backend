@@ -5,6 +5,7 @@ const receiptApprovalService = require("../../services/sales/createReceiptTransa
 
 exports.approveReceiptOrder = async (req, res) => {
   const connection = await db.getConnection();
+  let finalReceiptId = null; 
 
   try {
     await connection.beginTransaction();
@@ -91,6 +92,7 @@ exports.approveReceiptOrder = async (req, res) => {
         newPayload,
         approval.created_by,
       );
+      finalReceiptId = result.receiptId;
 
       await transactionApprovalModel.updateApproval(connection, approval.id, {
         ...modificationData,
@@ -136,6 +138,7 @@ exports.approveReceiptOrder = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Approved successfully",
+      receipt_id: finalReceiptId,
     });
   } catch (error) {
     await connection.rollback();

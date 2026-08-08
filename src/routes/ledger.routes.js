@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { createLedgerController , getLedgers, getLedgerByIdController, updateLedgerController, deleteLedgerController, getLedgerDropdown, reassignLedgerEmployee, getMyAssignedLedgers} = require("../controllers/ledger.controller");
+const { createLedgerController , getLedgers, getLedgerByIdController, updateLedgerController, deleteLedgerController, getLedgerDropdown, reassignLedgerEmployee, getMyAssignedLedgers, sendLedgerCreatedWhatsapp} = require("../controllers/ledger.controller");
 const auth = require("../middleware/auth.middleware");
 
 router.post( "/create-ledger",auth, createLedgerController);
@@ -11,5 +11,6 @@ router.delete("/delete_ledger/:id",auth, deleteLedgerController);
 router.get( "/ledger-dropdown",auth, getLedgerDropdown );
 router.put("/reassign-ledger", auth, reassignLedgerEmployee);
 router.get("/get-my-assigned-ledgers", auth, getMyAssignedLedgers);
+router.post( "/:ledgerId/send-whatsapp", auth, sendLedgerCreatedWhatsapp);
 
 module.exports = router;

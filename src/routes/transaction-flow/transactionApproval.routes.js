@@ -38,6 +38,11 @@ router.post( "/reject-sale-order/:approvalId", auth, rejectSales.rejectSalesOrde
 router.post( "/resubmit-sale-order/:approvalId", auth, resubmitSales.resubmitSalesOrder );
 router.get( "/next-order-number", auth, controller.getNextOrderNumber );
 
+router.post( "/:approvalId/send-whatsapp-confirmation",
+  auth,
+  salesApprove.sendSalesOrderWhatsapp
+);
+
 router.post( "/create-purchase-approval-request", auth,
   upload.fields([{ name: "orderBillImage", maxCount: 1 }]),
   controller.createPurchaseApprovalRequest

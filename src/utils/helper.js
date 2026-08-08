@@ -23,4 +23,45 @@ function formatOrderNoForWhatsapp(orderNo) {
   return `JSC-ORD-${padded}`;
 }
 
-module.exports = { formatMobileForWhatsapp, formatOrderNoForWhatsapp };
+/**
+ * Generic doc-number formatter for WhatsApp messages.
+ * "SALE-1" + "JSC-ORD"  -> "JSC-ORD-001"
+ * "RCPT-2026-00125" + "JSC-RECP" -> "JSC-RECP-125"   (trailing digits only, padded to 3)
+ */
+function formatDocNoForWhatsapp(docNo, prefix) {
+  if (!docNo) return docNo;
+
+  const match = String(docNo).match(/(\d+)\s*$/);
+  if (!match) return docNo; // no trailing digits found, return as-is
+
+  const numericValue = parseInt(match[1], 10);
+  const padded = String(numericValue).padStart(3, "0");
+
+  return `${prefix}-${padded}`;
+}
+
+function formatAmountForWhatsapp(amount) {
+  const num = Number(amount || 0);
+  return num.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatDateForWhatsapp(date) {
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return String(date);
+
+  const months = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ];
+  return `${d.getDate()} ${months[d.getMonth()]}, ${d.getFullYear()}`;
+}
+
+module.exports = {
+  formatMobileForWhatsapp, formatOrderNoForWhatsapp,
+  formatDocNoForWhatsapp,
+  formatAmountForWhatsapp,
+  formatDateForWhatsapp,
+};

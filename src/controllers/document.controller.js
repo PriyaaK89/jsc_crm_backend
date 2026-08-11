@@ -36,7 +36,15 @@ exports.uploadEmployeeLetter = async (req, res) => {
       `INSERT INTO employee_documents
       (employee_id, document_type, file_url,  reference_no)
       VALUES (?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE file_url = VALUES(file_url)`,
+      ON DUPLICATE KEY UPDATE file_url = VALUES(file_url),
+       reference_no = IF(
+        reference_no IS NULL OR reference_no = '',
+        VALUES(reference_no),
+        reference_no
+    )
+      
+      `,
+      
       [employee_id, document_type, fileName,  reference_no] 
     );
     console.log("BODY:", req.body);

@@ -59,9 +59,24 @@ function formatDateForWhatsapp(date) {
   return `${d.getDate()} ${months[d.getMonth()]}, ${d.getFullYear()}`;
 }
 
+function getFinancialYear(date = new Date()) {
+    const year = date.getFullYear();
+
+    if (date.getMonth() >= 3) {
+        return `${String(year).slice(-2)}-${String(year + 1).slice(-2)}`;
+    }
+
+    return `${String(year - 1).slice(-2)}-${String(year).slice(-2)}`;
+}
+
+function getCurrentMonth(date = new Date()) {
+    return String(date.getMonth() + 1).padStart(2, "0");
+}
+
 module.exports = {
   formatMobileForWhatsapp, formatOrderNoForWhatsapp,
   formatDocNoForWhatsapp,
   formatAmountForWhatsapp,
-  formatDateForWhatsapp,
+  formatDateForWhatsapp,  getFinancialYear,
+    getCurrentMonth,
 };

@@ -6,7 +6,7 @@ const BUCKET = "jsc-crm";
 exports.uploadEmployeeLetter = async (req, res) => {
   try {
     const file = req.file;
-    const { employee_id, document_type, employee_name } = req.body;
+    const { employee_id, document_type, employee_name , reference_no,} = req.body;
 
     if (!file) {
       return res.status(400).json({
@@ -32,13 +32,16 @@ exports.uploadEmployeeLetter = async (req, res) => {
       { "Content-Type": "application/pdf" }
     );
 
-    await db.query(
+   const [result] = await db.query(
       `INSERT INTO employee_documents
-      (employee_id, document_type, file_url)
-      VALUES (?, ?, ?)
+      (employee_id, document_type, file_url,  reference_no)
+      VALUES (?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE file_url = VALUES(file_url)`,
-      [employee_id, document_type, fileName] 
+      [employee_id, document_type, fileName,  reference_no] 
     );
+    console.log("BODY:", req.body);
+console.log("REFERENCE:", req.body.reference_no);
+console.log(result);
 
     res.json({
       message: "Letter uploaded successfully",

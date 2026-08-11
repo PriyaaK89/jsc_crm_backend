@@ -18,10 +18,7 @@ app.use((req, res, next) => {
 
     res.on("finish", () => {
         const duration = Date.now() - start;
-
-        console.log(
-            `[END] ${req.method} ${req.originalUrl} ${res.statusCode} (${duration}ms)`
-        );
+        console.log( `[END] ${req.method} ${req.originalUrl} ${res.statusCode} (${duration}ms)` );
     });
 
     next();
@@ -88,6 +85,7 @@ const receiptApproval = require("../src/routes/transaction-flow/receiptApproval.
 const empPaymentHold = require("../src/routes/empPaymentHold.routes");
 const transactionDocumentRoute = require("../src/routes/reports/transactionDocuments.routes");
 const testRoute = require("../src/routes/test.route");
+const generateOfferLetterRoute = require("../src/routes/documents/offerLetter.routes")
 
 // Health check
 app.get('/', (req, res) => {
@@ -154,6 +152,7 @@ app.use(receiptApproval);
 app.use(empPaymentHold);
 app.use(transactionDocumentRoute);
 app.use(testRoute);
+app.use(generateOfferLetterRoute)
 
 // 404 handler
 app.use((req, res) => {

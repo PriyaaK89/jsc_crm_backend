@@ -3,7 +3,7 @@ const db = require("../config/db");
 const minioClient = require("../config/minio");
 const https = require("https");
 
-const BUCKET = "bucket";
+const BUCKET = "jsc-crm";
 
 exports.sendForESign = async (req, res) => {
   try {

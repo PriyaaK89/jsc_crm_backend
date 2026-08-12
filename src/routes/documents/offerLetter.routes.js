@@ -3,6 +3,6 @@ const router = express.Router();
 const auth = require("../../middleware/auth.middleware");
 const generateOfferLetterController = require("../../controllers/documents/generateOfferLetter.controller")
 
-router.get( "/offer-letter/next-offer-reference", generateOfferLetterController.getNextOfferReference);
+router.get( "/next-offer-reference", generateOfferLetterController.getNextDocumentReference);
 
 module.exports = router;

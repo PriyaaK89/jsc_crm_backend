@@ -31,7 +31,12 @@ exports.uploadEmployeeLetter = async (req, res) => {
       file.size,
       { "Content-Type": "application/pdf" }
     );
-
+console.log({
+  employee_id,
+  document_type,
+ fileName,
+ reference_no
+});
    const [result] = await db.query(
       `INSERT INTO employee_documents
       (employee_id, document_type, file_url,  reference_no)
@@ -41,9 +46,7 @@ exports.uploadEmployeeLetter = async (req, res) => {
         reference_no IS NULL OR reference_no = '',
         VALUES(reference_no),
         reference_no
-    )
-      
-      `,
+    )  `,
       
       [employee_id, document_type, fileName,  reference_no] 
     );
@@ -56,16 +59,21 @@ console.log(result);
       file_path: fileName
     });
 
-  } catch (error) {
-    res.status(500).json({
-      error: error.message,
-    });
-  }
+  }catch (error) {
+  console.log("ERROR:", error);
+
+  res.status(500).json({
+    message: error.message,
+    code: error.code,
+    errno: error.errno,
+    sqlMessage: error.sqlMessage,
+    sql: error.sql
+  });
+}
 };
 
 exports.getEmployeeDocumentsByEmployee = async (req, res) => {
   try {
-
     const { employee_id } = req.params;
 
     const [rows] = await db.query(
@@ -120,10 +128,8 @@ exports.getEmployeeDocumentsByEmployee = async (req, res) => {
     res.json({ data });
 
   } catch (error) {
-
     res.status(500).json({
       message: error.message
     });
-
   }
 };

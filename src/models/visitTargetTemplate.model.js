@@ -640,8 +640,10 @@ exports.getAssignmentsPastPeriodEnd = async () => {
 exports.createNextAssignment = async (connection, previousAssignment, template) => {
   const nextPeriod = getNextPeriod(previousAssignment.period_end, template.frequency);
 
-  // Stop recurring once the next period would start beyond the template's end_date
-  if (nextPeriod.start_date > template.end_date) {
+  // For recurring templates, end_date is a rolling boundary — extend it
+  // to cover the new period instead of using it to cap recurrence.
+  // Non-recurring templates keep the old hard-stop behavior.
+  if (!template.is_recurring && nextPeriod.start_date > template.end_date) {
     return null;
   }
 
@@ -665,8 +667,16 @@ exports.createNextAssignment = async (connection, previousAssignment, template) 
   });
 
   const templateTargets = await exports.getTemplateTargets(template.id);
-
   await exports.createAssignmentDetails(connection, newAssignmentId, templateTargets);
+
+  // Keep the template's end_date in sync with the latest period it has
+  // rolled into, so getTemplateById/listTemplates reflect current state.
+  if (template.is_recurring && nextPeriod.end_date > template.end_date) {
+    await connection.query(
+      `UPDATE visit_target_templates SET end_date = ? WHERE id = ?`,
+      [nextPeriod.end_date, template.id]
+    );
+  }
 
   return newAssignmentId;
 };
@@ -922,7 +932,18 @@ exports.expireAllActiveAssignmentsForTemplate = async (connection, templateId) =
 
   return result.affectedRows;
 };
-
+exports.reactivateTemplate = async (connection, templateId, periodStart, periodEnd) => {
+  const [result] = await connection.query(
+    `
+      UPDATE visit_target_templates
+      SET status = 'ACTIVE', start_date = ?, end_date = ?
+      WHERE id = ? AND status = 'INACTIVE'
+    `,
+    [periodStart, periodEnd, templateId]
+  );
+ 
+  return result.affectedRows > 0;
+};
 /**
  * Update period_start / period_end on the ACTIVE assignments of a
  * specific set of employees under a template. Used when the template's
@@ -1027,18 +1048,7 @@ exports.syncActiveAssignmentDetailsForEmployees = async (
     );
   }
 };
-exports.reactivateTemplate = async (connection, templateId, periodStart, periodEnd) => {
-  const [result] = await connection.query(
-    `
-      UPDATE visit_target_templates
-      SET status = 'ACTIVE', start_date = ?, end_date = ?
-      WHERE id = ? AND status = 'INACTIVE'
-    `,
-    [periodStart, periodEnd, templateId]
-  );
- 
-  return result.affectedRows > 0;
-};
+
 exports.getAssignmentForPeriod = async (templateId, employeeId, periodStart, periodEnd) => {
   const [rows] = await db.query(
     `SELECT * FROM visit_target_assignments
@@ -1062,4 +1072,64 @@ exports.refreshAssignmentDetails = async (connection, assignmentId, targets) => 
   await exports.createAssignmentDetails(connection, assignmentId, targets);
 };
 
- 
+/**
+ * Permanently delete a template and all its dependent rows.
+ * IRREVERSIBLE — unlike deleteTemplate() (soft/INACTIVE), this removes
+ * history entirely. Deletes children first since there's no
+ * ON DELETE CASCADE on visit_target_assignments -> visit_target_templates.
+ */
+exports.hardDeleteTemplate = async (connection, templateId) => {
+  // 1. assignment_details for every assignment under this template
+  await connection.query(
+    `
+      DELETE ad FROM visit_target_assignment_details ad
+      INNER JOIN visit_target_assignments a ON a.id = ad.assignment_id
+      WHERE a.template_id = ?
+    `,
+    [templateId]
+  );
+
+  // 2. assignments themselves
+  await connection.query(
+    `DELETE FROM visit_target_assignments WHERE template_id = ?`,
+    [templateId]
+  );
+
+  // 3. template-level targets
+  await connection.query(
+    `DELETE FROM visit_target_template_details WHERE template_id = ?`,
+    [templateId]
+  );
+
+  // 4. template <-> employee mapping
+  await connection.query(
+    `DELETE FROM visit_target_template_users WHERE template_id = ?`,
+    [templateId]
+  );
+
+  // 5. the template row itself
+  const [result] = await connection.query(
+    `DELETE FROM visit_target_templates WHERE id = ?`,
+    [templateId]
+  );
+
+  return result.affectedRows > 0;
+};
+
+ exports.holdTemplate = async (connection, templateId) => {
+  const [result] = await connection.query(
+    `UPDATE visit_target_templates SET status = 'HOLD' WHERE id = ? AND status = 'ACTIVE'`,
+    [templateId]
+  );
+
+  return result.affectedRows > 0;
+};
+
+exports.unholdTemplate = async (connection, templateId) => {
+  const [result] = await connection.query(
+    `UPDATE visit_target_templates SET status = 'ACTIVE' WHERE id = ? AND status = 'HOLD'`,
+    [templateId]
+  );
+
+  return result.affectedRows > 0;
+};

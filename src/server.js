@@ -21,6 +21,7 @@ console.log("SERVER FILE STARTED");
 // require('dotenv').config();
 require('../src/jobs/cleanup.job');
 require("../src/jobs/attendanceAutoClose");
+require("../src/jobs/visitTargetSheduler");
 const db = require('./config/db');
 
 const http = require("http");
@@ -73,6 +74,11 @@ console.log("ENV CHECK:", {
   pass: process.env.DB_PASS,
   db: process.env.DB_NAME
 });
+// quick manual test, e.g. in a scratch file or temp route
+// const { processExpiredAssignments } = require("../src/jobs/visitTargetSheduler");
+// processExpiredAssignments()
+//   .then(() => console.log("rollover done"))
+//   .catch(err => console.error("rollover failed:", err));
 
 //  Start server (IMPORTANT: use server.listen, NOT app.listen)
 server.listen(PORT, "0.0.0.0", () => {

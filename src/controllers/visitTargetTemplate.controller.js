@@ -694,3 +694,141 @@ exports.reactivateTemplate = async (req, res) => {
     connection.release();
   }
 };
+
+/**
+ * Permanently delete a template — irreversible, wipes all assignment
+ * history tied to it. Requires ?confirm=true to avoid accidental calls.
+ * Recommend the frontend only exposes this after the template is
+ * already INACTIVE (deactivated), to avoid nuking a live template's
+ * history out from under active employees.
+ */
+exports.hardDeleteTemplate = async (req, res) => {
+  const connection = await db.getConnection();
+
+  try {
+    const { id } = req.params;
+    const { confirm } = req.query;
+
+    if (confirm !== "true") {
+      return res.status(400).json({
+        success: false,
+        message: "Permanent delete requires ?confirm=true",
+      });
+    }
+
+    const existing = await visitTargetModel.getTemplateById(id);
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Template not found" });
+    }
+
+    await connection.beginTransaction();
+
+    const deleted = await visitTargetModel.hardDeleteTemplate(connection, id);
+
+    if (!deleted) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: "Template not found" });
+    }
+
+    await connection.commit();
+
+    return res.json({ success: true, message: "Template permanently deleted" });
+  } catch (error) {
+    await connection.rollback();
+    console.error("hardDeleteTemplate error:", error);
+    return res.status(500).json({ success: false, message: "Failed to permanently delete template" });
+  } finally {
+    connection.release();
+  }
+};
+
+exports.holdTemplate = async (req, res) => {
+  const connection = await db.getConnection();
+
+  try {
+    const { id } = req.params;
+
+    const existing = await visitTargetModel.getTemplateById(id);
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Template not found" });
+    }
+
+    if (existing.status === "HOLD") {
+      return res.status(400).json({ success: false, message: "Template is already on hold" });
+    }
+
+    if (existing.status !== "ACTIVE") {
+      return res.status(400).json({
+        success: false,
+        message: `Only an ACTIVE template can be put on hold (current status: ${existing.status})`,
+      });
+    }
+
+    await connection.beginTransaction();
+
+    const held = await visitTargetModel.holdTemplate(connection, id);
+
+    if (!held) {
+      await connection.rollback();
+      return res.status(409).json({
+        success: false,
+        message: "Template could not be held — its status may have changed. Please retry.",
+      });
+    }
+
+    await connection.commit();
+
+    return res.json({ success: true, message: "Template put on hold" });
+  } catch (error) {
+    await connection.rollback();
+    console.error("holdTemplate error:", error);
+    return res.status(500).json({ success: false, message: "Failed to hold template" });
+  } finally {
+    connection.release();
+  }
+};
+
+exports.unholdTemplate = async (req, res) => {
+  const connection = await db.getConnection();
+
+  try {
+    const { id } = req.params;
+
+    const existing = await visitTargetModel.getTemplateById(id);
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Template not found" });
+    }
+
+    if (existing.status !== "HOLD") {
+      return res.status(400).json({
+        success: false,
+        message: `Only a HELD template can be unheld (current status: ${existing.status})`,
+      });
+    }
+
+    await connection.beginTransaction();
+
+    const unheld = await visitTargetModel.unholdTemplate(connection, id);
+
+    if (!unheld) {
+      await connection.rollback();
+      return res.status(409).json({
+        success: false,
+        message: "Template could not be unheld — its status may have changed. Please retry.",
+      });
+    }
+
+    await connection.commit();
+
+    return res.json({ success: true, message: "Template resumed from hold" });
+  } catch (error) {
+    await connection.rollback();
+    console.error("unholdTemplate error:", error);
+    return res.status(500).json({ success: false, message: "Failed to unhold template" });
+  } finally {
+    connection.release();
+  }
+};

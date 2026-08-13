@@ -18,7 +18,9 @@ router.get("/visit-targets/templates/:id", auth, visitTargetController.getTempla
 router.put("/visit-targets/templates/:id", auth, visitTargetController.updateTemplate);
 router.delete("/visit-targets/templates/:id", auth, visitTargetController.deleteTemplate);
 router.patch("/visit-targets/templates/:id/reactivate", auth, visitTargetController.reactivateTemplate);
-
+router.delete("/visit-targets/templates/:id/permanent-delete", auth, visitTargetController.hardDeleteTemplate);
+router.patch("/visit-targets/templates/:id/hold", auth, visitTargetController.holdTemplate);
+router.patch("/visit-targets/templates/:id/unhold", auth, visitTargetController.unholdTemplate);
 /**
  * Assignments
  */

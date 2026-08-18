@@ -1,8 +1,6 @@
 require("dotenv").config();
 
-console.log("Access Token:", process.env.WHATSAPP_ACCESS_TOKEN?.substring(0, 20));
-console.log("Phone Number ID:", process.env.WHATSAPP_PHONE_NUMBER_ID);
-console.log("API Version:", process.env.WHATSAPP_API_VERSION);
+
 
 
 module.exports = {

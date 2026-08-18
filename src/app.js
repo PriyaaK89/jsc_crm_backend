@@ -86,6 +86,7 @@ const empPaymentHold = require("../src/routes/empPaymentHold.routes");
 const transactionDocumentRoute = require("../src/routes/reports/transactionDocuments.routes");
 const testRoute = require("../src/routes/test.route");
 const generateOfferLetterRoute = require("../src/routes/documents/offerLetter.routes")
+// const reminderRoute = require("../src/routes/reminder.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -153,6 +154,7 @@ app.use(empPaymentHold);
 app.use(transactionDocumentRoute);
 app.use(testRoute);
 app.use(generateOfferLetterRoute)
+// app.use(reminderRoute);
 
 // 404 handler
 app.use((req, res) => {

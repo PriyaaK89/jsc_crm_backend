@@ -4,25 +4,49 @@ const whatsappService = require("../whatsapp.service");
 const formatOrderDate = (date) => dayjs(date).format("DD MMMM, YYYY");
 const formatAmount = (amount) => Number(amount).toLocaleString("en-IN");
 
-exports.sendOrderConfirmedNotification = async ({ phone, recipientName, orderNo, orderDate, amount}) => {
-    if (!phone) {
-        console.warn(`Skipping order_confirmed WhatsApp — no phone for order ${orderNo}`);
-        return;
-    }
+const formatProductsList = (items = []) => {
+  if (!Array.isArray(items) || items.length === 0) return "N/A";
 
-    const components = [
-        {
-            type: "body",
-            parameters: [
-                { type: "text", text: recipientName },
-                { type: "text", text: String(orderNo) },
-                { type: "text", text: formatOrderDate(orderDate) },
-                { type: "text", text: formatAmount(amount) }
-            ]
-        }
-    ];
+  return items
+    .map((item) => {
+      const name = item.item_name || "Item";
+      const qty = item.billed_qty ?? 0;
+      const unitName = item.unit_name ?? "";
 
-    return whatsappService.sendTemplateMessage(phone, "order_confirmed", "en_US", components);
+      return unitName
+        ? `${name} ${qty} ${unitName}`
+        : `${name} x ${qty}`;
+    })
+    .join(", ");
+};
+
+exports.sendOrderConfirmedNotification = async ({
+  phone,
+  recipientName,
+  orderNo,
+  orderDate,
+  amount,
+  items = [], 
+}) => {
+  if (!phone) {
+    console.warn(`Skipping order_confirmed WhatsApp — no phone for order ${orderNo}`);
+    return;
+  }
+
+  const components = [
+    {
+      type: "body",
+      parameters: [
+        { type: "text", text: recipientName },
+        { type: "text", text: String(orderNo) },
+        { type: "text", text: formatOrderDate(orderDate) },
+        { type: "text", text: formatProductsList(items) },
+        { type: "text", text: formatAmount(amount) },        // {{5}} Total Amount
+      ],
+    },
+  ];
+
+  return whatsappService.sendTemplateMessage(phone, "order_approved_2", "en_US", components);
 };
 
 exports.sendOrderDispatchedNotification = async ({

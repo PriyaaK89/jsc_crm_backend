@@ -801,10 +801,10 @@ const sendLedgerCreatedWhatsapp = async (req, res) => {
             { type: "text", text: ledger.customer_name },
             { type: "text", text: ledgerCode },
             { type: "text", text: ledger.ledger_name },
-            // { type: "text", text: companyConfig.bank.bankName },
-            // { type: "text", text: companyConfig.bank.accountName },
-            // { type: "text", text: companyConfig.bank.accountNumber },
-            // { type: "text", text: companyConfig.bank.ifscCode }
+            { type: "text", text: companyConfig.bank.bankName },
+            { type: "text", text: companyConfig.bank.accountName },
+            { type: "text", text: companyConfig.bank.accountNumber },
+            { type: "text", text: companyConfig.bank.ifscCode }
           ],
         },
       ]

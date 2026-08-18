@@ -22,6 +22,7 @@ console.log("SERVER FILE STARTED");
 require('../src/jobs/cleanup.job');
 require("../src/jobs/attendanceAutoClose");
 require("../src/jobs/visitTargetSheduler");
+require("../src/jobs/reminderCron");
 const db = require('./config/db');
 
 const http = require("http");

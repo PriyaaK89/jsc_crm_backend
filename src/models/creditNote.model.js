@@ -124,12 +124,6 @@ exports.createCreditNote = async (connection, creditNoteData) => {
   return result.insertId;
 };
 
-/*
-|--------------------------------------------------------------------------
-| Credit Note Item
-|--------------------------------------------------------------------------
-*/
-
 exports.insertCreditNoteItem = async (connection, item, creditNoteId) => {
   const [result] = await connection.query(
     ` INSERT INTO credit_note_items (

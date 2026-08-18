@@ -4,6 +4,10 @@ const purchaseModel = require("../models/purchaseTxnMaster.model");
 const generateVoucherNo = require("../utils/generateVoucherNo");
 const { uploadFileToMinio } = require("../utils/fileUpload");
 const validateVoucherDate = require("../utils/validateVoucherDate");
+const { sendTemplateMessage } = require("../services/whatsapp.service");
+const { formatMobileForWhatsapp, formatDocNoForWhatsapp,formatAmountForWhatsapp, formatDateForWhatsapp, } = require("../utils/helper");
+
+  // const formatAmountForWhatsapp = (amount) => `₹${Number(amount).toLocaleString("en-IN")}`;
 
 exports.createCreditNote = async (req, res) => {
   const connection = await db.getConnection();
@@ -294,38 +298,6 @@ exports.getSaleItemsById = async ( req, res ) => {
 
   }
 };
-// exports.getSalesBillReferences = async (req, res) => {
-//   try {
-//     const { sale_id } = req.query;
-//     console.log("sale_id received:", sale_id);
-
-//     if (!sale_id) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "sale_id is required",
-//       });
-//     }
-
-//     const [rows] = await db.query(
-//       ` SELECT
-//         id, reference_no, reference_amount, pending_amount, due_date
-//       FROM sales_bill_references
-//       WHERE sale_id = ?
-//       AND pending_amount > 0
-//       ORDER BY id DESC `, [sale_id] );
-
-//     return res.status(200).json({
-//       success: true,
-//       data: rows,
-//     });
-//   } catch (error) {
-//     console.log(error);
-//     return res.status(500).json({
-//       success: false,
-//       message: error.message,
-//     });
-//   }
-// };
 
 exports.getCreditNoteInvoice = async (req, res) => {
   try {
@@ -386,3 +358,207 @@ exports.getSalesBillReferences = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
+
+exports.sendCreditNoteWhatsApp = async (req, res) => {
+  try {
+    const { id: creditNoteId } = req.params;
+
+    const invoiceData = await creditNoteModel.getCreditNoteInvoice(creditNoteId);
+
+    if (!invoiceData || !invoiceData.creditNote) {
+      return res.status(404).json({
+        success: false,
+        message: "Credit Note not found",
+      });
+    }
+
+    const { creditNote, items } = invoiceData;
+
+    if (!creditNote.customer_mobile) {
+      return res.status(400).json({
+        success: false,
+        message: "Customer mobile number not available.",
+      });
+    }
+
+    // Format values using helpers
+    const mobile = formatMobileForWhatsapp(creditNote.customer_mobile);
+    const creditNoteNo = formatDocNoForWhatsapp(creditNote.voucher_no, "JSC-CN");
+    const amount = formatAmountForWhatsapp(creditNote.total_amount); // must NOT include ₹ — template already has it
+    const date = formatDateForWhatsapp(creditNote.credit_note_date);
+
+    const productNames =
+  items
+    ?.map((item) => {
+      const qty = Number(item.return_qty || 0);
+      // Strip trailing zeros: 20.0000 → 20, 12.5000 → 12.5
+      const cleanQty = qty % 1 === 0 ? qty.toString() : qty.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+      const unit = item.unit_name ? ` ${item.unit_name}` : "";
+      return `${item.item_name} (${cleanQty}${unit})`;
+    })
+    .join(", ") || "-";
+
+    // Order MUST match template placeholders exactly:
+    // {{1}} name  {{2}} credit note no  {{3}} date  {{4}} products  {{5}} amount
+    const components = [
+      {
+        type: "body",
+        parameters: [
+          { type: "text", text: creditNote.customer_name || "" }, // {{1}}
+          { type: "text", text: creditNoteNo },                    // {{2}}
+          { type: "text", text: date },                            // {{3}}
+          { type: "text", text: productNames },                    // {{4}}
+          { type: "text", text: amount },                          // {{5}}
+        ],
+      },
+    ];
+    console.log("WhatsApp params being sent:", JSON.stringify(components[0].parameters, null, 2));
+
+    const waResponse = await sendTemplateMessage(
+      mobile,
+      "credit_note_confirmation_1",
+      "en_US",
+      components
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "WhatsApp message sent successfully.",
+      data: waResponse,
+    });
+  } catch (error) {
+    console.error("SEND CREDIT NOTE WHATSAPP ERROR:", error?.response?.data || error);
+
+    return res.status(500).json({
+      success: false,
+      message: error?.response?.data?.error?.message || "Failed to send WhatsApp message.",
+    });
+  }
+};
+
+// exports.sendCreditNoteWhatsApp = async (req, res) => {
+//   try {
+//     const { id: creditNoteId } = req.params;
+
+//     const invoiceData = await creditNoteModel.getCreditNoteInvoice( creditNoteId );
+
+//     if (!invoiceData || !invoiceData.creditNote) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Credit Note not found",
+//       });
+//     }
+
+//     const { creditNote } = invoiceData;
+
+//     if (!creditNote.customer_mobile) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Customer mobile number not available.",
+//       });
+//     }
+
+//     // Format values using helpers
+//     const mobile = formatMobileForWhatsapp(creditNote.customer_mobile);
+//     const creditNoteNo = formatDocNoForWhatsapp(
+//       creditNote.voucher_no,
+//       "JSC-CN"
+//     );
+//     const amount = formatAmountForWhatsapp(creditNote.total_amount);
+//     const date = formatDateForWhatsapp(creditNote.credit_note_date);
+
+//     const components = [
+//       {
+//         type: "body",
+//         parameters: [
+//           {
+//             type: "text",
+//             text: creditNote.customer_name || "",
+//           },
+//           {
+//             type: "text",
+//             text: creditNoteNo,
+//           },
+//           {
+//             type: "text",
+//             text: amount,
+//           },
+//           {
+//             type: "text",
+//             text: date,
+//           },
+//         ],
+//       },
+//     ];
+
+//     // Future: Add product names in template
+    
+//     const productNames = invoiceData.items
+//       ?.map(item => `${item.item_name} x ${item.return_qty}`)
+//       .join(", ");
+
+//     components[0].parameters.push({
+//       type: "text",
+//       text: productNames || "-"
+//     });
+    
+
+//     const waResponse = await sendTemplateMessage(
+//       mobile,
+//       "credit_note_confirmation",
+//       "en_US",
+//       components
+//     );
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "WhatsApp message sent successfully.",
+//       data: waResponse,
+//     });
+//   } catch (error) {
+//     console.error(
+//       "SEND CREDIT NOTE WHATSAPP ERROR:",
+//       error?.response?.data || error
+//     );
+
+//     return res.status(500).json({
+//       success: false,
+//       message:
+//         error?.response?.data?.error?.message ||
+//         "Failed to send WhatsApp message.",
+//     });
+//   }
+// };
+
+// exports.getSalesBillReferences = async (req, res) => {
+//   try {
+//     const { sale_id } = req.query;
+//     console.log("sale_id received:", sale_id);
+
+//     if (!sale_id) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "sale_id is required",
+//       });
+//     }
+
+//     const [rows] = await db.query(
+//       ` SELECT
+//         id, reference_no, reference_amount, pending_amount, due_date
+//       FROM sales_bill_references
+//       WHERE sale_id = ?
+//       AND pending_amount > 0
+//       ORDER BY id DESC `, [sale_id] );
+
+//     return res.status(200).json({
+//       success: true,
+//       data: rows,
+//     });
+//   } catch (error) {
+//     console.log(error);
+//     return res.status(500).json({
+//       success: false,
+//       message: error.message,
+//     });
+//   }
+// };

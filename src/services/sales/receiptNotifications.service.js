@@ -5,6 +5,8 @@ const {
   formatDateForWhatsapp,
 } = require("../../utils/helper");
 
+const formatAmount = (amount) => `₹${Number(amount).toLocaleString("en-IN")}`;
+
 exports.sendPaymentConfirmationNotification = async ({
   phone,
   recipientName,
@@ -22,7 +24,8 @@ exports.sendPaymentConfirmationNotification = async ({
         parameters: [
           { type: "text", text: recipientName },
           { type: "text", text: formatDocNoForWhatsapp(receiptNo, "JSC-RECP") },
-          { type: "text", text: formatAmountForWhatsapp(amount) },
+          // { type: "text", text: formatAmountForWhatsapp(amount) },
+          { type: "text", text: formatAmount(amount) },
           { type: "text", text: formatDateForWhatsapp(paymentDate) },
         ],
       },

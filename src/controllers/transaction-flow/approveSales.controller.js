@@ -239,7 +239,20 @@ exports.sendSalesOrderWhatsapp = async (req, res) => {
       return res.status(404).json({ success: false, message: "Approval request not found" });
     }
 
+
     const payload = approval.payload_json;
+
+    if (typeof payload.items === "string") {
+  try {
+    payload.items = JSON.parse(payload.items);
+  } catch (e) {
+    console.warn("Failed to parse payload.items:", e.message);
+    payload.items = [];
+  }
+}
+console.log("payload.items type:", typeof payload.items, "isArray:", Array.isArray(payload.items));
+console.log("payload.items value:", payload.items);
+console.log("customer_ledger_id being looked up:", payload?.customer_ledger_id, typeof payload?.customer_ledger_id);
  console.log("customer_ledger_id being looked up:", payload?.customer_ledger_id, typeof payload?.customer_ledger_id);
 
     const recipientName =
@@ -263,6 +276,7 @@ exports.sendSalesOrderWhatsapp = async (req, res) => {
         orderNo:    formatOrderNoForWhatsapp(payload.order_no || approval.order_no),
         orderDate:  payload.order_date  || approval.created_at,
         amount:     payload.grand_total || payload.total_amount || 0,
+        items:      payload.items || [],
       });
     } else {
       if (!payload.bill_t_image) {

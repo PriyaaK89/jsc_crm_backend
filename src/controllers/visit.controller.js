@@ -10,17 +10,17 @@ const whatsappService = require("../services/whatsapp.service");
 const validPurposes = ["new_dist_planning", "sales_order", "sales_return", "collection", "others"];
 
 const visitPurposeLabels = {
-    new_dist_planning: "New Distributor Planning",
-    sales_order: "Sales Order",
-    sales_return: "Sales Return",
-    collection: "Collection",
-    others: "Others"
+  new_dist_planning: "New Distributor Planning",
+  sales_order: "Sales Order",
+  sales_return: "Sales Return",
+  collection: "Collection",
+  others: "Others"
 };
 
 const visitTypeLabels = {
-    farmer: "Farmer",
-    retailer: "Retailer",
-    distributor: "Distributor"
+  farmer: "Farmer",
+  retailer: "Retailer",
+  distributor: "Distributor"
 };
 
 exports.createVisit = async (req, res) => {
@@ -87,33 +87,50 @@ exports.createVisit = async (req, res) => {
     ]);
 
     try {
-
+      console.log("========================================");
+      console.log("VISIT WHATSAPP START");
+      console.log("Visit ID:", visitId);
       const visit = await visitModel.getVisitWhatsappData(visitId);
-
+      console.log("Visit WhatsApp Data:", visit);
       if (
         visit &&
         visit.contact_number &&
         visit.customer_name &&
         visit.employee_name
       ) {
+        console.log("All required visit data found");
 
         let mobile = visit.contact_number.replace(/\D/g, "");
+        console.log("Mobile before country code:", mobile);
 
         if (!mobile.startsWith("91")) {
           mobile = "91" + mobile;
         }
-
+console.log("Final WhatsApp mobile:", mobile)
         // Resolve human-readable labels for THIS visit only
         const resolvedVisitType =
           visitTypeLabels[visit.visit_type] || visit.visit_type;
 
         const resolvedVisitPurpose =
           visitPurposeLabels[visit.visit_purpose] || visit.visit_purpose;
+        console.log(
+          "WhatsApp Template Name:",
+          "visit_submitted"
+        );
+
+        console.log(
+          "WhatsApp Template Language:",
+          "en_GB"
+        );
+
+
+
+        console.log("Calling sendTemplateMessage...");
 
         const response = await whatsappService.sendTemplateMessage(
           mobile,
           "visit_submitted",
-          "en_US",
+          "en_GB",
           [
             {
               type: "body",
@@ -147,9 +164,46 @@ exports.createVisit = async (req, res) => {
           "Visit WhatsApp sent:",
           response.messages?.[0]?.id
         );
-      }
+        console.log("WhatsApp API SUCCESS");
+        console.log(
+          "WhatsApp Response:",
+          JSON.stringify(response, null, 2)
+        );
+
+        console.log(
+          "WhatsApp Message ID:",
+          response.messages?.[0]?.id
+        );
+      }else {
+
+    console.log("WhatsApp NOT sent because required data is missing");
+
+    console.log("Has visit:", !!visit);
+    console.log("Contact number:", visit?.contact_number);
+    console.log("Customer name:", visit?.customer_name);
+    console.log("Employee name:", visit?.employee_name);
+  }
+
 
     } catch (err) {
+        console.error(
+    "Error message:",
+    err.message
+  );
+
+  console.error(
+    "Meta/API error:",
+    JSON.stringify(
+      err.response?.data || {},
+      null,
+      2
+    )
+  );
+
+  console.error(
+    "HTTP status:",
+    err.response?.status
+  );
       console.error("WhatsApp Error:", err.response?.data || err.message);
     }
 

@@ -2,9 +2,9 @@ module.exports = {
     companyName: "Jamidara Seeds Corporation",
 
     bank: {
-        bankName: "HDFC Bank",
-        accountName: "Jamidara Seeds Corporation Pvt. Ltd.",
-        accountNumber: "123456789012",
-        ifscCode: "HDFC0001234"
+        bankName: "STATE BANK OF INDIA",
+        accountName: "JAMIDARA SEEDS CORPORATION",
+        accountNumber: "61180709821",
+        ifscCode: "SBIN0031764"
     }
 };

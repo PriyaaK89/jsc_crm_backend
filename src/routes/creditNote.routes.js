@@ -14,5 +14,6 @@ router.get( "/get-credit-note-invoice/:id", auth, creditNoteController.getCredit
 
 router.get("/sales-ledger-dropdown", auth, creditNoteController.getSalesReturnLedgerDropdown);
 router.get("/get-original-sale/:saleId", auth, creditNoteController.getOriginalSale);
+router.post( "/send-credit-note-whatsapp/:id", auth, creditNoteController.sendCreditNoteWhatsApp );
 // router.get("/get-sales-bill-references", auth, creditNoteController.getSalesBillReferences);
 module.exports = router;

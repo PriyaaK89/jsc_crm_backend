@@ -633,6 +633,52 @@ exports.getInterestConfigBySlab = async (connection, ledgerId, slabType) => {
   return rows[0] || null;
 };
 
+exports.getActiveBillsForReminders = async () => {
+  const [rows] = await db.query(`
+    SELECT
+      sbr.id AS bill_reference_id,
+      sbr.sale_id, sbr.ledger_id, sbr.reference_no,
+      sbr.pending_amount, sbr.bill_amount, sbr.due_date,
+      s.sales_date,
+      l.ledger_name, l.default_credit_period,
+      lod.customer_name, lod.contact,
+      lic.grace_period
+    FROM sales_bill_references sbr
+    INNER JOIN sales s ON s.id = sbr.sale_id
+    INNER JOIN ledgers l ON l.id = sbr.ledger_id
+    LEFT JOIN ledger_other_details lod ON lod.ledger_id = sbr.ledger_id
+    LEFT JOIN (
+      SELECT ledger_id, grace_period
+      FROM ledger_interest_config
+      WHERE slab_type = 'debit' AND slab_no = 1
+    ) lic ON lic.ledger_id = sbr.ledger_id
+    WHERE sbr.pending_amount > 0
+      AND sbr.status IN ('PENDING','PARTIAL')
+  `);
+  return rows;
+};
+
+exports.hasReminderBeenSentToday = async (billReferenceId, templateName, sentDate) => {
+  const [rows] = await db.query(
+    `SELECT id FROM whatsapp_reminder_logs
+     WHERE sales_bill_reference_id = ? AND template_name = ? AND sent_date = ?`,
+    [billReferenceId, templateName, sentDate]
+  );
+  return rows.length > 0;
+};
+
+exports.logReminderSent = async (data) => {
+  await db.query(
+    `INSERT INTO whatsapp_reminder_logs
+      (sales_bill_reference_id, template_name, sent_date, discount_percent, status, response_payload)
+     VALUES (?,?,?,?,?,?)`,
+    [
+      data.bill_reference_id, data.template_name, data.sent_date,
+      data.discount_percent || null, data.status || "SENT", data.response_payload || null,
+    ]
+  );
+};
+
 // exports.getSalesInvoice = async (saleId) => {
 //   const [salesRows] = await db.query(
 //       ` SELECT

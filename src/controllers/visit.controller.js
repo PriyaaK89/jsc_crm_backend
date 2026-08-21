@@ -26,22 +26,51 @@ const visitTypeLabels = {
 const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
 
 const isVisitTimeAllowed = (visitUptoTimeStr) => {
-  if (!visitUptoTimeStr) return true; // no restriction configured for this user
+  if (!visitUptoTimeStr) return true;
 
-  const istNow = new Date(Date.now() + IST_OFFSET_MS);
+  const now = new Date();
+
+  const istTime = new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+
+  const hour = Number(istTime.find(p => p.type === "hour").value);
+  const minute = Number(istTime.find(p => p.type === "minute").value);
+  const second = Number(istTime.find(p => p.type === "second").value);
+
   const nowSeconds =
-    istNow.getUTCHours() * 3600 +
-    istNow.getUTCMinutes() * 60 +
-    istNow.getUTCSeconds();
+    hour * 3600 +
+    minute * 60 +
+    second;
 
-  const [h, m, s] = visitUptoTimeStr.split(":").map(Number);
-  const uptoSeconds = h * 3600 + m * 60 + (s || 0);
+  const [h, m, s = 0] = visitUptoTimeStr.split(":").map(Number);
 
-  // ADD THESE:
-  console.log("TZ offset (server, min):", new Date().getTimezoneOffset());
-  console.log("Raw server time (UTC):", new Date().toISOString());
-  console.log("Computed IST time:", istNow.toISOString());
-  console.log("nowSeconds:", nowSeconds, "| uptoSeconds:", uptoSeconds, "| diff:", uptoSeconds - nowSeconds);
+  const uptoSeconds =
+    h * 3600 +
+    m * 60 +
+    s;
+
+  console.log("Server UTC time:", now.toISOString());
+  console.log(
+    "Current IST time:",
+    `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}`
+  );
+  console.log(
+    "Visit allowed till:",
+    visitUptoTimeStr
+  );
+  console.log(
+    "nowSeconds:",
+    nowSeconds,
+    "| uptoSeconds:",
+    uptoSeconds,
+    "| allowed:",
+    nowSeconds <= uptoSeconds
+  );
 
   return nowSeconds <= uptoSeconds;
 };
@@ -139,7 +168,7 @@ console.log("allowed?", isVisitTimeAllowed(visitUpto));
         visit.customer_name &&
         visit.employee_name
       ) {
-        console.log("All required visit data found");
+        // console.log("All required visit data found");
 
         let mobile = visit.contact_number.replace(/\D/g, "");
         console.log("Mobile before country code:", mobile);
@@ -147,26 +176,26 @@ console.log("allowed?", isVisitTimeAllowed(visitUpto));
         if (!mobile.startsWith("91")) {
           mobile = "91" + mobile;
         }
-console.log("Final WhatsApp mobile:", mobile)
+// console.log("Final WhatsApp mobile:", mobile)
         // Resolve human-readable labels for THIS visit only
         const resolvedVisitType =
           visitTypeLabels[visit.visit_type] || visit.visit_type;
 
         const resolvedVisitPurpose =
           visitPurposeLabels[visit.visit_purpose] || visit.visit_purpose;
-        console.log(
-          "WhatsApp Template Name:",
-          "visit_submitted"
-        );
+        // console.log(
+        //   "WhatsApp Template Name:",
+        //   "visit_submitted"
+        // );
 
-        console.log(
-          "WhatsApp Template Language:",
-          "en_GB"
-        );
+        // console.log(
+        //   "WhatsApp Template Language:",
+        //   "en_GB"
+        // );
 
 
 
-        console.log("Calling sendTemplateMessage...");
+        // console.log("Calling sendTemplateMessage...");
 
         const response = await whatsappService.sendTemplateMessage(
           mobile,
@@ -201,28 +230,28 @@ console.log("Final WhatsApp mobile:", mobile)
           ]
         );
 
-        console.log(
-          "Visit WhatsApp sent:",
-          response.messages?.[0]?.id
-        );
-        console.log("WhatsApp API SUCCESS");
-        console.log(
-          "WhatsApp Response:",
-          JSON.stringify(response, null, 2)
-        );
+        // console.log(
+        //   "Visit WhatsApp sent:",
+        //   response.messages?.[0]?.id
+        // );
+        // console.log("WhatsApp API SUCCESS");
+        // console.log(
+        //   "WhatsApp Response:",
+        //   JSON.stringify(response, null, 2)
+        // );
 
-        console.log(
-          "WhatsApp Message ID:",
-          response.messages?.[0]?.id
-        );
+        // console.log(
+        //   "WhatsApp Message ID:",
+        //   response.messages?.[0]?.id
+        // );
       }else {
 
     console.log("WhatsApp NOT sent because required data is missing");
 
-    console.log("Has visit:", !!visit);
-    console.log("Contact number:", visit?.contact_number);
-    console.log("Customer name:", visit?.customer_name);
-    console.log("Employee name:", visit?.employee_name);
+    // console.log("Has visit:", !!visit);
+    // console.log("Contact number:", visit?.contact_number);
+    // console.log("Customer name:", visit?.customer_name);
+    // console.log("Employee name:", visit?.employee_name);
   }
 
 

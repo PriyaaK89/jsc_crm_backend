@@ -92,19 +92,6 @@ exports.createVisit = async (req, res) => {
       return res.status(400).json({ message: "Invalid visit purpose" });
     }
 
-    const visitUpto = await User.getVisitUptoByUserId(user_id);
-    console.log("visitUpto raw:", visitUpto, typeof visitUpto);
-
-    const allowed = isVisitTimeAllowed(visitUpto);
-    console.log("allowed?", allowed);
-
-    if (!allowed) {
-      return res.status(403).json({
-        success: false,
-        message: `Visit submission time is over (allowed till ${formatTimeForDisplay(visitUpto)})`
-      });
-    }
-
     let finalCustomerId = customer_id;
 
     //  NEW CUSTOMER FLOW
@@ -113,9 +100,7 @@ exports.createVisit = async (req, res) => {
       const existing = await customerModel.findCustomer(contact_number, visit_type);
 
       if (existing) {
-        return res.status(400).json({
-          message: "Customer already exists with this mobile number"
-        });
+        return res.status(400).json({ message: "Customer already exists with this mobile number" });
       }
 
       finalCustomerId = await customerModel.createCustomer([
@@ -233,20 +218,20 @@ exports.createVisit = async (req, res) => {
           ]
         );
 
-        // console.log(
-        //   "Visit WhatsApp sent:",
-        //   response.messages?.[0]?.id
-        // );
-        // console.log("WhatsApp API SUCCESS");
-        // console.log(
-        //   "WhatsApp Response:",
-        //   JSON.stringify(response, null, 2)
-        // );
+        console.log(
+          "Visit WhatsApp sent:",
+          response.messages?.[0]?.id
+        );
+        console.log("WhatsApp API SUCCESS");
+        console.log(
+          "WhatsApp Response:",
+          JSON.stringify(response, null, 2)
+        );
 
-        // console.log(
-        //   "WhatsApp Message ID:",
-        //   response.messages?.[0]?.id
-        // );
+        console.log(
+          "WhatsApp Message ID:",
+          response.messages?.[0]?.id
+        );
       } else {
 
         console.log("WhatsApp NOT sent because required data is missing");

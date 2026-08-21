@@ -56,13 +56,13 @@ exports.createVisit = async (req, res) => {
       return res.status(400).json({ message: "Invalid visit purpose" });
     }
 
-     const visitUpto = await User.getVisitUptoByUserId(user_id);
-    if (!isVisitTimeAllowed(visitUpto)) {
-      return res.status(403).json({
-        success: false,
-        message: `Visit submission time is over (allowed till ${formatTimeForDisplay(visitUpto)})`
-      });
-    }
+    //  const visitUpto = await User.getVisitUptoByUserId(user_id);
+    // if (!isVisitTimeAllowed(visitUpto)) {
+    //   return res.status(403).json({
+    //     success: false,
+    //     message: `Visit submission time is over (allowed till ${formatTimeForDisplay(visitUpto)})`
+    //   });
+    // }
 
     let finalCustomerId = customer_id;
 

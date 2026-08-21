@@ -85,17 +85,20 @@ const formatTimeForDisplay = (timeStr) => {
 exports.createVisit = async (req, res) => {
   try {
     const { user_id, visit_type, customer_type, customer_id, name, firm_name, firm_address, contact_number, address, area, district, pincode, visit_purpose, comment, reminder_date } = req.body;
-  console.log("createVisit called | user_id:", user_id, "| body keys:", Object.keys(req.body));
+    console.log("createVisit called | user_id:", user_id, "| body keys:", Object.keys(req.body));
 
     // Validate purpose
     if (!validPurposes.includes(visit_purpose)) {
       return res.status(400).json({ message: "Invalid visit purpose" });
     }
 
-     const visitUpto = await User.getVisitUptoByUserId(user_id);
-     console.log("visitUpto raw:", visitUpto, typeof visitUpto);
-console.log("allowed?", isVisitTimeAllowed(visitUpto));
-    if (!isVisitTimeAllowed(visitUpto)) {
+    const visitUpto = await User.getVisitUptoByUserId(user_id);
+    console.log("visitUpto raw:", visitUpto, typeof visitUpto);
+
+    const allowed = isVisitTimeAllowed(visitUpto);
+    console.log("allowed?", allowed);
+
+    if (!allowed) {
       return res.status(403).json({
         success: false,
         message: `Visit submission time is over (allowed till ${formatTimeForDisplay(visitUpto)})`
@@ -176,7 +179,7 @@ console.log("allowed?", isVisitTimeAllowed(visitUpto));
         if (!mobile.startsWith("91")) {
           mobile = "91" + mobile;
         }
-// console.log("Final WhatsApp mobile:", mobile)
+        // console.log("Final WhatsApp mobile:", mobile)
         // Resolve human-readable labels for THIS visit only
         const resolvedVisitType =
           visitTypeLabels[visit.visit_type] || visit.visit_type;
@@ -244,36 +247,36 @@ console.log("allowed?", isVisitTimeAllowed(visitUpto));
         //   "WhatsApp Message ID:",
         //   response.messages?.[0]?.id
         // );
-      }else {
+      } else {
 
-    console.log("WhatsApp NOT sent because required data is missing");
+        console.log("WhatsApp NOT sent because required data is missing");
 
-    // console.log("Has visit:", !!visit);
-    // console.log("Contact number:", visit?.contact_number);
-    // console.log("Customer name:", visit?.customer_name);
-    // console.log("Employee name:", visit?.employee_name);
-  }
+        // console.log("Has visit:", !!visit);
+        // console.log("Contact number:", visit?.contact_number);
+        // console.log("Customer name:", visit?.customer_name);
+        // console.log("Employee name:", visit?.employee_name);
+      }
 
 
     } catch (err) {
-        console.error(
-    "Error message:",
-    err.message
-  );
+      console.error(
+        "Error message:",
+        err.message
+      );
 
-  console.error(
-    "Meta/API error:",
-    JSON.stringify(
-      err.response?.data || {},
-      null,
-      2
-    )
-  );
+      console.error(
+        "Meta/API error:",
+        JSON.stringify(
+          err.response?.data || {},
+          null,
+          2
+        )
+      );
 
-  console.error(
-    "HTTP status:",
-    err.response?.status
-  );
+      console.error(
+        "HTTP status:",
+        err.response?.status
+      );
       console.error("WhatsApp Error:", err.response?.data || err.message);
     }
 

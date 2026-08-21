@@ -37,6 +37,12 @@ const isVisitTimeAllowed = (visitUptoTimeStr) => {
   const [h, m, s] = visitUptoTimeStr.split(":").map(Number);
   const uptoSeconds = h * 3600 + m * 60 + (s || 0);
 
+  // ADD THESE:
+  console.log("TZ offset (server, min):", new Date().getTimezoneOffset());
+  console.log("Raw server time (UTC):", new Date().toISOString());
+  console.log("Computed IST time:", istNow.toISOString());
+  console.log("nowSeconds:", nowSeconds, "| uptoSeconds:", uptoSeconds, "| diff:", uptoSeconds - nowSeconds);
+
   return nowSeconds <= uptoSeconds;
 };
 
@@ -50,19 +56,22 @@ const formatTimeForDisplay = (timeStr) => {
 exports.createVisit = async (req, res) => {
   try {
     const { user_id, visit_type, customer_type, customer_id, name, firm_name, firm_address, contact_number, address, area, district, pincode, visit_purpose, comment, reminder_date } = req.body;
+  console.log("createVisit called | user_id:", user_id, "| body keys:", Object.keys(req.body));
 
     // Validate purpose
     if (!validPurposes.includes(visit_purpose)) {
       return res.status(400).json({ message: "Invalid visit purpose" });
     }
 
-    //  const visitUpto = await User.getVisitUptoByUserId(user_id);
-    // if (!isVisitTimeAllowed(visitUpto)) {
-    //   return res.status(403).json({
-    //     success: false,
-    //     message: `Visit submission time is over (allowed till ${formatTimeForDisplay(visitUpto)})`
-    //   });
-    // }
+     const visitUpto = await User.getVisitUptoByUserId(user_id);
+     console.log("visitUpto raw:", visitUpto, typeof visitUpto);
+console.log("allowed?", isVisitTimeAllowed(visitUpto));
+    if (!isVisitTimeAllowed(visitUpto)) {
+      return res.status(403).json({
+        success: false,
+        message: `Visit submission time is over (allowed till ${formatTimeForDisplay(visitUpto)})`
+      });
+    }
 
     let finalCustomerId = customer_id;
 

@@ -43,15 +43,11 @@ router.post( "/:approvalId/send-whatsapp-confirmation",
   salesApprove.sendSalesOrderWhatsapp
 );
 
-router.post( "/create-purchase-approval-request", auth,
-  upload.fields([{ name: "orderBillImage", maxCount: 1 }]),
-  controller.createPurchaseApprovalRequest
-);
+router.post( "/create-purchase-approval-request", auth, upload.fields([{ name: "orderBillImage", maxCount: 1 }]), controller.createPurchaseApprovalRequest);
 
 router.post( "/approve-purchase-order/:approvalId", auth,
   upload.fields([ { name: "dispatch_doc_image", maxCount: 1 }, { name: "bill_t_image", maxCount: 1 }, ]), 
-  purchaseApprove.approvePurchaseOrder
-);
+  purchaseApprove.approvePurchaseOrder );
 
 router.post( "/return-purchase-order/:approvalId", auth, upload.fields([ { name: "returnImage", maxCount: 1 } ]), purchaseReturn.returnPurchaseOrder );
 router.post( "/reject-purchase-order/:approvalId", auth, purchaseReject.rejectPurchaseOrder );

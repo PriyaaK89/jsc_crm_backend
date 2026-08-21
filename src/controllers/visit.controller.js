@@ -23,6 +23,30 @@ const visitTypeLabels = {
   distributor: "Distributor"
 };
 
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+
+const isVisitTimeAllowed = (visitUptoTimeStr) => {
+  if (!visitUptoTimeStr) return true; // no restriction configured for this user
+
+  const istNow = new Date(Date.now() + IST_OFFSET_MS);
+  const nowSeconds =
+    istNow.getUTCHours() * 3600 +
+    istNow.getUTCMinutes() * 60 +
+    istNow.getUTCSeconds();
+
+  const [h, m, s] = visitUptoTimeStr.split(":").map(Number);
+  const uptoSeconds = h * 3600 + m * 60 + (s || 0);
+
+  return nowSeconds <= uptoSeconds;
+};
+
+const formatTimeForDisplay = (timeStr) => {
+  const [h, m] = timeStr.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
+};
+
 exports.createVisit = async (req, res) => {
   try {
     const { user_id, visit_type, customer_type, customer_id, name, firm_name, firm_address, contact_number, address, area, district, pincode, visit_purpose, comment, reminder_date } = req.body;
@@ -30,6 +54,14 @@ exports.createVisit = async (req, res) => {
     // Validate purpose
     if (!validPurposes.includes(visit_purpose)) {
       return res.status(400).json({ message: "Invalid visit purpose" });
+    }
+
+     const visitUpto = await User.getVisitUptoByUserId(user_id);
+    if (!isVisitTimeAllowed(visitUpto)) {
+      return res.status(403).json({
+        success: false,
+        message: `Visit submission time is over (allowed till ${formatTimeForDisplay(visitUpto)})`
+      });
     }
 
     let finalCustomerId = customer_id;

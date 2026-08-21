@@ -559,6 +559,14 @@ const saveUserPermissions = async (userId, permissions) => {
     );
   }
 };
+const getVisitUptoByUserId = async (userId) => {
+  const [rows] = await db.query(
+    `SELECT visit_upto FROM users WHERE id = ?`,
+    [userId]
+  );
+  return rows[0]?.visit_upto || null;
+};
+
 
 module.exports = {
   createUser,
@@ -575,5 +583,5 @@ module.exports = {
   getSubordinateIds,
   getUsersUnderManager,
   getPermissionsByUser,
-  saveUserPermissions,
+  saveUserPermissions, getVisitUptoByUserId
 };

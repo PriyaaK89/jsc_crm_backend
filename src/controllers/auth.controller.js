@@ -110,18 +110,10 @@ exports.getUserById = async (req, res) => {
   }
 };
 
-const getClientDevice = (req) => {
-  return {
-    deviceId: req.body.device_id || req.headers["x-device-id"],
-    deviceName: req.body.device_name || req.headers["x-device-name"] || null,
-    platform: req.body.platform || req.headers["x-platform"] || null,
-  };
-};
 
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-
     const user = await User.findUserByEmail(email);
 
     if (!user) {

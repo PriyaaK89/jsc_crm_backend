@@ -161,22 +161,19 @@ const generateDailySalaryInternal = async (employeeId, date) => {
    * instead of being replaced by the recalculated figure.
    */
   if (holdByType.SALARY) {
-    basicSalary =
-      holdByType.SALARY.status === "HOLD"
+    basicSalary = holdByType.SALARY.status === "HOLD"
         ? 0
         : Number(existingSalaryRow?.basic_salary ?? basicSalary);
   }
 
   if (holdByType.TA) {
-    travelAllowance =
-      holdByType.TA.status === "HOLD"
+    travelAllowance = holdByType.TA.status === "HOLD"
         ? 0
         : Number(existingSalaryRow?.travelling_allowance ?? travelAllowance);
   }
 
   if (holdByType.DA) {
-    dailyAllowance =
-      holdByType.DA.status === "HOLD"
+    dailyAllowance = holdByType.DA.status === "HOLD"
         ? 0
         : Number(existingSalaryRow?.daily_allowance ?? dailyAllowance);
   }
@@ -274,6 +271,22 @@ const autoClosePreviousDay = async (employeeId) => {
   }
 };
 
+// Add near the top of the controller, alongside other helpers
+const isPastCheckInCutoff = () => {
+  const CUTOFF_HOUR = 10;
+  const CUTOFF_MINUTE = 15;
+
+  // Get "now" in IST regardless of server's own timezone
+  const nowIST = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+  );
+
+  const cutoff = new Date(nowIST);
+  cutoff.setHours(CUTOFF_HOUR, CUTOFF_MINUTE, 0, 0);
+
+  return nowIST > cutoff;
+};
+
 exports.getTodayAttendance = async (req, res) => {
   try {
     const { employee_id } = req.params;
@@ -344,6 +357,12 @@ exports.markAttendance = async (req, res) => {
     /* ======================= PRESENT ======================= */
     if (status === "present") {
       if (todayAttendance) { return res.status(400).json({ message: "Attendance already marked" }); }
+
+       if (isPastCheckInCutoff()) {
+    return res.status(400).json({
+      message: "You can mark attendance only up to 10:15 AM. Please contact your reporting manager for a late check-in.",
+    });
+  }
 
       const { work_type, field_work_type, travel_mode, vehicle_type, public_transport, odometer_reading, visit_location, } = req.body;
       if (!work_type) { return res.status(400).json({ message: "Work type required" }); }

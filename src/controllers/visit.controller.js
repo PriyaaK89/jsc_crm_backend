@@ -6,6 +6,7 @@ const User = require("../models/user.model");
 const { getSubordinates, getHierarchyIds } = require("../controllers/rollingUser.controller");
 const { getUsersByLevelAndHierarchy } = require("../models/rollingUser.model");
 const whatsappService = require("../services/whatsapp.service");
+const attendanceModel = require("../models/empAttendance.model");
 
 const validPurposes = ["new_dist_planning", "sales_order", "sales_return", "collection", "others"];
 
@@ -23,63 +24,20 @@ const visitTypeLabels = {
   distributor: "Distributor"
 };
 
-const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+// Add near the top of the controller, alongside validPurposes/labels
+const isPastVisitCutoff = () => {
+  const CUTOFF_HOUR = 19; // 7 PM
+  const CUTOFF_MINUTE = 0;
 
-const isVisitTimeAllowed = (visitUptoTimeStr) => {
-  if (!visitUptoTimeStr) return true;
-
-  const now = new Date();
-
-  const istTime = new Intl.DateTimeFormat("en-IN", {
-    timeZone: "Asia/Kolkata",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).formatToParts(now);
-
-  const hour = Number(istTime.find(p => p.type === "hour").value);
-  const minute = Number(istTime.find(p => p.type === "minute").value);
-  const second = Number(istTime.find(p => p.type === "second").value);
-
-  const nowSeconds =
-    hour * 3600 +
-    minute * 60 +
-    second;
-
-  const [h, m, s = 0] = visitUptoTimeStr.split(":").map(Number);
-
-  const uptoSeconds =
-    h * 3600 +
-    m * 60 +
-    s;
-
-  console.log("Server UTC time:", now.toISOString());
-  console.log(
-    "Current IST time:",
-    `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}`
-  );
-  console.log(
-    "Visit allowed till:",
-    visitUptoTimeStr
-  );
-  console.log(
-    "nowSeconds:",
-    nowSeconds,
-    "| uptoSeconds:",
-    uptoSeconds,
-    "| allowed:",
-    nowSeconds <= uptoSeconds
+  // Resolve "now" in IST regardless of server's own timezone
+  const nowIST = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
   );
 
-  return nowSeconds <= uptoSeconds;
-};
+  const cutoff = new Date(nowIST);
+  cutoff.setHours(CUTOFF_HOUR, CUTOFF_MINUTE, 0, 0);
 
-const formatTimeForDisplay = (timeStr) => {
-  const [h, m] = timeStr.split(":").map(Number);
-  const period = h >= 12 ? "PM" : "AM";
-  const hour12 = h % 12 === 0 ? 12 : h % 12;
-  return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
+  return nowIST > cutoff;
 };
 
 exports.createVisit = async (req, res) => {
@@ -90,6 +48,28 @@ exports.createVisit = async (req, res) => {
     // Validate purpose
     if (!validPurposes.includes(visit_purpose)) {
       return res.status(400).json({ message: "Invalid visit purpose" });
+    }
+
+     if (isPastVisitCutoff()) {
+      return res.status(400).json({
+        success: false,
+        message: "You can submit a visit only up to 7:00 PM. Please contact your reporting manager if you need to log it late."
+      });
+    }
+      const attendance = await attendanceModel.getTodayAttendance(user_id);
+
+    if (!attendance) {
+      return res.status(400).json({
+        success: false,
+        message: "Please mark attendance before submitting a visit"
+      });
+    }
+
+    if (attendance.status === "day_over") {
+      return res.status(400).json({
+        success: false,
+        message: "Attendance already marked as day over. Cannot submit visit."
+      });
     }
 
     let finalCustomerId = customer_id;

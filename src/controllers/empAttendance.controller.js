@@ -314,6 +314,16 @@ exports.getTodayAttendance = async (req, res) => {
   }
 };
 
+const MARKETING_DEPARTMENT_ID = 2;
+
+const getEmployeeDepartmentId = async (employeeId) => {
+  const [[row]] = await db.query(
+    `SELECT department_id FROM users WHERE id = ?`,
+    [employeeId]
+  );
+  return row ? row.department_id : null;
+};
+
 exports.markAttendance = async (req, res) => {
   try {
     const { employee_id, status } = req.body;
@@ -331,6 +341,16 @@ exports.markAttendance = async (req, res) => {
       if (todayAttendance) {
         return res.status(400).json({ message: "Attendance already marked" });
       }
+      if (work_type === "office") {
+  const departmentId = await getEmployeeDepartmentId(employee_id);
+
+  if (departmentId === MARKETING_DEPARTMENT_ID) {
+    return res.status(400).json({
+      message:
+        "Marketing employees cannot mark attendance as Office Sitting. Please mark attendance as Field work.",
+    });
+  }
+}
 
       await Attendance.createAttendance([
         employee_id,
@@ -358,11 +378,11 @@ exports.markAttendance = async (req, res) => {
     if (status === "present") {
       if (todayAttendance) { return res.status(400).json({ message: "Attendance already marked" }); }
 
-  //      if (isPastCheckInCutoff()) {
-  //   return res.status(400).json({
-  //     message: "You can mark attendance only up to 10:15 AM. Please contact your reporting manager for a late check-in.",
-  //   });
-  // }
+       if (isPastCheckInCutoff()) {
+    return res.status(400).json({
+      message: "You can mark attendance only up to 10:15 AM. Please contact your reporting manager for a late check-in.",
+    });
+  }
 
       const { work_type, field_work_type, travel_mode, vehicle_type, public_transport, odometer_reading, visit_location, } = req.body;
       if (!work_type) { return res.status(400).json({ message: "Work type required" }); }
@@ -372,6 +392,17 @@ exports.markAttendance = async (req, res) => {
         return res.status(400).json({
           message: "Invalid work type",
         });
+      }
+
+       if (work_type === "office") {
+        const departmentId = await getEmployeeDepartmentId(employee_id);
+
+        if (departmentId === MARKETING_DEPARTMENT_ID) {
+          return res.status(400).json({
+            message:
+              "Marketing employees cannot mark attendance as Office Sitting. Please mark attendance as Field work.",
+          });
+        }
       }
 
       if (work_type === "field" && travel_mode === "private" && !odometer_reading) {

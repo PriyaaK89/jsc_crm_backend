@@ -1,8 +1,7 @@
 const db = require("../config/db");
 
 exports.createVisit = async (data) => {
-  const query = `
-    INSERT INTO visits 
+  const query = ` INSERT INTO visits 
     (user_id, customer_id, visit_type, customer_type, visit_purpose, comment, reminder_date, image_path)
     VALUES (?, ?, ?, ?, ?, ?, ?, ? )`;
 
@@ -218,24 +217,29 @@ exports.getVisitReportSummary = async (filters) => {
   return { total, page, limit, totalPages: Math.ceil(total / limit), data: rows, };
 };
 
-exports.getHierarchyVisitSummary = async ( filters) => {
+exports.getHierarchyVisitSummary = async (filters) => {
+  const dateJoinClause = filters.date ? "AND DATE(v.created_at) = ?" : "";
 
   let query = `
-    SELECT u.id, u.name,  u.contact_no, jr.name AS role_name,
+    SELECT u.id, u.name, u.contact_no, jr.name AS role_name,
       COUNT(v.id) AS total_visits
 
     FROM users u
     JOIN job_roles jr ON jr.id = u.job_role_id
-    LEFT JOIN visits v ON v.user_id = u.id
+    LEFT JOIN visits v ON v.user_id = u.id ${dateJoinClause}
 
-    WHERE u.id IN ( ${filters.user_ids.map(() => "?").join(",")} ) `;
+    WHERE u.id IN ( ${filters.user_ids.map(() => "?").join(",")} )
+  `;
 
-  const params = [...filters.user_ids];
+  // Build params in the SAME left-to-right order the ?'s appear in the query:
+  // 1. date (inside the JOIN, appears before user_ids' WHERE clause in string,
+  //    but user_ids' ?'s come first in the string above — careful!)
+  const params = [];
 
-  if (filters.date) {
-    query += ` AND DATE(v.created_at) = ? `;
-    params.push(filters.date);
-  }
+  // Re-order query so param order is unambiguous:
+  // date ? appears first (in JOIN), user_ids ?'s appear second (in WHERE)
+  if (filters.date) params.push(filters.date);
+  params.push(...filters.user_ids);
 
   if (filters.level) {
     query += ` AND jr.level = ? `;
@@ -248,18 +252,55 @@ exports.getHierarchyVisitSummary = async ( filters) => {
   }
 
   query += ` GROUP BY
-      u.id,
-      u.name,
-       u.contact_no,
-      jr.name
-
-    ORDER BY
-      jr.level,
-      u.name `;
+      u.id, u.name, u.contact_no, jr.name
+    ORDER BY jr.level, u.name `;
 
   const [rows] = await db.query(query, params);
   return rows;
 };
+
+// exports.getHierarchyVisitSummary = async ( filters) => {
+
+//   let query = `
+//     SELECT u.id, u.name,  u.contact_no, jr.name AS role_name,
+//       COUNT(v.id) AS total_visits
+
+//     FROM users u
+//     JOIN job_roles jr ON jr.id = u.job_role_id
+//     LEFT JOIN visits v ON v.user_id = u.id
+
+//     WHERE u.id IN ( ${filters.user_ids.map(() => "?").join(",")} ) `;
+
+//   const params = [...filters.user_ids];
+
+//   if (filters.date) {
+//     query += ` AND DATE(v.created_at) = ? `;
+//     params.push(filters.date);
+//   }
+
+//   if (filters.level) {
+//     query += ` AND jr.level = ? `;
+//     params.push(filters.level);
+//   }
+
+//   if (filters.user_id) {
+//     query += ` AND u.id = ? `;
+//     params.push(filters.user_id);
+//   }
+
+//   query += ` GROUP BY
+//       u.id,
+//       u.name,
+//        u.contact_no,
+//       jr.name
+
+//     ORDER BY
+//       jr.level,
+//       u.name `;
+
+//   const [rows] = await db.query(query, params);
+//   return rows;
+// };
 
 exports.getUserVisitDetails = async (userId, date) => {
   let query = `

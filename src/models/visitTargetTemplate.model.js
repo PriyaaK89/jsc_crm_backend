@@ -1133,3 +1133,65 @@ exports.unholdTemplate = async (connection, templateId) => {
 
   return result.affectedRows > 0;
 };
+
+exports.getTeamProgress = async (filters = {}) => {
+  const { employeeIds, level, employeeId, templateId } = filters;
+
+  if (!employeeIds || employeeIds.length === 0) {
+    return [];
+  }
+
+  const where = [
+    "a.status = 'ACTIVE'",
+    `a.employee_id IN (${employeeIds.map(() => "?").join(",")})`,
+  ];
+  const params = [...employeeIds];
+
+  if (level) {
+    where.push("jr.level = ?");
+    params.push(level);
+  }
+
+  if (employeeId) {
+    where.push("a.employee_id = ?");
+    params.push(employeeId);
+  }
+
+  if (templateId) {
+    where.push("a.template_id = ?");
+    params.push(templateId);
+  }
+
+  const [assignments] = await db.query(
+    `
+      SELECT
+        a.*,
+        u.name AS employee_name,
+        u.contact_no,
+        jr.name AS role_name,
+        jr.level
+      FROM visit_target_assignments a
+      INNER JOIN users u ON u.id = a.employee_id
+      LEFT JOIN job_roles jr ON jr.id = u.job_role_id
+      WHERE ${where.join(" AND ")}
+      ORDER BY jr.level, u.name
+    `,
+    params
+  );
+
+  const result = [];
+
+  for (const assignment of assignments) {
+    const progress = await exports.getAssignmentProgress(assignment.id);
+
+    if (progress) {
+      progress.assignment.employee_name = assignment.employee_name;
+      progress.assignment.contact_no = assignment.contact_no;
+      progress.assignment.role_name = assignment.role_name;
+      progress.assignment.level = assignment.level;
+      result.push(progress);
+    }
+  }
+
+  return result;
+};

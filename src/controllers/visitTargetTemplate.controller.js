@@ -1,6 +1,7 @@
 const db = require("../config/db");
 const visitTargetModel = require("../models/visitTargetTemplate.model");
 const { calculateEndDate } = require("../utils/targetPeriod.helper");
+const { getHierarchyIds } = require("../controllers/rollingUser.controller");
 
 /**
  * Create Target Template
@@ -186,43 +187,43 @@ exports.templateDropdown = async (req, res) => {
  */
 exports.updateTemplate = async (req, res) => {
   const connection = await db.getConnection();
- 
+
   try {
     const { id } = req.params;
     const { employee_ids, targets, ...templateFields } = req.body;
- 
+
     const existing = await visitTargetModel.getTemplateById(id);
- 
+
     if (!existing) {
       return res.status(404).json({ success: false, message: "Template not found" });
     }
- 
+
     // Effective period for any NEW assignments created in this call.
     // Falls back to the template's current dates if not being changed.
     const newStartDate = templateFields.start_date || existing.start_date;
     const newEndDate = templateFields.end_date || existing.end_date;
- 
+
     // ---- Diff employees ----
     const existingEmployeeRows = await visitTargetModel.getTemplateEmployees(id);
     const existingEmployeeIds = existingEmployeeRows.map((e) => e.id);
- 
+
     const employeeIdsProvided = Array.isArray(employee_ids);
     const uniqueIncomingEmployeeIds = employeeIdsProvided
       ? [...new Set(employee_ids)]
       : existingEmployeeIds;
- 
+
     const addedEmployees = employeeIdsProvided
       ? uniqueIncomingEmployeeIds.filter((eid) => !existingEmployeeIds.includes(eid))
       : [];
- 
+
     const removedEmployees = employeeIdsProvided
       ? existingEmployeeIds.filter((eid) => !uniqueIncomingEmployeeIds.includes(eid))
       : [];
- 
+
     const keptEmployees = employeeIdsProvided
       ? uniqueIncomingEmployeeIds.filter((eid) => existingEmployeeIds.includes(eid))
       : existingEmployeeIds;
- 
+
     // ---- Validate: only added employees need a duplicate-assignment check ----
     if (addedEmployees.length > 0) {
       const conflicts = await visitTargetModel.checkDuplicateTemplate(
@@ -231,7 +232,7 @@ exports.updateTemplate = async (req, res) => {
         newEndDate,
         id
       );
- 
+
       if (conflicts.length > 0) {
         return res.status(409).json({
           success: false,
@@ -240,24 +241,24 @@ exports.updateTemplate = async (req, res) => {
         });
       }
     }
- 
+
     await connection.beginTransaction();
- 
+
     // ---- 1. Update template info ----
     if (Object.keys(templateFields).length > 0) {
       await visitTargetModel.updateTemplate(connection, id, templateFields);
     }
- 
+
     // ---- 2. Update template targets ----
     if (Array.isArray(targets) && targets.length > 0) {
       await visitTargetModel.updateTemplateTargets(connection, id, targets);
     }
- 
+
     // ---- 3. Update template <-> employee mapping ----
     if (employeeIdsProvided) {
       await visitTargetModel.updateTemplateUsers(connection, id, uniqueIncomingEmployeeIds);
     }
- 
+
     // Targets to use when creating assignment_details for NEWLY added
     // employees: prefer the payload's targets; otherwise fall back to
     // whatever the template currently has (post-update).
@@ -265,8 +266,8 @@ exports.updateTemplate = async (req, res) => {
       Array.isArray(targets) && targets.length > 0
         ? targets
         : await visitTargetModel.getTemplateTargets(id);
- 
-// ---- 5. Added employees: create a new ACTIVE assignment, or
+
+    // ---- 5. Added employees: create a new ACTIVE assignment, or
     // reactivate an existing EXPIRED/COMPLETED row for this exact period
     // (required because uq_assignment_period is unique on
     // template_id+employee_id+period_start+period_end regardless of status) ----
@@ -309,12 +310,12 @@ exports.updateTemplate = async (req, res) => {
         effectiveTargets
       );
     }
- 
+
     // ---- 6. Removed employees: expire their ACTIVE assignment, keep history ----
     if (removedEmployees.length > 0) {
       await visitTargetModel.expireAssignmentsForEmployees(connection, id, removedEmployees);
     }
- 
+
     // ---- 7. Kept employees: sync assignment_details if targets changed ----
     if (keptEmployees.length > 0 && Array.isArray(targets) && targets.length > 0) {
       await visitTargetModel.syncActiveAssignmentDetailsForEmployees(
@@ -324,7 +325,7 @@ exports.updateTemplate = async (req, res) => {
         targets
       );
     }
- 
+
     // ---- 8. Kept employees: sync period dates if template dates changed ----
     if (keptEmployees.length > 0 && (templateFields.start_date || templateFields.end_date)) {
       await visitTargetModel.updateActiveAssignmentsPeriodForEmployees(
@@ -335,9 +336,9 @@ exports.updateTemplate = async (req, res) => {
         newEndDate
       );
     }
- 
+
     await connection.commit();
- 
+
     return res.json({
       success: true,
       message: "Template updated",
@@ -355,7 +356,7 @@ exports.updateTemplate = async (req, res) => {
     connection.release();
   }
 };
- 
+
 /**
  * Delete (soft-deactivate) template
  *
@@ -369,23 +370,23 @@ exports.updateTemplate = async (req, res) => {
  */
 exports.deleteTemplate = async (req, res) => {
   const connection = await db.getConnection();
- 
+
   try {
     const { id } = req.params;
- 
+
     const existing = await visitTargetModel.getTemplateById(id);
- 
+
     if (!existing) {
       return res.status(404).json({ success: false, message: "Template not found" });
     }
- 
+
     await connection.beginTransaction();
- 
+
     await visitTargetModel.deleteTemplate(connection, id);
     await visitTargetModel.expireAllActiveAssignmentsForTemplate(connection, id);
- 
+
     await connection.commit();
- 
+
     return res.json({ success: true, message: "Template deactivated" });
   } catch (error) {
     await connection.rollback();
@@ -424,7 +425,7 @@ exports.getAssignmentProgress = async (req, res) => {
     const { id } = req.params;
     const progress = await visitTargetModel.getAssignmentProgress(id);
 
-    if (!progress) { return res.status(404).json({ success: false, message: "Assignment not found" });}
+    if (!progress) { return res.status(404).json({ success: false, message: "Assignment not found" }); }
 
     return res.json({ success: true, data: progress });
   } catch (error) {
@@ -511,7 +512,7 @@ exports.completeAssignment = async (req, res) => {
 exports.getAssignmentHistory = async (req, res) => {
   try {
     const { employee_id, template_id, status, page, limit } = req.query;
- 
+
     const { rows, total } = await visitTargetModel.getAssignmentHistory({
       employeeId: employee_id,
       templateId: template_id,
@@ -519,7 +520,7 @@ exports.getAssignmentHistory = async (req, res) => {
       page: Number(page) || 1,
       limit: Number(limit) || 20,
     });
- 
+
     return res.json({
       success: true,
       data: rows,
@@ -830,5 +831,60 @@ exports.unholdTemplate = async (req, res) => {
     return res.status(500).json({ success: false, message: "Failed to unhold template" });
   } finally {
     connection.release();
+  }
+};
+
+exports.getTeamProgress = async (req, res) => {
+  try {
+    const loggedInUser = req.user;
+    const { level, user_id, template_id } = req.query;
+
+    const hierarchyIds = await getHierarchyIds(loggedInUser.id);
+
+    const rows = await visitTargetModel.getTeamProgress({
+      employeeIds: hierarchyIds,
+      level: level ? Number(level) : undefined,
+      employeeId: user_id ? Number(user_id) : undefined,
+      templateId: template_id,
+    });
+
+    // flatten (assignment + breakdown[]) rows into one entry per employee
+    const userMap = new Map();
+
+    rows.forEach((r) => {
+      const a = r.assignment;
+      if (!userMap.has(a.employee_id)) {
+        userMap.set(a.employee_id, {
+          id: a.employee_id,
+          name: a.employee_name,
+          contact_no: a.contact_no,
+          role_name: a.role_name,
+          level: a.level,
+          total_target: 0,
+          total_achieved: 0,
+          targets: [],
+        });
+      }
+
+      const entry = userMap.get(a.employee_id);
+
+      r.breakdown.forEach((b) => {
+        entry.targets.push({
+          assignment_id: a.id,
+          visit_type: b.visit_type,
+          target_value: b.target_value,
+          achieved: b.achieved,
+          period_start: a.period_start,
+          period_end: a.period_end,
+        });
+        entry.total_target += Number(b.target_value) || 0;
+        entry.total_achieved += Number(b.achieved) || 0;
+      });
+    });
+
+    return res.status(200).json({ success: true, data: Array.from(userMap.values()) });
+  } catch (error) {
+    console.error("getTeamProgress error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch team progress" });
   }
 };

@@ -144,13 +144,9 @@ const getAllUsers = async ({ search = "", page = 1, limit = 10 }) => {
   let whereClause = "";
   let params = [];
 
-  if (search) {
-    whereClause = `
-    WHERE 
-      u.name LIKE ? 
+  if (search) { whereClause = ` WHERE u.name LIKE ? 
       OR u.email LIKE ? 
-      OR u.contact_no LIKE ?
-  `;
+      OR u.contact_no LIKE ? `;
     params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
 
@@ -429,37 +425,6 @@ FROM users WHERE id = ?;`,
   }
 };
 
-// const softDeleteUser = async (userId) => {
-//   const conn = await db.getConnection();
-
-//   try {
-//     await conn.beginTransaction();
-
-//     // 1. Copy to deleted_users
-//     const [rows] = await conn.query(
-//       `INSERT INTO deleted_users SELECT *, NOW() FROM users WHERE id = ?`,
-//       [userId]
-//     );
-
-//     if (rows.affectedRows === 0) {
-//       await conn.rollback();
-//       return false;
-//     }
-
-//     // 2. Delete from users
-//     await conn.query(`DELETE FROM users WHERE id = ?`, [userId]);
-
-//     await conn.commit();
-//     return true;
-
-//   } catch (err) {
-//     await conn.rollback();
-//     throw err;
-//   } finally {
-//     conn.release();
-//   }
-// };
-
 const getDeletedUsers = async () => {
   const [rows] = await db.query(
     `SELECT * FROM deleted_users ORDER BY deleted_at DESC`,
@@ -566,6 +531,37 @@ const getVisitUptoByUserId = async (userId) => {
   );
   return rows[0]?.visit_upto || null;
 };
+
+// const softDeleteUser = async (userId) => {
+//   const conn = await db.getConnection();
+
+//   try {
+//     await conn.beginTransaction();
+
+//     // 1. Copy to deleted_users
+//     const [rows] = await conn.query(
+//       `INSERT INTO deleted_users SELECT *, NOW() FROM users WHERE id = ?`,
+//       [userId]
+//     );
+
+//     if (rows.affectedRows === 0) {
+//       await conn.rollback();
+//       return false;
+//     }
+
+//     // 2. Delete from users
+//     await conn.query(`DELETE FROM users WHERE id = ?`, [userId]);
+
+//     await conn.commit();
+//     return true;
+
+//   } catch (err) {
+//     await conn.rollback();
+//     throw err;
+//   } finally {
+//     conn.release();
+//   }
+// };
 
 
 module.exports = {

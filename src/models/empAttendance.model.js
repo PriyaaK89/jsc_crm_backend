@@ -212,8 +212,7 @@ exports.getAttendanceImagesByDate = async (employeeId, date) => {
 };
 
 exports.getMyTeamAttendance = async ({ hierarchyIds, date, level, user_id, }) => {
-  let query = `
-    SELECT
+  let query = ` SELECT
       ea.id,
       ea.attendance_date,
       ea.status,
@@ -242,11 +241,8 @@ exports.getMyTeamAttendance = async ({ hierarchyIds, date, level, user_id, }) =>
 
     FROM emp_attendance ea
 
-    JOIN users u
-      ON u.id = ea.employee_id
-
-    JOIN job_roles jr
-      ON jr.id = u.job_role_id
+    JOIN users u ON u.id = ea.employee_id
+    JOIN job_roles jr ON jr.id = u.job_role_id
 
     WHERE ea.employee_id IN (${hierarchyIds.map(() => "?").join(",")})`;
 
@@ -333,8 +329,7 @@ SUM(
     FROM users u
     LEFT JOIN emp_attendance ea 
       ON u.id = ea.employee_id
-      AND ea.attendance_date = ?
-    `,
+      AND ea.attendance_date = ? `,
     [date],
   );
 

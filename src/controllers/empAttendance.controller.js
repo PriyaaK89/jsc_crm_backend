@@ -560,46 +560,6 @@ exports.markAttendance = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
-// exports.getAttendanceImagesByDate = async (req, res) => {
-//   try {
-//     const { employeeId } = req.params;
-//     const { date } = req.query;
-
-//     if (!date) {
-//       return res.status(400).json({
-//         message: "Date is required (YYYY-MM-DD)",
-//       });
-//     }
-
-//     const rows = await Attendance.getAttendanceImagesByDate(employeeId, date);
-
-//     if (!rows.length) {
-//       return res.status(404).json({
-//         message: "No attendance found for this date",
-//       });
-//     }
-
-//     // Format response properly
-//     const response = {
-//       employee_id: employeeId,
-//       attendance_date: date,
-//       images: {},
-//     };
-
-//     rows.forEach((row) => {
-//       if (row.image_type && row.file_url) {
-//         response.images[row.image_type] = row.file_url;
-//       }
-//     });
-
-//     return res.json(response);
-//   } catch (error) {
-//     console.error("Get Attendance Images Error:", error);
-//     return res.status(500).json({
-//       message: "Server error",
-//     });
-//   }
-// };
 
 exports.getAttendanceImagesByDate = async (req, res) => {
   try {
@@ -841,6 +801,48 @@ exports.getMyTeamAttendance = async (req, res) => {
     });
   }
 };
+
+// exports.getAttendanceImagesByDate = async (req, res) => {
+//   try {
+//     const { employeeId } = req.params;
+//     const { date } = req.query;
+
+//     if (!date) {
+//       return res.status(400).json({
+//         message: "Date is required (YYYY-MM-DD)",
+//       });
+//     }
+
+//     const rows = await Attendance.getAttendanceImagesByDate(employeeId, date);
+
+//     if (!rows.length) {
+//       return res.status(404).json({
+//         message: "No attendance found for this date",
+//       });
+//     }
+
+//     // Format response properly
+//     const response = {
+//       employee_id: employeeId,
+//       attendance_date: date,
+//       images: {},
+//     };
+
+//     rows.forEach((row) => {
+//       if (row.image_type && row.file_url) {
+//         response.images[row.image_type] = row.file_url;
+//       }
+//     });
+
+//     return res.json(response);
+//   } catch (error) {
+//     console.error("Get Attendance Images Error:", error);
+//     return res.status(500).json({
+//       message: "Server error",
+//     });
+//   }
+// };
+
 
 // const generateDailySalaryInternal = async (employeeId, date) => {
 //   const user = await SalaryDaily.getUserSalaryInfo(employeeId);

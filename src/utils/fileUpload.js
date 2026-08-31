@@ -22,7 +22,8 @@ const folderMap = {
   txn_debitNote: "txn-master/debitNote",
   txn_creditNote: "txn-master/creditNote",
   approval_returns: "approval/returns",
-  salary_slips: "employee/salary-slip"
+  salary_slips: "employee/salary-slip",
+  qr_code: "template"
 };
 
 const uploadFileToMinio = async (file, type, options = {}) => {

@@ -66,14 +66,12 @@ const normalizeInterestConfigs = (interest_configs = []) => {
 
 const createLedgerController = async (req, res) => {
   try {
-    const {
-      ledger_name, group_id, employee_under,
+    const { ledger_name, group_id, employee_under,
       opening_balance, balance_type, opening_date,
       mailing_name, location, country, state, pincode, pan_no, gst_no,
       maintain_bill_by_bill, default_credit_period, check_credit_days, credit_limit,
       inventory_values_affected, use_for_payroll, activate_interest_calculation, od_limit,
-      bank_details, interest_configs, crm_details,
-    } = req.body;
+      bank_details, interest_configs, crm_details, } = req.body;
 
     // --- Validations ---
 
@@ -259,62 +257,6 @@ const createLedgerController = async (req, res) => {
         security_cheque_no2: crm_details.security_cheque_no2 || null,
       });
     }
-    // try {
-
-    //   const ledger = await getLedgerWhatsappData(ledgerId);
-    //   if (ledger && ledger.contact && ledger.customer_name) {
-
-    //     let mobile = ledger.contact.replace(/\D/g, "");
-    //     if (!mobile.startsWith("91")) {
-    //       mobile = "91" + mobile;
-    //     }
-    //     // Generate display ledger code
-    // const ledgerCode = `JSC-${ledger.id + 100}`;
-
-    //     await whatsappService.sendTemplateMessage(
-    //       mobile, "ledger_created", "en_US",
-    //       [
-    //         {
-    //           type: "body",
-    //           parameters: [
-    //             {
-    //               type: "text",
-    //               text: ledger.customer_name
-    //             },
-    //             {
-    //               type: "text",
-    //               text: ledgerCode
-    //             },
-    //             {
-    //               type: "text",
-    //               text: ledger.ledger_name
-    //             },
-    //             // {
-    //             //   type: "text",
-    //             //   text: companyConfig.bank.bankName
-    //             // },
-    //             // {
-    //             //   type: "text",
-    //             //   text: companyConfig.bank.accountName
-    //             // },
-    //             // {
-    //             //   type: "text",
-    //             //   text: companyConfig.bank.accountNumber
-    //             // },
-    //             // {
-    //             //   type: "text",
-    //             //   text: companyConfig.bank.ifscCode
-    //             // }
-    //           ]
-    //         }
-    //       ]
-    //     );
-    //     console.log("Ledger WhatsApp sent");
-    //   }
-
-    // } catch (err) {
-    //   console.error("Ledger WhatsApp Error:", err.response?.data || err.message);
-    // }
 
     return res.status(201).json({
       success: true,

@@ -407,7 +407,7 @@ exports.sendCreditNoteWhatsApp = async (req, res) => {
           { type: "text", text: creditNote.customer_name || "" }, // {{1}}
           { type: "text", text: creditNoteNo },                    // {{2}}
           { type: "text", text: date },                            // {{3}}
-          { type: "text", text: productNames },                    // {{4}}
+          // { type: "text", text: productNames },                    // {{4}}
           { type: "text", text: amount },                          // {{5}}
         ],
       },

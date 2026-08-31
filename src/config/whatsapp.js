@@ -1,8 +1,5 @@
 require("dotenv").config();
 
-
-
-
 module.exports = {
     apiVersion: process.env.WHATSAPP_API_VERSION,
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,

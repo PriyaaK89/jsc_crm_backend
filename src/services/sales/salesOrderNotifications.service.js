@@ -40,7 +40,7 @@ exports.sendOrderConfirmedNotification = async ({
         { type: "text", text: recipientName },
         { type: "text", text: String(orderNo) },
         { type: "text", text: formatOrderDate(orderDate) },
-        { type: "text", text: formatProductsList(items) },
+        // { type: "text", text: formatProductsList(items) },
         { type: "text", text: formatAmount(amount) },        // {{5}} Total Amount
       ],
     },

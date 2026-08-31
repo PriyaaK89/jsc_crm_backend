@@ -15,9 +15,9 @@ const formatPhoneForWhatsapp = (contactNo) => {
 };
 
 cron.schedule(
-  "0 18 * * *",
+  "0 23 * * *",
   async () => {
-    console.log("Running ledger outstanding reminder cron (11 AM IST)...");
+    console.log("Running ledger outstanding reminder cron (23 AM IST)...");
 
     try {
       // One presigned URL for the QR image, reused for every send this run

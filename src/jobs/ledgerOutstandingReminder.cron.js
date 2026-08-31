@@ -1,7 +1,7 @@
 // cron/ledgerOutstandingReminder.cron.js
 const cron = require("node-cron");
 const db = require("../config/db");
-const { sendTemplateMessage } = require("../utils/whatsapp.service");
+const { sendTemplateMessage } = require("../services/whatsapp.service");
 const { getPresignedUrl } = require("../utils/fileUpload");
 const { getCurrentLedgerBalance } = require("../models/ledger.model");
 

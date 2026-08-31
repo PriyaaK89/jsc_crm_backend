@@ -1,6 +1,6 @@
 const cron = require("node-cron");
 const db = require("../config/db");
-const { sendTemplateMessage } = require("../utils/whatsapp.service"); // adjust path to your file
+const { sendTemplateMessage } = require("../services/whatsapp.service"); // adjust path to your file
 
 const MARKETING_DEPARTMENT_ID = 2;
 

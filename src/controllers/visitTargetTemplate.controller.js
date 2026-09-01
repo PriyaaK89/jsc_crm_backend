@@ -24,6 +24,13 @@ exports.createTemplate = async (req, res) => {
 
     const assignedBy = req.user.id; // adjust to match your auth middleware
 
+    if (!template_name || !template_name.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "template_name is required",
+      });
+    }
+
     if (!frequency || !start_date || !end_date) {
       return res.status(400).json({
         success: false,
@@ -45,19 +52,33 @@ exports.createTemplate = async (req, res) => {
       });
     }
 
+
+
     const uniqueEmployeeIds = [...new Set(employee_ids)];
 
-    const conflicts = await visitTargetModel.checkDuplicateTemplate(
-      uniqueEmployeeIds,
-      start_date,
-      end_date
+    // const conflicts = await visitTargetModel.checkDuplicateTemplate(
+    //   uniqueEmployeeIds,
+    //   start_date,
+    //   end_date
+    // );
+
+    // if (conflicts.length > 0) {
+    //   return res.status(409).json({
+    //     success: false,
+    //     message: "One or more employees already have an active target for this period",
+    //     conflicts,
+    //   });
+    // }
+
+    const employeesWithActiveTarget = await visitTargetModel.getEmployeesWithActiveTarget(
+      uniqueEmployeeIds
     );
 
-    if (conflicts.length > 0) {
+    if (employeesWithActiveTarget.length > 0) {
       return res.status(409).json({
         success: false,
-        message: "One or more employees already have an active target for this period",
-        conflicts,
+        message: "This Employee already have an active target assigned",
+        conflicts: employeesWithActiveTarget,
       });
     }
 
@@ -224,20 +245,21 @@ exports.updateTemplate = async (req, res) => {
       ? uniqueIncomingEmployeeIds.filter((eid) => existingEmployeeIds.includes(eid))
       : existingEmployeeIds;
 
+    // ---- NEW: template name uniqueness (only if it's actually changing) ----
+  
+
     // ---- Validate: only added employees need a duplicate-assignment check ----
     if (addedEmployees.length > 0) {
-      const conflicts = await visitTargetModel.checkDuplicateTemplate(
+      const employeesWithActiveTarget = await visitTargetModel.getEmployeesWithActiveTarget(
         addedEmployees,
-        newStartDate,
-        newEndDate,
-        id
+        id // exclude this template itself
       );
 
-      if (conflicts.length > 0) {
+      if (employeesWithActiveTarget.length > 0) {
         return res.status(409).json({
           success: false,
-          message: "One or more employees already have an active target for this period",
-          conflicts,
+          message: "One or more employees already have an active target assigned",
+          conflicts: employeesWithActiveTarget,
         });
       }
     }
@@ -607,22 +629,38 @@ exports.reactivateTemplate = async (req, res) => {
     const employeeIds = mappedEmployees.map((e) => e.id);
 
     if (employeeIds.length > 0) {
-      const conflicts = await visitTargetModel.checkDuplicateTemplate(
+      const employeesWithActiveTarget = await visitTargetModel.getEmployeesWithActiveTarget(
         employeeIds,
-        periodStart,
-        periodEnd,
         id
       );
 
-      if (conflicts.length > 0) {
+      if (employeesWithActiveTarget.length > 0) {
         return res.status(409).json({
           success: false,
           message:
-            "One or more employees already have an active target for this period. Remove them from this template first, or choose a different period.",
-          conflicts,
+            "One or more employees already have an active target assigned. Remove them from this template first, or choose a different period.",
+          conflicts: employeesWithActiveTarget,
         });
       }
     }
+
+    // if (employeeIds.length > 0) {
+    //   const conflicts = await visitTargetModel.checkDuplicateTemplate(
+    //     employeeIds,
+    //     periodStart,
+    //     periodEnd,
+    //     id
+    //   );
+
+    //   if (conflicts.length > 0) {
+    //     return res.status(409).json({
+    //       success: false,
+    //       message:
+    //         "One or more employees already have an active target for this period. Remove them from this template first, or choose a different period.",
+    //       conflicts,
+    //     });
+    //   }
+    // }
 
     await connection.beginTransaction();
 

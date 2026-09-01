@@ -1192,6 +1192,53 @@ exports.getTeamProgress = async (filters = {}) => {
       result.push(progress);
     }
   }
-
   return result;
+};
+
+exports.checkTemplateNameExists = async (templateName, excludeTemplateId = null) => {
+  let query = `
+    SELECT id FROM visit_target_templates
+    WHERE LOWER(TRIM(template_name)) = LOWER(TRIM(?))
+  `;
+  const params = [templateName];
+
+  if (excludeTemplateId) {
+    query += ` AND id <> ?`;
+    params.push(excludeTemplateId);
+  }
+
+  const [rows] = await db.query(query, params);
+  return rows.length > 0;
+};
+
+exports.getEmployeesWithActiveTarget = async (employeeIds, excludeTemplateId = null) => {
+  if (!employeeIds || employeeIds.length === 0) {
+    return [];
+  }
+
+  let query = `
+    SELECT
+      vta.employee_id,
+      u.name AS employee_name,
+      vta.template_id,
+      tt.template_name,
+      vta.period_start,
+      vta.period_end
+    FROM visit_target_assignments vta
+    INNER JOIN visit_target_templates tt ON tt.id = vta.template_id
+    INNER JOIN users u ON u.id = vta.employee_id
+    WHERE vta.employee_id IN (${employeeIds.map(() => "?").join(",")})
+      AND vta.status = 'ACTIVE'
+      AND tt.status = 'ACTIVE'
+  `;
+
+  const params = [...employeeIds];
+
+  if (excludeTemplateId) {
+    query += ` AND vta.template_id <> ?`;
+    params.push(excludeTemplateId);
+  }
+
+  const [rows] = await db.query(query, params);
+  return rows;
 };

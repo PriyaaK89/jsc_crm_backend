@@ -434,7 +434,7 @@ const getDeletedUsers = async () => {
 
 const getUserDropdown = async () => {
   const [rows] = await db.query(
-    `SELECT id, name 
+    `SELECT id, name, contact_no
      FROM users
      WHERE is_active = 1
      ORDER BY name ASC`,
@@ -532,6 +532,14 @@ const getVisitUptoByUserId = async (userId) => {
   return rows[0]?.visit_upto || null;
 };
 
+const getUserContactById = async (id) => {
+  const [rows] = await db.query(
+    `SELECT id, name, contact_no FROM users WHERE id = ? AND is_active = 1`,
+    [id]
+  );
+  return rows[0] || null;
+};
+
 // const softDeleteUser = async (userId) => {
 //   const conn = await db.getConnection();
 
@@ -564,20 +572,7 @@ const getVisitUptoByUserId = async (userId) => {
 // };
 
 
-module.exports = {
-  createUser,
-  findUserByEmail,
-  getAllUsers,
-  getUserById,
-  updateUserById,
-  updatePasswordByAdmin,
-  updateUserStatus,
-  softDeleteUser,
-  getDeletedUsers,
-  getUserDropdown,
-  updateProfileImage,
-  getSubordinateIds,
-  getUsersUnderManager,
-  getPermissionsByUser,
-  saveUserPermissions, getVisitUptoByUserId
-};
+module.exports = { createUser, findUserByEmail, getAllUsers, getUserById,
+  updateUserById, updatePasswordByAdmin, updateUserStatus, softDeleteUser,
+  getDeletedUsers, getUserDropdown, updateProfileImage, getSubordinateIds,
+  getUsersUnderManager, getPermissionsByUser, saveUserPermissions, getVisitUptoByUserId, getUserContactById };

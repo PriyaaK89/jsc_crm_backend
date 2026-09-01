@@ -3,7 +3,7 @@ const cron = require("node-cron");
 const db = require("../config/db");
 const { sendTemplateMessage } = require("../services/whatsapp.service");
 const { getPresignedUrl } = require("../utils/fileUpload");
-const { getCurrentLedgerBalance } = require("../models/ledger.model");
+const { getCurrentLedgerBalanceforMessage } = require("../models/ledger.model");
 const companyConfig = require("../config/company"); // adjust path if different
 
 const QR_OBJECT_PATH = "template/jamidara qr.png"; // adjust if the actual stored path differs
@@ -16,9 +16,11 @@ const formatPhoneForWhatsapp = (contactNo) => {
 };
 
 cron.schedule(
-  "0 11 * * *",
+  // "0 14 * * *",
+  "0 18 * * *",
   async () => {
-    console.log("Running ledger outstanding reminder cron (11 AM IST)...");
+    // console.log("Running ledger outstanding reminder cron (11 AM IST)...");
+    console.log("Running ledger outstanding reminder cron (6:00 PM IST — TEST)...");
 
     try {
       let qrImageLink;
@@ -44,7 +46,8 @@ cron.schedule(
 
       for (const ledger of ledgers) {
         try {
-          const currentBalance = await getCurrentLedgerBalance(db, ledger.id);
+          const rawBalance = await getCurrentLedgerBalanceforMessage(db, ledger.id);
+          const currentBalance = Math.round(rawBalance * 100) / 100; // kill floating-point dust
 
           if (currentBalance <= 0) continue;
 

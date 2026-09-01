@@ -1172,8 +1172,37 @@ const getLedgerContactById = async (ledger_id) => {
   return rows[0]?.contact || null;
 };
 
+const getCurrentLedgerBalanceforMessage = async (connection, ledgerId) => {
+  const [[ledger]] = await connection.query(
+    `SELECT opening_balance, balance_type FROM ledgers WHERE id = ?`,
+    [ledgerId]
+  );
+
+  if (!ledger) return 0;
+
+  // Respect balance_type for the opening balance too — Dr adds, Cr subtracts
+  let balance =
+    ledger.balance_type === "Cr"
+      ? -Number(ledger.opening_balance)
+      : Number(ledger.opening_balance);
+
+  const [transactions] = await connection.query(
+    `SELECT entry_type, amount FROM ledger_transactions WHERE ledger_id = ? AND is_cancelled = 0`,
+    [ledgerId]
+  );
+
+  for (const trx of transactions) {
+    if (trx.entry_type === "Dr") {
+      balance += Number(trx.amount);
+    } else {
+      balance -= Number(trx.amount);
+    }
+  }
+
+  return balance;
+};
 
 module.exports = { createLedger, createLedgerBankDetails, createLedgerInterestConfigs, createLedgerOtherDetails,
   findLedgerByName, getLedgersModel, getLedgerCountModel, getLedgerByIdModel, updateLedgerModel,
   updateLedgerBankDetailsModel, replaceLedgerInterestConfigsModel, updateLedgerOtherDetailsModel,
-  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel, getLedgerWhatsappData ,getLedgerContactById };
+  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel, getLedgerWhatsappData ,getLedgerContactById, getCurrentLedgerBalanceforMessage };

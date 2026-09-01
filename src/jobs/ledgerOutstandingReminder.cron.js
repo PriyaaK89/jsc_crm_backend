@@ -4,6 +4,7 @@ const db = require("../config/db");
 const { sendTemplateMessage } = require("../services/whatsapp.service");
 const { getPresignedUrl } = require("../utils/fileUpload");
 const { getCurrentLedgerBalance } = require("../models/ledger.model");
+const companyConfig = require("../config/company"); // adjust path if different
 
 const QR_OBJECT_PATH = "template/jamidara qr.png"; // adjust if the actual stored path differs
 
@@ -15,32 +16,27 @@ const formatPhoneForWhatsapp = (contactNo) => {
 };
 
 cron.schedule(
-  "0 23 * * *",
+  "0 13 * * *",
   async () => {
-    console.log("Running ledger outstanding reminder cron (23 AM IST)...");
+    console.log("Running ledger outstanding reminder cron (13 AM IST)...");
 
     try {
-      // One presigned URL for the QR image, reused for every send this run
       let qrImageLink;
       try {
-        qrImageLink = await getPresignedUrl(QR_OBJECT_PATH, 30 * 60); // 30 min expiry
+        qrImageLink = await getPresignedUrl(QR_OBJECT_PATH, 30 * 60);
       } catch (qrError) {
         console.error("Failed to generate presigned URL for QR image, aborting run:", qrError.message);
-        return; // no point sending a template that needs a header image with no image
+        return;
       }
 
+      // No longer need ledger_bank_details — bank info is the company's, not the customer's
       const [ledgers] = await db.query(`
         SELECT
           l.id,
           l.ledger_name,
-          lod.contact,
-          lbd.bank_name,
-          lbd.account_holder_name,
-          lbd.account_number,
-          lbd.ifsc_code
+          lod.contact
         FROM ledgers l
         LEFT JOIN ledger_other_details lod ON lod.ledger_id = l.id
-        LEFT JOIN ledger_bank_details lbd ON lbd.ledger_id = l.id
         WHERE lod.contact IS NOT NULL AND lod.contact != ''
       `);
 
@@ -68,10 +64,10 @@ cron.schedule(
               parameters: [
                 { type: "text", text: ledger.ledger_name },
                 { type: "text", text: currentBalance.toFixed(2) },
-                { type: "text", text: ledger.bank_name || "N/A" },
-                { type: "text", text: ledger.account_holder_name || "N/A" },
-                { type: "text", text: ledger.account_number || "N/A" },
-                { type: "text", text: ledger.ifsc_code || "N/A" },
+                { type: "text", text: companyConfig.bank.bankName },
+                { type: "text", text: companyConfig.bank.accountName },
+                { type: "text", text: companyConfig.bank.accountNumber },
+                { type: "text", text: companyConfig.bank.ifscCode },
               ],
             },
           ]);

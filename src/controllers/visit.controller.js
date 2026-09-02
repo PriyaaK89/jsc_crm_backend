@@ -60,12 +60,12 @@ exports.createVisit = async (req, res) => {
       });
     }
 
-    //      if (isPastVisitCutoff()) {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: "You can submit a visit only up to 7:00 PM. Please contact your reporting manager if you need to log it late."
-    //   });
-    // }
+         if (isPastVisitCutoff()) {
+      return res.status(400).json({
+        success: false,
+        message: "You can submit a visit only up to 7:00 PM. Please contact your reporting manager if you need to log it late."
+      });
+    }
 
     if (attendance.status === "day_over") {
       return res.status(400).json({

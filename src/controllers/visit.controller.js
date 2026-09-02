@@ -170,7 +170,7 @@ exports.createVisit = async (req, res) => {
         const response = await whatsappService.sendTemplateMessage(
           mobile,
           "visit_submitted",
-          "en_GB",
+          "en_US",
           [
             {
               type: "body",

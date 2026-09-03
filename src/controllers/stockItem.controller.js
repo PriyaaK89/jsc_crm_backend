@@ -713,22 +713,21 @@ if (existingItem.length > 0) {
 exports.deleteStockItem = async (req, res) => {
   try {
     const { id } = req.params;
-
     const result = await stockItemModel.deleteStockItem(id);
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Stock item not found",
-      });
+      return res.status(404).json({ success: false, message: "Stock item not found" });
     }
-
-    return res.status(200).json({
-      success: true,
-      message: "Stock item deleted successfully",
-    });
+    return res.status(200).json({ success: true, message: "Stock item deleted successfully" });
   } catch (error) {
     console.log("DELETE STOCK ITEM ERROR:", error);
+
+    if (error.code === "ITEM_IN_USE") {
+      return res.status(409).json({
+        success: false,
+        message: "This item has related transactions and cannot be deleted.",
+      });
+    }
 
     return res.status(500).json({
       success: false,
@@ -737,3 +736,31 @@ exports.deleteStockItem = async (req, res) => {
     });
   }
 };
+
+// exports.deleteStockItem = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+
+//     const result = await stockItemModel.deleteStockItem(id);
+
+//     if (result.affectedRows === 0) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Stock item not found",
+//       });
+//     }
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Stock item deleted successfully",
+//     });
+//   } catch (error) {
+//     console.log("DELETE STOCK ITEM ERROR:", error);
+
+//     return res.status(500).json({
+//       success: false,
+//       message: "Internal server error",
+//       error: error.message,
+//     });
+//   }
+// };

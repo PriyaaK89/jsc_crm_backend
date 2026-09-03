@@ -418,26 +418,75 @@ const getOpeningStock = async (stock_item_id) => {
 // =============================
 // DELETE STOCK ITEM
 // =============================
+// const deleteStockItem = async (id) => {
+
+//     const [result] = await db.query(`
+//         DELETE FROM stock_items
+//         WHERE id = ? `, [id]);
+
+//     return result;
+// };
+
 const deleteStockItem = async (id) => {
+    const connection = await db.getConnection();
 
-    const [result] = await db.query(`
-    
-        DELETE FROM stock_items
-        WHERE id = ?
-    
-    `, [id]);
+    try {
+        await connection.beginTransaction();
 
-    return result;
+        // Tables where a match means "this item is in use" — block delete
+        const blockingChecks = [
+            { table: "sales_items", column: "stock_item_id" },
+            { table: "sales_item_batches", column: "stock_item_id" },
+            { table: "purchase_items", column: "stock_item_id" },
+            { table: "purchase_item_batches", column: "stock_item_id" },
+            { table: "credit_note_items", column: "stock_item_id" },
+            { table: "debit_note_items", column: "stock_item_id" },
+            { table: "debit_note_item_batches", column: "stock_item_id" },
+            { table: "manufacturing_components", column: "item_id" },
+            { table: "manufacturing_coproducts", column: "item_id" },
+            { table: "manufacturing_entries", column: "finished_item_id" },
+            { table: "stock_transactions", column: "stock_item_id" },
+            { table: "stock_transfer_source_items", column: "item_id" },
+            { table: "stock_transfer_destination_items", column: "item_id" },
+        ];
+
+        for (const { table, column } of blockingChecks) {
+            const [rows] = await connection.query(
+                `SELECT 1 FROM ${table} WHERE ${column} = ? LIMIT 1`,
+                [id]
+            );
+            if (rows.length > 0) {
+                await connection.rollback();
+                const err = new Error(
+                    `Cannot delete: this item has related records in ${table}`
+                );
+                err.code = "ITEM_IN_USE";
+                err.blockingTable = table;
+                throw err;
+            }
+        }
+
+        // Safe to cascade — pure config/setup data
+        await connection.query(`DELETE FROM stock_batches WHERE stock_item_id = ?`, [id]);
+        await connection.query(`DELETE FROM stock_item_opening_stock WHERE stock_item_id = ?`, [id]);
+        await connection.query(`DELETE FROM stock_item_gst_details WHERE stock_item_id = ?`, [id]);
+        await connection.query(`DELETE FROM stock_item_supercash_prices WHERE stock_item_id = ?`, [id]);
+
+        const [result] = await connection.query(`DELETE FROM stock_items WHERE id = ?`, [id]);
+
+        await connection.commit();
+        return result;
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally {
+        connection.release();
+    }
 };
 
 module.exports = {
-    createStockItem,
-    createGSTDetails,
-    createOpeningStock,
-
-      getStockItems,
-    getStockItemById,
-    getGSTDetails,
-    getOpeningStock,
-    deleteStockItem
+    createStockItem, createGSTDetails,
+    createOpeningStock, getStockItems,
+    getStockItemById, getGSTDetails,
+    getOpeningStock, deleteStockItem
 };

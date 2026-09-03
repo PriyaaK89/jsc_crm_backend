@@ -87,6 +87,7 @@ const transactionDocumentRoute = require("../src/routes/reports/transactionDocum
 const testRoute = require("../src/routes/test.route");
 const generateOfferLetterRoute = require("../src/routes/documents/offerLetter.routes")
 const penaltyRoute = require("../src/routes/penalty.routes")
+const whatsappRoutes = require("../src/routes/whatsapp.routes");
 // const reminderRoute = require("../src/routes/reminder.routes");
 
 // Health check
@@ -157,6 +158,7 @@ app.use(testRoute);
 app.use(generateOfferLetterRoute)
 // app.use(reminderRoute);
 app.use(penaltyRoute)
+app.use("/api/whatsapp", whatsappRoutes);
 
 // 404 handler
 app.use((req, res) => {

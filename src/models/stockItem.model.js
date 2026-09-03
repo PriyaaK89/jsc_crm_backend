@@ -433,7 +433,8 @@ const deleteStockItem = async (id) => {
     try {
         await connection.beginTransaction();
 
-        // Tables where a match means "this item is in use" — block delete
+        // Tables where a match means "this item has real transactional history" — block delete.
+        // stock_transactions is checked separately below, excluding OPENING-balance rows.
         const blockingChecks = [
             { table: "sales_items", column: "stock_item_id" },
             { table: "sales_item_batches", column: "stock_item_id" },
@@ -445,7 +446,6 @@ const deleteStockItem = async (id) => {
             { table: "manufacturing_components", column: "item_id" },
             { table: "manufacturing_coproducts", column: "item_id" },
             { table: "manufacturing_entries", column: "finished_item_id" },
-            { table: "stock_transactions", column: "stock_item_id" },
             { table: "stock_transfer_source_items", column: "item_id" },
             { table: "stock_transfer_destination_items", column: "item_id" },
         ];
@@ -457,16 +457,28 @@ const deleteStockItem = async (id) => {
             );
             if (rows.length > 0) {
                 await connection.rollback();
-                const err = new Error(
-                    `Cannot delete: this item has related records in ${table}`
-                );
+                const err = new Error(`Cannot delete: this item has related records in ${table}`);
                 err.code = "ITEM_IN_USE";
                 err.blockingTable = table;
                 throw err;
             }
         }
 
-        // Safe to cascade — pure config/setup data
+        // stock_transactions: block only on non-OPENING rows (real stock movement)
+        const [realTxns] = await connection.query(
+            `SELECT 1 FROM stock_transactions WHERE stock_item_id = ? AND transaction_type != 'OPENING' LIMIT 1`,
+            [id]
+        );
+        if (realTxns.length > 0) {
+            await connection.rollback();
+            const err = new Error(`Cannot delete: this item has related records in stock_transactions`);
+            err.code = "ITEM_IN_USE";
+            err.blockingTable = "stock_transactions";
+            throw err;
+        }
+
+        // Safe to cascade — pure config/setup data, including the OPENING transaction row itself
+        await connection.query(`DELETE FROM stock_transactions WHERE stock_item_id = ? AND transaction_type = 'OPENING'`, [id]);
         await connection.query(`DELETE FROM stock_batches WHERE stock_item_id = ?`, [id]);
         await connection.query(`DELETE FROM stock_item_opening_stock WHERE stock_item_id = ?`, [id]);
         await connection.query(`DELETE FROM stock_item_gst_details WHERE stock_item_id = ?`, [id]);

@@ -378,11 +378,11 @@ exports.markAttendance = async (req, res) => {
     if (status === "present") {
       if (todayAttendance) { return res.status(400).json({ message: "Attendance already marked" }); }
 
-       if (isPastCheckInCutoff()) {
-    return res.status(400).json({
-      message: "You can mark attendance only up to 10:15 AM. Please contact your reporting manager for a late check-in.",
-    });
-  }
+  //      if (isPastCheckInCutoff()) {
+  //   return res.status(400).json({
+  //     message: "You can mark attendance only up to 10:15 AM. Please contact your reporting manager for a late check-in.",
+  //   });
+  // }
 
       const { work_type, field_work_type, travel_mode, vehicle_type, public_transport, odometer_reading, visit_location, } = req.body;
       if (!work_type) { return res.status(400).json({ message: "Work type required" }); }

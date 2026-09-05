@@ -3,7 +3,8 @@ const { calculateAttendanceUnit } = require("../utils/attendanceCalculator");
 const SalaryDaily = require("../models/empDailySalary.model");
 const db = require("../config/db");
 const { getHierarchyIds } = require("../controllers/rollingUser.controller");
-const { uploadFileToMinio, getPresignedUrl } = require("../utils/fileUpload");
+const { uploadFileToMinio, getPresignedUrl } = require("../utils/fileUpload"); 
+const userModal = require("../models/user.model")
 
 const generateDailySalaryInternal = async (employeeId, date) => {
   const user = await SalaryDaily.getUserSalaryInfo(employeeId);
@@ -162,20 +163,20 @@ const generateDailySalaryInternal = async (employeeId, date) => {
    */
   if (holdByType.SALARY) {
     basicSalary = holdByType.SALARY.status === "HOLD"
-        ? 0
-        : Number(existingSalaryRow?.basic_salary ?? basicSalary);
+      ? 0
+      : Number(existingSalaryRow?.basic_salary ?? basicSalary);
   }
 
   if (holdByType.TA) {
     travelAllowance = holdByType.TA.status === "HOLD"
-        ? 0
-        : Number(existingSalaryRow?.travelling_allowance ?? travelAllowance);
+      ? 0
+      : Number(existingSalaryRow?.travelling_allowance ?? travelAllowance);
   }
 
   if (holdByType.DA) {
     dailyAllowance = holdByType.DA.status === "HOLD"
-        ? 0
-        : Number(existingSalaryRow?.daily_allowance ?? dailyAllowance);
+      ? 0
+      : Number(existingSalaryRow?.daily_allowance ?? dailyAllowance);
   }
   /* --------------------------------------------------------- */
 
@@ -272,17 +273,28 @@ const autoClosePreviousDay = async (employeeId) => {
 };
 
 // Add near the top of the controller, alongside other helpers
-const isPastCheckInCutoff = () => {
-  const CUTOFF_HOUR = 10;
-  const CUTOFF_MINUTE = 15;
+const isPastCheckInCutoff = (loginTime) => {
+  // No login_time configured for this user -> don't block them
+  if (!loginTime) return false;
 
-  // Get "now" in IST regardless of server's own timezone
+  // mysql2 can return TIME columns either as "HH:MM:SS" strings
+  // or as JS Date objects depending on your pool config — handle both
+  let hh, mm, ss;
+  if (loginTime instanceof Date) {
+    hh = loginTime.getHours();
+    mm = loginTime.getMinutes();
+    ss = loginTime.getSeconds();
+  } else {
+    [hh, mm, ss] = String(loginTime).split(":").map(Number);
+  }
+
+  // "now" in IST regardless of server timezone
   const nowIST = new Date(
     new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
   );
 
   const cutoff = new Date(nowIST);
-  cutoff.setHours(CUTOFF_HOUR, CUTOFF_MINUTE, 0, 0);
+  cutoff.setHours(hh, mm, ss || 0, 0);
 
   return nowIST > cutoff;
 };
@@ -341,16 +353,17 @@ exports.markAttendance = async (req, res) => {
       if (todayAttendance) {
         return res.status(400).json({ message: "Attendance already marked" });
       }
-      if (work_type === "office") {
-  const departmentId = await getEmployeeDepartmentId(employee_id);
 
-  if (departmentId === MARKETING_DEPARTMENT_ID) {
-    return res.status(400).json({
-      message:
-        "Marketing employees cannot mark attendance as Office Sitting. Please mark attendance as Field work.",
-    });
-  }
-}
+      if (work_type === "office") {
+        const departmentId = await getEmployeeDepartmentId(employee_id);
+
+        if (departmentId === MARKETING_DEPARTMENT_ID) {
+          return res.status(400).json({
+            message:
+              "Marketing employees cannot mark attendance as Office Sitting. Please mark attendance as Field work.",
+          });
+        }
+      }
 
       await Attendance.createAttendance([
         employee_id,
@@ -378,11 +391,14 @@ exports.markAttendance = async (req, res) => {
     if (status === "present") {
       if (todayAttendance) { return res.status(400).json({ message: "Attendance already marked" }); }
 
-  //      if (isPastCheckInCutoff()) {
-  //   return res.status(400).json({
-  //     message: "You can mark attendance only up to 10:15 AM. Please contact your reporting manager for a late check-in.",
-  //   });
-  // }
+  const loginTime = await userModal.getEmployeeLoginTime(employee_id);
+
+  if (isPastCheckInCutoff(loginTime)) {
+    return res.status(400).json({
+      message: `You can mark attendance only up to ${loginTime}. Please contact your reporting manager for a late check-in.`,
+    });
+  }
+
 
       const { work_type, field_work_type, travel_mode, vehicle_type, public_transport, odometer_reading, visit_location, } = req.body;
       if (!work_type) { return res.status(400).json({ message: "Work type required" }); }
@@ -394,7 +410,7 @@ exports.markAttendance = async (req, res) => {
         });
       }
 
-       if (work_type === "office") {
+      if (work_type === "office") {
         const departmentId = await getEmployeeDepartmentId(employee_id);
 
         if (departmentId === MARKETING_DEPARTMENT_ID) {

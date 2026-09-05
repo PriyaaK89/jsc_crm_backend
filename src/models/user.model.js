@@ -540,6 +540,14 @@ const getUserContactById = async (id) => {
   return rows[0] || null;
 };
 
+const getEmployeeLoginTime = async (employeeId) => {
+  const [[row]] = await db.query(
+    `SELECT login_time FROM users WHERE id = ?`,
+    [employeeId]
+  );
+  return row ? row.login_time : null;
+};
+
 // const softDeleteUser = async (userId) => {
 //   const conn = await db.getConnection();
 
@@ -575,4 +583,4 @@ const getUserContactById = async (id) => {
 module.exports = { createUser, findUserByEmail, getAllUsers, getUserById,
   updateUserById, updatePasswordByAdmin, updateUserStatus, softDeleteUser,
   getDeletedUsers, getUserDropdown, updateProfileImage, getSubordinateIds,
-  getUsersUnderManager, getPermissionsByUser, saveUserPermissions, getVisitUptoByUserId, getUserContactById };
+  getUsersUnderManager, getPermissionsByUser, saveUserPermissions, getVisitUptoByUserId, getUserContactById ,getEmployeeLoginTime};

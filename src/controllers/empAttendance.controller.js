@@ -3,7 +3,7 @@ const { calculateAttendanceUnit } = require("../utils/attendanceCalculator");
 const SalaryDaily = require("../models/empDailySalary.model");
 const db = require("../config/db");
 const { getHierarchyIds } = require("../controllers/rollingUser.controller");
-const { uploadFileToMinio, getPresignedUrl } = require("../utils/fileUpload"); 
+const { uploadFileToMinio, getPresignedUrl } = require("../utils/fileUpload");
 const userModal = require("../models/user.model")
 
 const generateDailySalaryInternal = async (employeeId, date) => {
@@ -299,6 +299,21 @@ const isPastCheckInCutoff = (loginTime) => {
   return nowIST > cutoff;
 };
 
+const formatTimeTo12Hour = (timeStr) => {
+  if (!timeStr) return "";
+
+  const [hh, mm] = String(timeStr).split(":").map(Number);
+
+  const period = hh >= 12 ? "PM" : "AM";
+  let hour12 = hh % 12;
+  if (hour12 === 0) hour12 = 12;
+
+  // Show minutes only if non-zero, e.g. "9 AM" vs "9:30 AM"
+  return mm === 0
+    ? `${hour12} ${period}`
+    : `${hour12}:${String(mm).padStart(2, "0")} ${period}`;
+};
+
 exports.getTodayAttendance = async (req, res) => {
   try {
     const { employee_id } = req.params;
@@ -391,13 +406,13 @@ exports.markAttendance = async (req, res) => {
     if (status === "present") {
       if (todayAttendance) { return res.status(400).json({ message: "Attendance already marked" }); }
 
-  const loginTime = await userModal.getEmployeeLoginTime(employee_id);
+      const loginTime = await userModal.getEmployeeLoginTime(employee_id);
 
-  if (isPastCheckInCutoff(loginTime)) {
-    return res.status(400).json({
-      message: `You can mark attendance only up to ${loginTime}. Please contact your reporting manager for a late check-in.`,
-    });
-  }
+      if (isPastCheckInCutoff(loginTime)) {
+        return res.status(400).json({
+          message: `You can mark attendance only up to ${formatTimeTo12Hour(loginTime)}. Please contact your reporting manager for a late check-in.`,
+        });
+      }
 
 
       const { work_type, field_work_type, travel_mode, vehicle_type, public_transport, odometer_reading, visit_location, } = req.body;

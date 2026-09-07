@@ -408,11 +408,11 @@ exports.markAttendance = async (req, res) => {
 
       const loginTime = await userModal.getEmployeeLoginTime(employee_id);
 
-      if (isPastCheckInCutoff(loginTime)) {
-        return res.status(400).json({
-          message: `You can mark attendance only up to ${formatTimeTo12Hour(loginTime)}. Please contact your reporting manager for a late check-in.`,
-        });
-      }
+      // if (isPastCheckInCutoff(loginTime)) {
+      //   return res.status(400).json({
+      //     message: `You can mark attendance only up to ${formatTimeTo12Hour(loginTime)}. Please contact your reporting manager for a late check-in.`,
+      //   });
+      // }
 
 
       const { work_type, field_work_type, travel_mode, vehicle_type, public_transport, odometer_reading, visit_location, } = req.body;

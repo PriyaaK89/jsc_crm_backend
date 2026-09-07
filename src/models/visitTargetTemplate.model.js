@@ -1135,17 +1135,25 @@ exports.unholdTemplate = async (connection, templateId) => {
 };
 
 exports.getTeamProgress = async (filters = {}) => {
-  const { employeeIds, level, employeeId, templateId } = filters;
+  const { employeeIds, level, employeeId, templateId, periodStart, periodEnd } = filters;
 
   if (!employeeIds || employeeIds.length === 0) {
     return [];
   }
 
-  const where = [
-    "a.status = 'ACTIVE'",
-    `a.employee_id IN (${employeeIds.map(() => "?").join(",")})`,
-  ];
+  const where = [`a.employee_id IN (${employeeIds.map(() => "?").join(",")})`];
   const params = [...employeeIds];
+
+  if (periodStart && periodEnd) {
+    // Auto-detect: any assignment whose period overlaps the selected
+    // range, regardless of status — so past (COMPLETED/EXPIRED)
+    // assignments surface too when browsing historical dates.
+    where.push("a.period_start <= ? AND a.period_end >= ?");
+    params.push(periodEnd, periodStart);
+  } else {
+    // No range given — keep the original "current" behavior.
+    where.push("a.status = 'ACTIVE'");
+  }
 
   if (level) {
     where.push("jr.level = ?");
@@ -1174,7 +1182,7 @@ exports.getTeamProgress = async (filters = {}) => {
       INNER JOIN users u ON u.id = a.employee_id
       LEFT JOIN job_roles jr ON jr.id = u.job_role_id
       WHERE ${where.join(" AND ")}
-      ORDER BY jr.level, u.name
+      ORDER BY jr.level, u.name, a.period_start DESC
     `,
     params
   );
@@ -1194,6 +1202,67 @@ exports.getTeamProgress = async (filters = {}) => {
   }
   return result;
 };
+
+// exports.getTeamProgress = async (filters = {}) => {
+//   const { employeeIds, level, employeeId, templateId } = filters;
+
+//   if (!employeeIds || employeeIds.length === 0) {
+//     return [];
+//   }
+
+//   const where = [
+//     "a.status = 'ACTIVE'",
+//     `a.employee_id IN (${employeeIds.map(() => "?").join(",")})`,
+//   ];
+//   const params = [...employeeIds];
+
+//   if (level) {
+//     where.push("jr.level = ?");
+//     params.push(level);
+//   }
+
+//   if (employeeId) {
+//     where.push("a.employee_id = ?");
+//     params.push(employeeId);
+//   }
+
+//   if (templateId) {
+//     where.push("a.template_id = ?");
+//     params.push(templateId);
+//   }
+
+//   const [assignments] = await db.query(
+//     `
+//       SELECT
+//         a.*,
+//         u.name AS employee_name,
+//         u.contact_no,
+//         jr.name AS role_name,
+//         jr.level
+//       FROM visit_target_assignments a
+//       INNER JOIN users u ON u.id = a.employee_id
+//       LEFT JOIN job_roles jr ON jr.id = u.job_role_id
+//       WHERE ${where.join(" AND ")}
+//       ORDER BY jr.level, u.name
+//     `,
+//     params
+//   );
+
+//   const result = [];
+
+//   for (const assignment of assignments) {
+//     const progress = await exports.getAssignmentProgress(assignment.id);
+
+//     if (progress) {
+//       progress.assignment.employee_name = assignment.employee_name;
+//       progress.assignment.contact_no = assignment.contact_no;
+//       progress.assignment.role_name = assignment.role_name;
+//       progress.assignment.level = assignment.level;
+//       result.push(progress);
+//     }
+//   }
+//   return result;
+// };
 
 exports.checkTemplateNameExists = async (templateName, excludeTemplateId = null) => {
   let query = `
@@ -1241,4 +1310,55 @@ exports.getEmployeesWithActiveTarget = async (employeeIds, excludeTemplateId = n
 
   const [rows] = await db.query(query, params);
   return rows;
+};
+
+
+/**
+ * Get the assignment(s) for an employee whose period OVERLAPS a given
+ * date range — any status. Unlike getEmployeeActiveAssignment (which
+ * only matches CURDATE() + status='ACTIVE'), this lets a historical
+ * (COMPLETED/EXPIRED) assignment be found when the user browses past
+ * dates. Ordered most-recent-period-first so callers that want a
+ * single match can just take rows[0].
+ */
+exports.getEmployeeAssignmentsForRange = async (employeeId, startDate, endDate) => {
+  const [rows] = await db.query(
+    `
+      SELECT *
+      FROM visit_target_assignments
+      WHERE employee_id = ?
+        AND period_start <= ?
+        AND period_end >= ?
+      ORDER BY period_start DESC
+    `,
+    [employeeId, endDate, startDate]
+  );
+
+  return rows;
+};
+
+/**
+ * Get Employee Progress — current active assignment + its progress,
+ * OR (when startDate/endDate are passed) whichever assignment's period
+ * overlaps that range.
+ */
+exports.getEmployeeProgress = async (employeeId, startDate, endDate) => {
+  let assignment;
+
+  if (startDate && endDate) {
+    const assignments = await exports.getEmployeeAssignmentsForRange(
+      employeeId,
+      startDate,
+      endDate
+    );
+    assignment = assignments[0]; // most recent overlapping period
+  } else {
+    assignment = await exports.getEmployeeActiveAssignment(employeeId);
+  }
+
+  if (!assignment) {
+    return null;
+  }
+
+  return exports.getAssignmentProgress(assignment.id);
 };

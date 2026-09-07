@@ -462,17 +462,40 @@ exports.getSalesInvoice = async (saleId) => {
   });
 
   // Extra Ledgers
-  const [extraLedgers] = await db.query(
-    ` SELECT sel.*, l.ledger_name FROM sales_extra_ledgers sel
-    LEFT JOIN ledgers l ON l.id = sel.ledger_id
-    WHERE sel.sale_id = ? `,
-    [saleId]
-  );
+// Extra Ledgers
+const [extraLedgers] = await db.query(
+  ` SELECT sel.*, l.ledger_name FROM sales_extra_ledgers sel
+  LEFT JOIN ledgers l ON l.id = sel.ledger_id
+  WHERE sel.sale_id = ? `,
+  [saleId]
+);
 
-  // Bill References
-  const [billReferences] = await db.query( ` SELECT * FROM sales_bill_references WHERE sale_id = ? `, [saleId] );
+// add signed amount based on operation, so frontend doesn't need to re-derive it
+const extraLedgersMapped = extraLedgers.map((el) => ({
+  ...el,
+  amount: Number(el.amount),
+  signed_amount:
+    el.operation === "PLUS" ? Number(el.amount) : -Number(el.amount),
+}));
 
-  return { sale, items, extraLedgers, billReferences, };
+const extraLedgersNet = extraLedgersMapped.reduce(
+  (sum, el) => sum + el.signed_amount,
+  0
+);
+
+// Bill References
+const [billReferences] = await db.query(
+  ` SELECT * FROM sales_bill_references WHERE sale_id = ? `,
+  [saleId]
+);
+
+return {
+  sale,
+  items,
+  extraLedgers: extraLedgersMapped,
+  extraLedgersNet,
+  billReferences,
+};
 };
 
 const addDays = (dateStr, days) => {

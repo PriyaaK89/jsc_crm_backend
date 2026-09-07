@@ -875,7 +875,7 @@ exports.unholdTemplate = async (req, res) => {
 exports.getTeamProgress = async (req, res) => {
   try {
     const loggedInUser = req.user;
-    const { level, user_id, template_id } = req.query;
+    const { level, user_id, template_id, start_date, end_date } = req.query;
 
     const hierarchyIds = await getHierarchyIds(loggedInUser.id);
 
@@ -884,9 +884,10 @@ exports.getTeamProgress = async (req, res) => {
       level: level ? Number(level) : undefined,
       employeeId: user_id ? Number(user_id) : undefined,
       templateId: template_id,
+      periodStart: start_date || undefined,
+      periodEnd: end_date || undefined,
     });
 
-    // flatten (assignment + breakdown[]) rows into one entry per employee
     const userMap = new Map();
 
     rows.forEach((r) => {
@@ -909,6 +910,7 @@ exports.getTeamProgress = async (req, res) => {
       r.breakdown.forEach((b) => {
         entry.targets.push({
           assignment_id: a.id,
+          template_id: a.template_id,
           visit_type: b.visit_type,
           target_value: b.target_value,
           achieved: b.achieved,
@@ -926,3 +928,100 @@ exports.getTeamProgress = async (req, res) => {
     return res.status(500).json({ success: false, message: "Failed to fetch team progress" });
   }
 };
+
+exports.getEmployeeProgress = async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+    const { start_date, end_date } = req.query;
+
+    const progress = await visitTargetModel.getEmployeeProgress(
+      Number(employeeId),
+      start_date || undefined,
+      end_date || undefined
+    );
+
+    if (!progress) {
+      return res.status(200).json({ success: true, data: [] });
+    }
+
+    const { assignment, breakdown } = progress;
+    const totalTarget = breakdown.reduce((s, b) => s + (Number(b.target_value) || 0), 0);
+    const totalAchieved = breakdown.reduce((s, b) => s + (Number(b.achieved) || 0), 0);
+
+    return res.status(200).json({
+      success: true,
+      data: [
+        {
+          id: assignment.employee_id,
+          total_target: totalTarget,
+          total_achieved: totalAchieved,
+          targets: breakdown.map((b) => ({
+            visit_type: b.visit_type,
+            target_value: b.target_value,
+            achieved: b.achieved,
+            period_start: assignment.period_start,
+            period_end: assignment.period_end,
+          })),
+        },
+      ],
+    });
+  } catch (error) {
+    console.error("getEmployeeProgress error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch employee progress" });
+  }
+};
+
+// exports.getTeamProgress = async (req, res) => {
+//   try {
+//     const loggedInUser = req.user;
+//     const { level, user_id, template_id } = req.query;
+
+//     const hierarchyIds = await getHierarchyIds(loggedInUser.id);
+
+//     const rows = await visitTargetModel.getTeamProgress({
+//       employeeIds: hierarchyIds,
+//       level: level ? Number(level) : undefined,
+//       employeeId: user_id ? Number(user_id) : undefined,
+//       templateId: template_id,
+//     });
+
+//     // flatten (assignment + breakdown[]) rows into one entry per employee
+//     const userMap = new Map();
+
+//     rows.forEach((r) => {
+//       const a = r.assignment;
+//       if (!userMap.has(a.employee_id)) {
+//         userMap.set(a.employee_id, {
+//           id: a.employee_id,
+//           name: a.employee_name,
+//           contact_no: a.contact_no,
+//           role_name: a.role_name,
+//           level: a.level,
+//           total_target: 0,
+//           total_achieved: 0,
+//           targets: [],
+//         });
+//       }
+
+//       const entry = userMap.get(a.employee_id);
+
+//       r.breakdown.forEach((b) => {
+//         entry.targets.push({
+//           assignment_id: a.id,
+//           visit_type: b.visit_type,
+//           target_value: b.target_value,
+//           achieved: b.achieved,
+//           period_start: a.period_start,
+//           period_end: a.period_end,
+//         });
+//         entry.total_target += Number(b.target_value) || 0;
+//         entry.total_achieved += Number(b.achieved) || 0;
+//       });
+//     });
+
+//     return res.status(200).json({ success: true, data: Array.from(userMap.values()) });
+//   } catch (error) {
+//     console.error("getTeamProgress error:", error);
+//     return res.status(500).json({ success: false, message: "Failed to fetch team progress" });
+//   }
+// };

@@ -217,8 +217,53 @@ exports.getVisitReportSummary = async (filters) => {
   return { total, page, limit, totalPages: Math.ceil(total / limit), data: rows, };
 };
 
+// exports.getHierarchyVisitSummary = async (filters) => {
+//   const dateJoinClause = filters.date ? "AND DATE(v.created_at) = ?" : "";
+
+//   let query = `
+//     SELECT u.id, u.name, u.contact_no, jr.name AS role_name,
+//       COUNT(v.id) AS total_visits
+
+//     FROM users u
+//     JOIN job_roles jr ON jr.id = u.job_role_id
+//     LEFT JOIN visits v ON v.user_id = u.id ${dateJoinClause}
+
+//     WHERE u.id IN ( ${filters.user_ids.map(() => "?").join(",")} )
+//   `;
+
+//   // Build params in the SAME left-to-right order the ?'s appear in the query:
+//   // 1. date (inside the JOIN, appears before user_ids' WHERE clause in string,
+//   //    but user_ids' ?'s come first in the string above — careful!)
+//   const params = [];
+
+//   // Re-order query so param order is unambiguous:
+//   // date ? appears first (in JOIN), user_ids ?'s appear second (in WHERE)
+//   if (filters.date) params.push(filters.date);
+//   params.push(...filters.user_ids);
+
+//   if (filters.level) {
+//     query += ` AND jr.level = ? `;
+//     params.push(filters.level);
+//   }
+
+//   if (filters.user_id) {
+//     query += ` AND u.id = ? `;
+//     params.push(filters.user_id);
+//   }
+
+//   query += ` GROUP BY
+//       u.id, u.name, u.contact_no, jr.name
+//     ORDER BY jr.level, u.name `;
+
+//   const [rows] = await db.query(query, params);
+//   return rows;
+// };
+
 exports.getHierarchyVisitSummary = async (filters) => {
-  const dateJoinClause = filters.date ? "AND DATE(v.created_at) = ?" : "";
+  const rangeJoinClause =
+    filters.from_date && filters.to_date
+      ? "AND DATE(v.created_at) BETWEEN ? AND ?"
+      : "";
 
   let query = `
     SELECT u.id, u.name, u.contact_no, jr.name AS role_name,
@@ -226,19 +271,18 @@ exports.getHierarchyVisitSummary = async (filters) => {
 
     FROM users u
     JOIN job_roles jr ON jr.id = u.job_role_id
-    LEFT JOIN visits v ON v.user_id = u.id ${dateJoinClause}
+    LEFT JOIN visits v ON v.user_id = u.id ${rangeJoinClause}
 
     WHERE u.id IN ( ${filters.user_ids.map(() => "?").join(",")} )
   `;
 
-  // Build params in the SAME left-to-right order the ?'s appear in the query:
-  // 1. date (inside the JOIN, appears before user_ids' WHERE clause in string,
-  //    but user_ids' ?'s come first in the string above — careful!)
   const params = [];
 
-  // Re-order query so param order is unambiguous:
-  // date ? appears first (in JOIN), user_ids ?'s appear second (in WHERE)
-  if (filters.date) params.push(filters.date);
+  // Range params (inside the JOIN) come first in the string, so they
+  // must come first in params — same ordering rule as your original.
+  if (filters.from_date && filters.to_date) {
+    params.push(filters.from_date, filters.to_date);
+  }
   params.push(...filters.user_ids);
 
   if (filters.level) {
@@ -259,50 +303,7 @@ exports.getHierarchyVisitSummary = async (filters) => {
   return rows;
 };
 
-// exports.getHierarchyVisitSummary = async ( filters) => {
-
-//   let query = `
-//     SELECT u.id, u.name,  u.contact_no, jr.name AS role_name,
-//       COUNT(v.id) AS total_visits
-
-//     FROM users u
-//     JOIN job_roles jr ON jr.id = u.job_role_id
-//     LEFT JOIN visits v ON v.user_id = u.id
-
-//     WHERE u.id IN ( ${filters.user_ids.map(() => "?").join(",")} ) `;
-
-//   const params = [...filters.user_ids];
-
-//   if (filters.date) {
-//     query += ` AND DATE(v.created_at) = ? `;
-//     params.push(filters.date);
-//   }
-
-//   if (filters.level) {
-//     query += ` AND jr.level = ? `;
-//     params.push(filters.level);
-//   }
-
-//   if (filters.user_id) {
-//     query += ` AND u.id = ? `;
-//     params.push(filters.user_id);
-//   }
-
-//   query += ` GROUP BY
-//       u.id,
-//       u.name,
-//        u.contact_no,
-//       jr.name
-
-//     ORDER BY
-//       jr.level,
-//       u.name `;
-
-//   const [rows] = await db.query(query, params);
-//   return rows;
-// };
-
-exports.getUserVisitDetails = async (userId, date) => {
+exports.getUserVisitDetails = async (userId, fromDate, toDate) => {
   let query = `
     SELECT
       v.id, v.created_at, v.visit_type, v.customer_type, v.visit_purpose, v.comment, v.reminder_date, v.image_path,
@@ -316,14 +317,37 @@ exports.getUserVisitDetails = async (userId, date) => {
 
   const params = [userId];
 
-  if (date) {
-    query += ` AND DATE(v.created_at) = ?`;
-    params.push(date);
+  if (fromDate && toDate) {
+    query += ` AND DATE(v.created_at) BETWEEN ? AND ?`;
+    params.push(fromDate, toDate);
   }
   query += ` ORDER BY v.created_at DESC`;
   const [rows] = await db.query(query, params);
   return rows;
 };
+
+// exports.getUserVisitDetails = async (userId, date) => {
+//   let query = `
+//     SELECT
+//       v.id, v.created_at, v.visit_type, v.customer_type, v.visit_purpose, v.comment, v.reminder_date, v.image_path,
+//       u.id AS user_id, u.name AS employee_name, u.contact_no,
+//       c.id AS customer_id, c.name AS customer_name, c.firm_name, c.contact_number, c.address, c.area, c.district, c.pincode
+//     FROM visits v
+//     LEFT JOIN users u ON u.id = v.user_id
+//     LEFT JOIN customers c ON c.id = v.customer_id
+//     WHERE v.user_id = ?
+//   `;
+
+//   const params = [userId];
+
+//   if (date) {
+//     query += ` AND DATE(v.created_at) = ?`;
+//     params.push(date);
+//   }
+//   query += ` ORDER BY v.created_at DESC`;
+//   const [rows] = await db.query(query, params);
+//   return rows;
+// };
 
 exports.getVisitWhatsappData = async (visitId) => {
 

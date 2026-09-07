@@ -466,7 +466,8 @@ exports.getHierarchyVisits = async (req, res) => {
 
     const data = await visitModel.getHierarchyVisitSummary({
       user_ids: hierarchyIds,
-      date: req.query.date,
+      from_date: req.query.start_date,
+      to_date: req.query.end_date,
       level: req.query.level,
       user_id: req.query.user_id
     });
@@ -487,9 +488,9 @@ exports.getHierarchyVisits = async (req, res) => {
 exports.getUserVisitDetails = async (req, res) => {
   try {
     const userId = req.params.userId;
-    const date = req.query.date;
+    const { start_date, end_date } = req.query;
 
-    const visits = await visitModel.getUserVisitDetails(userId, date);
+    const visits = await visitModel.getUserVisitDetails(userId, start_date, end_date);
     const data = await Promise.all(
       visits.map(async (visit) => ({
         ...visit,
@@ -511,3 +512,57 @@ exports.getUserVisitDetails = async (req, res) => {
     });
   }
 };
+
+// exports.getHierarchyVisits = async (req, res) => {
+//   try {
+//     const loginUserId = req.user.id;
+
+//     const hierarchyIds = await getHierarchyIds(loginUserId);
+
+//     const data = await visitModel.getHierarchyVisitSummary({
+//       user_ids: hierarchyIds,
+//       date: req.query.date,
+//       level: req.query.level,
+//       user_id: req.query.user_id
+//     });
+
+//     return res.status(200).json({
+//       success: true,
+//       data
+//     });
+
+//   } catch (error) {
+//     return res.status(500).json({
+//       success: false,
+//       message: error.message
+//     });
+//   }
+// };
+
+// exports.getUserVisitDetails = async (req, res) => {
+//   try {
+//     const userId = req.params.userId;
+//     const date = req.query.date;
+
+//     const visits = await visitModel.getUserVisitDetails(userId, date);
+//     const data = await Promise.all(
+//       visits.map(async (visit) => ({
+//         ...visit,
+//         image_url: visit.image_path
+//           ? await getPresignedUrl(visit.image_path)
+//           : null
+//       }))
+//     );
+//     return res.status(200).json({
+//       success: true,
+//       total_visits: visits.length,
+//       data
+//     });
+
+//   } catch (error) {
+//     return res.status(500).json({
+//       success: false,
+//       message: error.message
+//     });
+//   }
+// };

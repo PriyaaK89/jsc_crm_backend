@@ -110,23 +110,84 @@ exports.updateSalesBillPendingAmount = async (connection, salesBillReferenceId, 
 };
 
 exports.getPendingBills = async (ledgerId) => {
+  // 1) Bill-wise pending bills — now with voucher_no from sales
   const [rows] = await db.query(
     ` SELECT
-            id, reference_no, reference_type,
-            bill_amount, pending_amount,
-            due_date
+            sbr.id, sbr.reference_no, sbr.reference_type,
+            sbr.bill_amount, sbr.pending_amount,
+            sbr.due_date,
+            s.voucher_no,
+            s.sales_date AS bill_date
 
-        FROM sales_bill_references
+        FROM sales_bill_references sbr
+        LEFT JOIN sales s ON s.id = sbr.sale_id
 
-        WHERE ledger_id = ?
-        AND pending_amount > 0
+        WHERE sbr.ledger_id = ?
+        AND sbr.pending_amount > 0
 
-        ORDER BY due_date ASC `,
+        ORDER BY sbr.due_date ASC `,
     [ledgerId],
   );
 
-  return rows;
+  if (rows.length > 0) {
+    return { bills: rows, ledger_balance: null };
+  }
+
+  // 2) No bill-wise references — surface the ledger's current balance
+  //    as context only. The USER still picks the reference_type
+  //    (Agst Ref / On Account / Advance) in the modal, same as today.
+  const [ledgerRows] = await db.query(
+    ` SELECT
+            l.id AS ledger_id,
+            l.opening_balance,
+            l.balance_type,
+            COALESCE(SUM(
+              CASE WHEN lt.entry_type = 'Dr' THEN lt.amount ELSE -lt.amount END
+            ), 0) AS net_transactions
+        FROM ledgers l
+        LEFT JOIN ledger_transactions lt ON lt.ledger_id = l.id
+        WHERE l.id = ?
+        GROUP BY l.id, l.opening_balance, l.balance_type `,
+    [ledgerId],
+  );
+
+  if (!ledgerRows.length) {
+    return { bills: [], ledger_balance: null };
+  }
+
+  const ledger = ledgerRows[0];
+  const openingBalance = Number(ledger.opening_balance || 0);
+  const signedOpening = ledger.balance_type === "Cr" ? openingBalance : -openingBalance;
+  const currentBalance = signedOpening + Number(ledger.net_transactions || 0);
+
+  return {
+    bills: [],
+    ledger_balance:
+      currentBalance !== 0
+        ? {
+            amount: Math.abs(currentBalance),
+            balance_type: currentBalance >= 0 ? "Cr" : "Dr",
+          }
+        : null,
+  };
 };
+
+// exports.getPendingBills = async (ledgerId) => {
+//   const [rows] = await db.query(
+//     ` SELECT
+//             id, reference_no, reference_type,
+//             bill_amount, pending_amount,
+//             due_date
+
+//         FROM sales_bill_references
+//         WHERE ledger_id = ?
+//         AND pending_amount > 0
+//         ORDER BY due_date ASC `,
+//     [ledgerId],
+//   );
+
+//   return rows;
+// };
 
 exports.getReceiptInvoice = async (receiptId) => {
   // Receipt Master

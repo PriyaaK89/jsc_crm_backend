@@ -971,6 +971,29 @@ exports.getEmployeeProgress = async (req, res) => {
   }
 };
 
+exports.getMyActiveProgress = async (req, res) => {
+  try {
+    const employeeId = req.user.id; // logged-in user, same as dashboard's widget.employeeId
+    const { start_date, end_date } = req.query; // dashboard doesn't send these, so this falls back to the active-assignment lookup
+
+    const progress = await visitTargetModel.getEmployeeProgress(
+      employeeId,
+      start_date || undefined,
+      end_date || undefined
+    );
+
+    // progress is null when there's no matching assignment — dashboard's
+    // existing code already treats data === null as "no active target"
+    return res.status(200).json({
+      success: true,
+      data: progress, // { assignment, breakdown } or null — unchanged shape
+    });
+  } catch (error) {
+    console.error("getMyActiveProgress error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch active progress" });
+  }
+};
+
 // exports.getTeamProgress = async (req, res) => {
 //   try {
 //     const loggedInUser = req.user;

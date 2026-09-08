@@ -27,6 +27,7 @@ router.get("/visit-targets/progress/admin", auth, visitTargetController.getAdmin
 router.get("/visit-targets/progress/history",auth, visitTargetController.getAssignmentHistory);
 
 router.get("/get-teamwise-visit-target-template", auth, visitTargetController.getTeamProgress);
+router.get("/visit-targets/progress/me", auth, visitTargetController.getMyActiveProgress);
 
 module.exports = router;
 

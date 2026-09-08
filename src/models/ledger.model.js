@@ -1070,24 +1070,55 @@ const reassignLedgerEmployeeModel = async (
 
 // models/ledgerModel.js
 
-const getCurrentLedgerBalance = async ( connection, ledgerId ) => {
+// const getCurrentLedgerBalance = async ( connection, ledgerId ) => {
 
-  const [[ledger]] = await connection.query( ` SELECT opening_balance, balance_type FROM ledgers WHERE id = ? `, [ledgerId] );
+//   const [[ledger]] = await connection.query( ` SELECT opening_balance, balance_type FROM ledgers WHERE id = ? `, [ledgerId] );
+
+//   if (!ledger) return 0;
+//   let balance = Number(ledger.opening_balance);
+
+//   const [transactions] = await connection.query(
+//     ` SELECT entry_type, amount FROM ledger_transactions WHERE ledger_id = ? AND is_cancelled = 0 `, [ledgerId]
+//   );
+
+//   for (const trx of transactions) {
+//     if (trx.entry_type === "Dr") { balance += Number(trx.amount);
+//     } else { balance -= Number(trx.amount); }
+//   }
+
+//   return balance;
+// };
+
+const getCurrentLedgerBalance = async (connection, ledgerId) => {
+  const [[ledger]] = await connection.query(
+    `SELECT opening_balance, balance_type FROM ledgers WHERE id = ?`,
+    [ledgerId]
+  );
 
   if (!ledger) return 0;
 
-  let balance = Number(ledger.opening_balance);
+  // Apply sign based on balance_type: Dr = positive (they owe us),
+  // Cr = negative (we owe them / they're in credit)
+  let balance =
+    ledger.balance_type === "Cr"
+      ? -Number(ledger.opening_balance)
+      : Number(ledger.opening_balance);
 
   const [transactions] = await connection.query(
-    ` SELECT entry_type, amount FROM ledger_transactions WHERE ledger_id = ? AND is_cancelled = 0 `, [ledgerId]
+    `SELECT entry_type, amount FROM ledger_transactions WHERE ledger_id = ? AND is_cancelled = 0`,
+    [ledgerId]
   );
 
   for (const trx of transactions) {
-
-    if (trx.entry_type === "Dr") { balance += Number(trx.amount);
-    } else { balance -= Number(trx.amount); }
+    if (trx.entry_type === "Dr") {
+      balance += Number(trx.amount);
+    } else {
+      balance -= Number(trx.amount);
+    }
   }
 
+  // Positive → Dr (customer owes this much)
+  // Negative → Cr (customer has this much credit with us)
   return balance;
 };
 

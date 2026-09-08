@@ -561,30 +561,50 @@ exports.enforceSalesRules = async (
 ) => {
   const ledgerId = customerLedger.id;
   const creditLimit = Number(customerLedger.credit_limit || 0);
-  const openingBalance = Number(customerLedger.opening_balance || 0);
-  const balanceType = customerLedger.balance_type;
 
+  const netBalance = await getCurrentLedgerBalance(connection, ledgerId);
+  const isCr = netBalance < 0;
+  const availableCredit = isCr ? Math.abs(netBalance) : 0;
+
+  // ── Case 1: Customer currently has a credit (Cr) balance ────────────────
+  if (isCr && availableCredit > 0) {
+    const outstanding = await getOutstandingAmount(connection, ledgerId);
+    const projectedOutstanding = outstanding + Number(salesAmount || 0);
+
+    if (projectedOutstanding > availableCredit) {
+      const err = new Error(
+        `Sale exceeds available credit balance. Available: ${availableCredit}, current outstanding: ${outstanding}, new sale: ${salesAmount}`
+      );
+      err.code = "CREDIT_BALANCE_EXCEEDED";
+      err.creditLimitInfo = {
+        credit_limit: availableCredit,
+        limit_source: "CURRENT_CR_BALANCE",
+        current_outstanding: outstanding,
+        new_sale_amount: Number(salesAmount || 0),
+        projected_outstanding: projectedOutstanding,
+      };
+      throw err;
+    }
+    return; // Cr customer within balance — allow, skip overdue-bill check
+  }
+
+  // ── Case 2: Customer owes us (Dr) or has no Cr balance ───────────────────
   let effectiveLimit = 0;
   let limitSource = null;
 
   if (creditLimit > 0) {
     effectiveLimit = creditLimit;
     limitSource = "CREDIT_LIMIT";
-  } else if (balanceType === "Cr" && openingBalance > 0) {
-    effectiveLimit = openingBalance;
-    limitSource = "OPENING_CR_BALANCE";
   } else {
     const err = new Error(
-      `Sale blocked. No credit limit is set for this ledger and it has no credit (Cr) opening balance.`
+      `Sale blocked. No credit limit is set for this ledger and it has no credit (Cr) balance.`
     );
     err.code = "NO_CREDIT_FACILITY";
     throw err;
   }
 
   const outstanding = await getOutstandingAmount(connection, ledgerId);
-  console.log("DEBUG ledgerId:", ledgerId, "outstanding:", outstanding, "effectiveLimit:", effectiveLimit, "source:", limitSource);
   const projectedOutstanding = outstanding + Number(salesAmount || 0);
-  console.log("DEBUG projectedOutstanding:", projectedOutstanding);
 
   if (projectedOutstanding > effectiveLimit) {
     const err = new Error(
@@ -626,6 +646,80 @@ exports.enforceSalesRules = async (
     throw err;
   }
 };
+
+// exports.enforceSalesRules = async (
+//   connection,
+//   customerLedger,
+//   salesAmount,
+//   salesDate
+// ) => {
+//   const ledgerId = customerLedger.id;
+//   const creditLimit = Number(customerLedger.credit_limit || 0);
+//   const openingBalance = Number(customerLedger.opening_balance || 0);
+//   const balanceType = customerLedger.balance_type;
+
+//   let effectiveLimit = 0;
+//   let limitSource = null;
+
+//   if (creditLimit > 0) {
+//     effectiveLimit = creditLimit;
+//     limitSource = "CREDIT_LIMIT";
+//   } else if (balanceType === "Cr" && openingBalance > 0) {
+//     effectiveLimit = openingBalance;
+//     limitSource = "OPENING_CR_BALANCE";
+//   } else {
+//     const err = new Error(
+//       `Sale blocked. No credit limit is set for this ledger and it has no credit (Cr) opening balance.`
+//     );
+//     err.code = "NO_CREDIT_FACILITY";
+//     throw err;
+//   }
+
+//   const outstanding = await getOutstandingAmount(connection, ledgerId);
+//   console.log("DEBUG ledgerId:", ledgerId, "outstanding:", outstanding, "effectiveLimit:", effectiveLimit, "source:", limitSource);
+//   const projectedOutstanding = outstanding + Number(salesAmount || 0);
+//   console.log("DEBUG projectedOutstanding:", projectedOutstanding);
+
+//   if (projectedOutstanding > effectiveLimit) {
+//     const err = new Error(
+//       `Credit limit exceeded. Limit: ${effectiveLimit} (${limitSource}), current outstanding: ${outstanding}, new sale: ${salesAmount}`
+//     );
+//     err.code = "CREDIT_LIMIT_EXCEEDED";
+//     err.creditLimitInfo = {
+//       credit_limit: effectiveLimit,
+//       limit_source: limitSource,
+//       current_outstanding: outstanding,
+//       new_sale_amount: Number(salesAmount || 0),
+//       projected_outstanding: projectedOutstanding,
+//     };
+//     throw err;
+//   }
+
+//   const overdueBills = await getOverdueBills(connection, ledgerId, salesDate);
+
+//   if (overdueBills.length > 0) {
+//     const formattedBills = overdueBills.map((b) => ({
+//       voucher_no: b.reference_no,
+//       bill_date: formatDate(b.bill_date),
+//       bill_amount: Number(b.bill_amount),
+//       pending_amount: Number(b.pending_amount),
+//       due_date: formatDate(b.due_date),
+//       duration_days: Number(b.duration_days),
+//     }));
+
+//     const message = formattedBills
+//       .map(
+//         (b) =>
+//           `Voucher - ${b.voucher_no},Bill Date - ${b.bill_date},Bill Amt - ${b.bill_amount.toFixed(2)},Duration - ${b.duration_days} days`
+//       )
+//       .join("\n");
+
+//     const err = new Error(message);
+//     err.code = "OVERDUE_BILLS";
+//     err.overdueBills = formattedBills;
+//     throw err;
+//   }
+// };
 
 exports.checkOverdueBills = async (connection, ledgerId, referenceDate) => {
   const overdueBills = await getOverdueBills(connection, ledgerId, referenceDate);

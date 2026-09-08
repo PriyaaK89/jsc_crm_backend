@@ -566,22 +566,27 @@ exports.enforceSalesRules = async (
   const netBalance = await getCurrentLedgerBalance(connection, ledgerId);
   const isCr = netBalance < 0;
   const availableCredit = isCr ? Math.abs(netBalance) : 0;
-  const currentDrBalance = isCr ? 0 : netBalance; // what they currently owe
+  const currentDrBalance = isCr ? 0 : netBalance;
 
   // ── Case 1: Customer currently has a credit (Cr) balance ────────────────
   if (isCr && availableCredit > 0) {
+    const totalAllowance = availableCredit + creditLimit; // Cr balance + extra credit limit
+
     const outstanding = await getOutstandingAmount(connection, ledgerId);
     const projectedOutstanding = outstanding + Number(salesAmount || 0);
 
-    if (projectedOutstanding > availableCredit) {
+    if (projectedOutstanding > totalAllowance) {
+      const remaining = Math.max(totalAllowance - outstanding, 0);
       const err = new Error(
-        `Sale exceeds available credit balance. Available: ${availableCredit}, current outstanding: ${outstanding}, new sale: ${salesAmount}`
+        `Sale exceeds available credit. Cr Balance: ₹${availableCredit}, Credit Limit: ₹${creditLimit}, Total Allowance: ₹${totalAllowance}, Already Used: ₹${outstanding}, You can order up to: ₹${remaining}`
       );
       err.code = "CREDIT_BALANCE_EXCEEDED";
       err.creditLimitInfo = {
-        credit_limit: availableCredit,
-        limit_source: "CURRENT_CR_BALANCE",
+        cr_balance: availableCredit,
+        credit_limit: creditLimit,
+        total_allowance: totalAllowance,
         current_outstanding: outstanding,
+        remaining_amount: remaining,
         new_sale_amount: Number(salesAmount || 0),
         projected_outstanding: projectedOutstanding,
       };
@@ -592,8 +597,6 @@ exports.enforceSalesRules = async (
 
   // ── Case 2: Customer owes us (Dr) or has no Cr balance ───────────────────
   if (creditLimit > 0) {
-    // Use the LIVE Dr balance instead of sales_bill_references,
-    // so it works whether or not maintain_bill_by_bill is set.
     const projectedBalance = currentDrBalance + Number(salesAmount || 0);
     const remaining = creditLimit - currentDrBalance;
 
@@ -619,7 +622,7 @@ exports.enforceSalesRules = async (
     throw err;
   }
 
-  // Overdue-bill check still applies to Dr customers
+  // Overdue-bill check only applies to Dr customers
   const overdueBills = await getOverdueBills(connection, ledgerId, salesDate);
 
   if (overdueBills.length > 0) {

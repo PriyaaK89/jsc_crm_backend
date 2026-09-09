@@ -137,7 +137,7 @@ const generateDailySalaryInternal = async (employeeId, date) => {
 
     //  Daily Allowance (ONLY for FULL DAY)
     if (
-      attendance.attendance_unit === "full" &&
+      // attendance.attendance_unit === "full" &&
       travelledKm >= (user.avg_travel_km_per_day || 0)
     ) {
       // dailyAllowance = Number(user.daily_allowance_with_doc) || 0;

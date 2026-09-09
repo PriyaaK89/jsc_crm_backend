@@ -6,7 +6,7 @@ const BUCKET = "jsc-crm";
 exports.uploadEmployeeLetter = async (req, res) => {
   try {
     const file = req.file;
-    const { employee_id, document_type, employee_name } = req.body;
+    const { employee_id, document_type, employee_name , reference_no,} = req.body;
 
     if (!file) {
       return res.status(400).json({
@@ -31,30 +31,49 @@ exports.uploadEmployeeLetter = async (req, res) => {
       file.size,
       { "Content-Type": "application/pdf" }
     );
-
-    await db.query(
+console.log({
+  employee_id,
+  document_type,
+ fileName,
+ reference_no
+});
+   const [result] = await db.query(
       `INSERT INTO employee_documents
-      (employee_id, document_type, file_url)
-      VALUES (?, ?, ?)
-      ON DUPLICATE KEY UPDATE file_url = VALUES(file_url)`,
-      [employee_id, document_type, fileName] 
+      (employee_id, document_type, file_url,  reference_no)
+      VALUES (?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE file_url = VALUES(file_url),
+       reference_no = IF(
+        reference_no IS NULL OR reference_no = '',
+        VALUES(reference_no),
+        reference_no
+    )  `,
+      
+      [employee_id, document_type, fileName,  reference_no] 
     );
+    console.log("BODY:", req.body);
+console.log("REFERENCE:", req.body.reference_no);
+console.log(result);
 
     res.json({
       message: "Letter uploaded successfully",
       file_path: fileName
     });
 
-  } catch (error) {
-    res.status(500).json({
-      error: error.message,
-    });
-  }
+  }catch (error) {
+  console.log("ERROR:", error);
+
+  res.status(500).json({
+    message: error.message,
+    code: error.code,
+    errno: error.errno,
+    sqlMessage: error.sqlMessage,
+    sql: error.sql
+  });
+}
 };
 
 exports.getEmployeeDocumentsByEmployee = async (req, res) => {
   try {
-
     const { employee_id } = req.params;
 
     const [rows] = await db.query(
@@ -109,10 +128,8 @@ exports.getEmployeeDocumentsByEmployee = async (req, res) => {
     res.json({ data });
 
   } catch (error) {
-
     res.status(500).json({
       message: error.message
     });
-
   }
 };

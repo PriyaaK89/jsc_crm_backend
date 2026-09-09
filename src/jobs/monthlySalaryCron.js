@@ -71,17 +71,10 @@ cron.schedule("59 23 28-31 * *", async () => {
             AND month = ?
             AND year = ?
           `,
-          [
-            emp.id,
-            month,
-            year,
-          ]
+          [ emp.id, month, year, ]
         );
 
-        if (
-          lockedRow &&
-          lockedRow.salary_locked === 1
-        ) {
+        if ( lockedRow && lockedRow.salary_locked === 1 ) {
 
           console.log(
             `Salary locked for employee ${emp.id}`
@@ -190,19 +183,11 @@ cron.schedule("59 23 28-31 * *", async () => {
            CALCULATIONS
         ===================================================== */
 
-        const grossSalary =
-          Number(summary.gross_salary) || 0;
+        const grossSalary = Number(summary.gross_salary) || 0;
+        const pfDeduction = Number(emp.pf) || 0;
+        const esiDeduction = Number(emp.esi) || 0;
 
-        const pfDeduction =
-          Number(emp.pf) || 0;
-
-        const esiDeduction =
-          Number(emp.esi) || 0;
-
-        const netSalary =
-          grossSalary -
-          pfDeduction -
-          esiDeduction;
+        const netSalary = grossSalary - pfDeduction - esiDeduction;
 
         /* =====================================================
            SAVE MONTHLY SALARY
@@ -240,66 +225,31 @@ cron.schedule("59 23 28-31 * *", async () => {
             esi_deduction,
 
             net_salary,
-
             generated_at
 
           )
           VALUES (
-
             ?,?,?,?,?,?,?,?,?,?,
             ?,?,?,?,?,?,?,?,?,NOW()
-
           )
 
           ON DUPLICATE KEY UPDATE
-
-            total_present =
-              VALUES(total_present),
-
-            total_half_day =
-              VALUES(total_half_day),
-
-            total_absent =
-              VALUES(total_absent),
-
-            total_week_off =
-              VALUES(total_week_off),
-
-            total_leave =
-              VALUES(total_leave),
-
-            total_reading =
-              VALUES(total_reading),
-
-            total_basic_salary =
-              VALUES(total_basic_salary),
-
-            total_travelling_allowance =
-              VALUES(total_travelling_allowance),
-
-            total_daily_allowance =
-              VALUES(total_daily_allowance),
-
-            total_hotel_expense =
-              VALUES(total_hotel_expense),
-
-            total_other_expense =
-              VALUES(total_other_expense),
-
-            total_bus_train_toll_expense =
-              VALUES(total_bus_train_toll_expense),
-
-            gross_salary =
-              VALUES(gross_salary),
-
-            pf_deduction =
-              VALUES(pf_deduction),
-
-            esi_deduction =
-              VALUES(esi_deduction),
-
-            net_salary =
-              VALUES(net_salary)
+            total_present = VALUES(total_present),
+            total_half_day = VALUES(total_half_day),
+            total_absent = VALUES(total_absent),
+            total_week_off = VALUES(total_week_off),
+            total_leave = VALUES(total_leave),
+            total_reading = VALUES(total_reading),
+            total_basic_salary = VALUES(total_basic_salary),
+            total_travelling_allowance = VALUES(total_travelling_allowance),
+            total_daily_allowance = VALUES(total_daily_allowance),
+            total_hotel_expense = VALUES(total_hotel_expense),
+            total_other_expense = VALUES(total_other_expense),
+            total_bus_train_toll_expense = VALUES(total_bus_train_toll_expense),
+            gross_salary = VALUES(gross_salary),
+            pf_deduction = VALUES(pf_deduction),
+            esi_deduction = VALUES(esi_deduction),
+            net_salary = VALUES(net_salary)
           `,
           [
 

@@ -11,6 +11,18 @@ app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+app.use((req, res, next) => {
+    const start = Date.now();
+
+    console.log(`[START] ${req.method} ${req.originalUrl}`);
+
+    res.on("finish", () => {
+        const duration = Date.now() - start;
+        console.log( `[END] ${req.method} ${req.originalUrl} ${res.statusCode} (${duration}ms)` );
+    });
+
+    next();
+});
 
 
 const departmentRoute = require("../src/routes/department.routes");
@@ -69,6 +81,14 @@ const transactionApprovalConfig = require("../src/routes/transaction-flow/transa
 // for sales order request in apk
 const transactionApproval = require("../src/routes/transaction-flow/transactionApproval.routes");
 const visitTargetTemplate = require("../src/routes/visitTargetTemplate.routes");
+const receiptApproval = require("../src/routes/transaction-flow/receiptApproval.routes");
+const empPaymentHold = require("../src/routes/empPaymentHold.routes");
+const transactionDocumentRoute = require("../src/routes/reports/transactionDocuments.routes");
+const testRoute = require("../src/routes/test.route");
+const generateOfferLetterRoute = require("../src/routes/documents/offerLetter.routes")
+const penaltyRoute = require("../src/routes/penalty.routes")
+const whatsappRoutes = require("../src/routes/whatsapp.routes");
+// const reminderRoute = require("../src/routes/reminder.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -131,6 +151,14 @@ app.use(partyTransactionReportRoute);
 app.use(transactionApprovalConfig);
 app.use(transactionApproval);
 app.use(visitTargetTemplate);
+app.use(receiptApproval);
+app.use(empPaymentHold);
+app.use(transactionDocumentRoute);
+app.use(testRoute);
+app.use(generateOfferLetterRoute)
+// app.use(reminderRoute);
+app.use(penaltyRoute)
+app.use("/api/whatsapp", whatsappRoutes);
 
 // 404 handler
 app.use((req, res) => {

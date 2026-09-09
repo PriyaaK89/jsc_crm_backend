@@ -216,9 +216,6 @@ const getRelatedData = async (conn, ids) => {
 const deleteDistributor = async (conn, distributorId) => {
   await conn.query("DELETE FROM distributors WHERE id = ?", [distributorId]);
 };
-module.exports = {
-  createDistributor,
-  insertPartners,
-  insertCompanies,
+module.exports = { createDistributor, insertPartners, insertCompanies,
   insertDocuments, getDistributorById, getCompanies, getDocuments, getPartners, updateDistributor, deletePartners, deleteCompanies, getDistributors, getRelatedData, deleteDistributor
 };

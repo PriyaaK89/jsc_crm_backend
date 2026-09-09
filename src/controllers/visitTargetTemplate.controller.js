@@ -1,6 +1,7 @@
 const db = require("../config/db");
 const visitTargetModel = require("../models/visitTargetTemplate.model");
 const { calculateEndDate } = require("../utils/targetPeriod.helper");
+const { getHierarchyIds } = require("../controllers/rollingUser.controller");
 
 /**
  * Create Target Template
@@ -23,6 +24,13 @@ exports.createTemplate = async (req, res) => {
 
     const assignedBy = req.user.id; // adjust to match your auth middleware
 
+    if (!template_name || !template_name.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "template_name is required",
+      });
+    }
+
     if (!frequency || !start_date || !end_date) {
       return res.status(400).json({
         success: false,
@@ -44,19 +52,33 @@ exports.createTemplate = async (req, res) => {
       });
     }
 
+
+
     const uniqueEmployeeIds = [...new Set(employee_ids)];
 
-    const conflicts = await visitTargetModel.checkDuplicateTemplate(
-      uniqueEmployeeIds,
-      start_date,
-      end_date
+    // const conflicts = await visitTargetModel.checkDuplicateTemplate(
+    //   uniqueEmployeeIds,
+    //   start_date,
+    //   end_date
+    // );
+
+    // if (conflicts.length > 0) {
+    //   return res.status(409).json({
+    //     success: false,
+    //     message: "One or more employees already have an active target for this period",
+    //     conflicts,
+    //   });
+    // }
+
+    const employeesWithActiveTarget = await visitTargetModel.getEmployeesWithActiveTarget(
+      uniqueEmployeeIds
     );
 
-    if (conflicts.length > 0) {
+    if (employeesWithActiveTarget.length > 0) {
       return res.status(409).json({
         success: false,
-        message: "One or more employees already have an active target for this period",
-        conflicts,
+        message: "This Employee already have an active target assigned",
+        conflicts: employeesWithActiveTarget,
       });
     }
 
@@ -186,78 +208,79 @@ exports.templateDropdown = async (req, res) => {
  */
 exports.updateTemplate = async (req, res) => {
   const connection = await db.getConnection();
- 
+
   try {
     const { id } = req.params;
     const { employee_ids, targets, ...templateFields } = req.body;
- 
+
     const existing = await visitTargetModel.getTemplateById(id);
- 
+
     if (!existing) {
       return res.status(404).json({ success: false, message: "Template not found" });
     }
- 
+
     // Effective period for any NEW assignments created in this call.
     // Falls back to the template's current dates if not being changed.
     const newStartDate = templateFields.start_date || existing.start_date;
     const newEndDate = templateFields.end_date || existing.end_date;
- 
+
     // ---- Diff employees ----
     const existingEmployeeRows = await visitTargetModel.getTemplateEmployees(id);
     const existingEmployeeIds = existingEmployeeRows.map((e) => e.id);
- 
+
     const employeeIdsProvided = Array.isArray(employee_ids);
     const uniqueIncomingEmployeeIds = employeeIdsProvided
       ? [...new Set(employee_ids)]
       : existingEmployeeIds;
- 
+
     const addedEmployees = employeeIdsProvided
       ? uniqueIncomingEmployeeIds.filter((eid) => !existingEmployeeIds.includes(eid))
       : [];
- 
+
     const removedEmployees = employeeIdsProvided
       ? existingEmployeeIds.filter((eid) => !uniqueIncomingEmployeeIds.includes(eid))
       : [];
- 
+
     const keptEmployees = employeeIdsProvided
       ? uniqueIncomingEmployeeIds.filter((eid) => existingEmployeeIds.includes(eid))
       : existingEmployeeIds;
- 
+
+    // ---- NEW: template name uniqueness (only if it's actually changing) ----
+  
+
     // ---- Validate: only added employees need a duplicate-assignment check ----
     if (addedEmployees.length > 0) {
-      const conflicts = await visitTargetModel.checkDuplicateTemplate(
+      const employeesWithActiveTarget = await visitTargetModel.getEmployeesWithActiveTarget(
         addedEmployees,
-        newStartDate,
-        newEndDate,
-        id
+        id // exclude this template itself
       );
- 
-      if (conflicts.length > 0) {
+
+      if (employeesWithActiveTarget.length > 0) {
         return res.status(409).json({
           success: false,
-          message: "One or more employees already have an active target for this period",
-          conflicts,
+          message: "One or more employees already have an active target assigned",
+          conflicts: employeesWithActiveTarget,
         });
       }
     }
- 
+
     await connection.beginTransaction();
- 
+
     // ---- 1. Update template info ----
     if (Object.keys(templateFields).length > 0) {
       await visitTargetModel.updateTemplate(connection, id, templateFields);
     }
- 
+
     // ---- 2. Update template targets ----
     if (Array.isArray(targets) && targets.length > 0) {
       await visitTargetModel.updateTemplateTargets(connection, id, targets);
     }
- 
+
     // ---- 3. Update template <-> employee mapping ----
     if (employeeIdsProvided) {
       await visitTargetModel.updateTemplateUsers(connection, id, uniqueIncomingEmployeeIds);
     }
- 
+
     // Targets to use when creating assignment_details for NEWLY added
     // employees: prefer the payload's targets; otherwise fall back to
     // whatever the template currently has (post-update).
@@ -265,22 +288,36 @@ exports.updateTemplate = async (req, res) => {
       Array.isArray(targets) && targets.length > 0
         ? targets
         : await visitTargetModel.getTemplateTargets(id);
- 
-    // ---- 5. Added employees: create a new ACTIVE assignment ----
+
+    // ---- 5. Added employees: create a new ACTIVE assignment, or
+    // reactivate an existing EXPIRED/COMPLETED row for this exact period
+    // (required because uq_assignment_period is unique on
+    // template_id+employee_id+period_start+period_end regardless of status) ----
     for (const employeeId of addedEmployees) {
-      const alreadyExists = await visitTargetModel.checkExistingAssignment(
+      const existingRow = await visitTargetModel.getAssignmentForPeriod(
         id,
         employeeId,
         newStartDate,
         newEndDate
       );
- 
-      // Guards against creating a duplicate ACTIVE assignment if one
-      // for this exact period somehow already exists.
-      if (alreadyExists) {
+
+      if (existingRow) {
+        if (existingRow.status === "ACTIVE") {
+          // already active for this exact period, nothing to do
+          continue;
+        }
+
+        // EXPIRED/COMPLETED row exists for this period — reactivate it
+        // instead of inserting (avoids uq_assignment_period collision)
+        await visitTargetModel.reactivateAssignment(connection, existingRow.id);
+        await visitTargetModel.refreshAssignmentDetails(
+          connection,
+          existingRow.id,
+          effectiveTargets
+        );
         continue;
       }
- 
+
       const newAssignmentId = await visitTargetModel.createAssignment(connection, {
         template_id: id,
         employee_id: employeeId,
@@ -288,19 +325,19 @@ exports.updateTemplate = async (req, res) => {
         period_end: newEndDate,
         status: "ACTIVE",
       });
- 
+
       await visitTargetModel.createAssignmentDetails(
         connection,
         newAssignmentId,
         effectiveTargets
       );
     }
- 
+
     // ---- 6. Removed employees: expire their ACTIVE assignment, keep history ----
     if (removedEmployees.length > 0) {
       await visitTargetModel.expireAssignmentsForEmployees(connection, id, removedEmployees);
     }
- 
+
     // ---- 7. Kept employees: sync assignment_details if targets changed ----
     if (keptEmployees.length > 0 && Array.isArray(targets) && targets.length > 0) {
       await visitTargetModel.syncActiveAssignmentDetailsForEmployees(
@@ -310,7 +347,7 @@ exports.updateTemplate = async (req, res) => {
         targets
       );
     }
- 
+
     // ---- 8. Kept employees: sync period dates if template dates changed ----
     if (keptEmployees.length > 0 && (templateFields.start_date || templateFields.end_date)) {
       await visitTargetModel.updateActiveAssignmentsPeriodForEmployees(
@@ -321,9 +358,9 @@ exports.updateTemplate = async (req, res) => {
         newEndDate
       );
     }
- 
+
     await connection.commit();
- 
+
     return res.json({
       success: true,
       message: "Template updated",
@@ -341,7 +378,7 @@ exports.updateTemplate = async (req, res) => {
     connection.release();
   }
 };
- 
+
 /**
  * Delete (soft-deactivate) template
  *
@@ -355,23 +392,23 @@ exports.updateTemplate = async (req, res) => {
  */
 exports.deleteTemplate = async (req, res) => {
   const connection = await db.getConnection();
- 
+
   try {
     const { id } = req.params;
- 
+
     const existing = await visitTargetModel.getTemplateById(id);
- 
+
     if (!existing) {
       return res.status(404).json({ success: false, message: "Template not found" });
     }
- 
+
     await connection.beginTransaction();
- 
+
     await visitTargetModel.deleteTemplate(connection, id);
     await visitTargetModel.expireAllActiveAssignmentsForTemplate(connection, id);
- 
+
     await connection.commit();
- 
+
     return res.json({ success: true, message: "Template deactivated" });
   } catch (error) {
     await connection.rollback();
@@ -410,7 +447,7 @@ exports.getAssignmentProgress = async (req, res) => {
     const { id } = req.params;
     const progress = await visitTargetModel.getAssignmentProgress(id);
 
-    if (!progress) { return res.status(404).json({ success: false, message: "Assignment not found" });}
+    if (!progress) { return res.status(404).json({ success: false, message: "Assignment not found" }); }
 
     return res.json({ success: true, data: progress });
   } catch (error) {
@@ -497,7 +534,7 @@ exports.completeAssignment = async (req, res) => {
 exports.getAssignmentHistory = async (req, res) => {
   try {
     const { employee_id, template_id, status, page, limit } = req.query;
- 
+
     const { rows, total } = await visitTargetModel.getAssignmentHistory({
       employeeId: employee_id,
       templateId: template_id,
@@ -505,7 +542,7 @@ exports.getAssignmentHistory = async (req, res) => {
       page: Number(page) || 1,
       limit: Number(limit) || 20,
     });
- 
+
     return res.json({
       success: true,
       data: rows,
@@ -592,22 +629,38 @@ exports.reactivateTemplate = async (req, res) => {
     const employeeIds = mappedEmployees.map((e) => e.id);
 
     if (employeeIds.length > 0) {
-      const conflicts = await visitTargetModel.checkDuplicateTemplate(
+      const employeesWithActiveTarget = await visitTargetModel.getEmployeesWithActiveTarget(
         employeeIds,
-        periodStart,
-        periodEnd,
         id
       );
 
-      if (conflicts.length > 0) {
+      if (employeesWithActiveTarget.length > 0) {
         return res.status(409).json({
           success: false,
           message:
-            "One or more employees already have an active target for this period. Remove them from this template first, or choose a different period.",
-          conflicts,
+            "One or more employees already have an active target assigned. Remove them from this template first, or choose a different period.",
+          conflicts: employeesWithActiveTarget,
         });
       }
     }
+
+    // if (employeeIds.length > 0) {
+    //   const conflicts = await visitTargetModel.checkDuplicateTemplate(
+    //     employeeIds,
+    //     periodStart,
+    //     periodEnd,
+    //     id
+    //   );
+
+    //   if (conflicts.length > 0) {
+    //     return res.status(409).json({
+    //       success: false,
+    //       message:
+    //         "One or more employees already have an active target for this period. Remove them from this template first, or choose a different period.",
+    //       conflicts,
+    //     });
+    //   }
+    // }
 
     await connection.beginTransaction();
 
@@ -680,3 +733,318 @@ exports.reactivateTemplate = async (req, res) => {
     connection.release();
   }
 };
+
+/**
+ * Permanently delete a template — irreversible, wipes all assignment
+ * history tied to it. Requires ?confirm=true to avoid accidental calls.
+ * Recommend the frontend only exposes this after the template is
+ * already INACTIVE (deactivated), to avoid nuking a live template's
+ * history out from under active employees.
+ */
+exports.hardDeleteTemplate = async (req, res) => {
+  const connection = await db.getConnection();
+
+  try {
+    const { id } = req.params;
+    const { confirm } = req.query;
+
+    if (confirm !== "true") {
+      return res.status(400).json({
+        success: false,
+        message: "Permanent delete requires ?confirm=true",
+      });
+    }
+
+    const existing = await visitTargetModel.getTemplateById(id);
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Template not found" });
+    }
+
+    await connection.beginTransaction();
+
+    const deleted = await visitTargetModel.hardDeleteTemplate(connection, id);
+
+    if (!deleted) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: "Template not found" });
+    }
+
+    await connection.commit();
+
+    return res.json({ success: true, message: "Template permanently deleted" });
+  } catch (error) {
+    await connection.rollback();
+    console.error("hardDeleteTemplate error:", error);
+    return res.status(500).json({ success: false, message: "Failed to permanently delete template" });
+  } finally {
+    connection.release();
+  }
+};
+
+exports.holdTemplate = async (req, res) => {
+  const connection = await db.getConnection();
+
+  try {
+    const { id } = req.params;
+
+    const existing = await visitTargetModel.getTemplateById(id);
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Template not found" });
+    }
+
+    if (existing.status === "HOLD") {
+      return res.status(400).json({ success: false, message: "Template is already on hold" });
+    }
+
+    if (existing.status !== "ACTIVE") {
+      return res.status(400).json({
+        success: false,
+        message: `Only an ACTIVE template can be put on hold (current status: ${existing.status})`,
+      });
+    }
+
+    await connection.beginTransaction();
+
+    const held = await visitTargetModel.holdTemplate(connection, id);
+
+    if (!held) {
+      await connection.rollback();
+      return res.status(409).json({
+        success: false,
+        message: "Template could not be held — its status may have changed. Please retry.",
+      });
+    }
+
+    await connection.commit();
+
+    return res.json({ success: true, message: "Template put on hold" });
+  } catch (error) {
+    await connection.rollback();
+    console.error("holdTemplate error:", error);
+    return res.status(500).json({ success: false, message: "Failed to hold template" });
+  } finally {
+    connection.release();
+  }
+};
+
+exports.unholdTemplate = async (req, res) => {
+  const connection = await db.getConnection();
+
+  try {
+    const { id } = req.params;
+
+    const existing = await visitTargetModel.getTemplateById(id);
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Template not found" });
+    }
+
+    if (existing.status !== "HOLD") {
+      return res.status(400).json({
+        success: false,
+        message: `Only a HELD template can be unheld (current status: ${existing.status})`,
+      });
+    }
+
+    await connection.beginTransaction();
+
+    const unheld = await visitTargetModel.unholdTemplate(connection, id);
+
+    if (!unheld) {
+      await connection.rollback();
+      return res.status(409).json({
+        success: false,
+        message: "Template could not be unheld — its status may have changed. Please retry.",
+      });
+    }
+
+    await connection.commit();
+
+    return res.json({ success: true, message: "Template resumed from hold" });
+  } catch (error) {
+    await connection.rollback();
+    console.error("unholdTemplate error:", error);
+    return res.status(500).json({ success: false, message: "Failed to unhold template" });
+  } finally {
+    connection.release();
+  }
+};
+
+exports.getTeamProgress = async (req, res) => {
+  try {
+    const loggedInUser = req.user;
+    const { level, user_id, template_id, start_date, end_date } = req.query;
+
+    const hierarchyIds = await getHierarchyIds(loggedInUser.id);
+
+    const rows = await visitTargetModel.getTeamProgress({
+      employeeIds: hierarchyIds,
+      level: level ? Number(level) : undefined,
+      employeeId: user_id ? Number(user_id) : undefined,
+      templateId: template_id,
+      periodStart: start_date || undefined,
+      periodEnd: end_date || undefined,
+    });
+
+    const userMap = new Map();
+
+    rows.forEach((r) => {
+      const a = r.assignment;
+      if (!userMap.has(a.employee_id)) {
+        userMap.set(a.employee_id, {
+          id: a.employee_id,
+          name: a.employee_name,
+          contact_no: a.contact_no,
+          role_name: a.role_name,
+          level: a.level,
+          total_target: 0,
+          total_achieved: 0,
+          targets: [],
+        });
+      }
+
+      const entry = userMap.get(a.employee_id);
+
+      r.breakdown.forEach((b) => {
+        entry.targets.push({
+          assignment_id: a.id,
+          template_id: a.template_id,
+          visit_type: b.visit_type,
+          target_value: b.target_value,
+          achieved: b.achieved,
+          period_start: a.period_start,
+          period_end: a.period_end,
+        });
+        entry.total_target += Number(b.target_value) || 0;
+        entry.total_achieved += Number(b.achieved) || 0;
+      });
+    });
+
+    return res.status(200).json({ success: true, data: Array.from(userMap.values()) });
+  } catch (error) {
+    console.error("getTeamProgress error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch team progress" });
+  }
+};
+
+exports.getEmployeeProgress = async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+    const { start_date, end_date } = req.query;
+
+    const progress = await visitTargetModel.getEmployeeProgress(
+      Number(employeeId),
+      start_date || undefined,
+      end_date || undefined
+    );
+
+    if (!progress) {
+      return res.status(200).json({ success: true, data: [] });
+    }
+
+    const { assignment, breakdown } = progress;
+    const totalTarget = breakdown.reduce((s, b) => s + (Number(b.target_value) || 0), 0);
+    const totalAchieved = breakdown.reduce((s, b) => s + (Number(b.achieved) || 0), 0);
+
+    return res.status(200).json({
+      success: true,
+      data: [
+        {
+          id: assignment.employee_id,
+          total_target: totalTarget,
+          total_achieved: totalAchieved,
+          targets: breakdown.map((b) => ({
+            visit_type: b.visit_type,
+            target_value: b.target_value,
+            achieved: b.achieved,
+            period_start: assignment.period_start,
+            period_end: assignment.period_end,
+          })),
+        },
+      ],
+    });
+  } catch (error) {
+    console.error("getEmployeeProgress error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch employee progress" });
+  }
+};
+
+exports.getMyActiveProgress = async (req, res) => {
+  try {
+    const employeeId = req.user.id; // logged-in user, same as dashboard's widget.employeeId
+    const { start_date, end_date } = req.query; // dashboard doesn't send these, so this falls back to the active-assignment lookup
+
+    const progress = await visitTargetModel.getEmployeeProgress(
+      employeeId,
+      start_date || undefined,
+      end_date || undefined
+    );
+
+    // progress is null when there's no matching assignment — dashboard's
+    // existing code already treats data === null as "no active target"
+    return res.status(200).json({
+      success: true,
+      data: progress, // { assignment, breakdown } or null — unchanged shape
+    });
+  } catch (error) {
+    console.error("getMyActiveProgress error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch active progress" });
+  }
+};
+
+// exports.getTeamProgress = async (req, res) => {
+//   try {
+//     const loggedInUser = req.user;
+//     const { level, user_id, template_id } = req.query;
+
+//     const hierarchyIds = await getHierarchyIds(loggedInUser.id);
+
+//     const rows = await visitTargetModel.getTeamProgress({
+//       employeeIds: hierarchyIds,
+//       level: level ? Number(level) : undefined,
+//       employeeId: user_id ? Number(user_id) : undefined,
+//       templateId: template_id,
+//     });
+
+//     // flatten (assignment + breakdown[]) rows into one entry per employee
+//     const userMap = new Map();
+
+//     rows.forEach((r) => {
+//       const a = r.assignment;
+//       if (!userMap.has(a.employee_id)) {
+//         userMap.set(a.employee_id, {
+//           id: a.employee_id,
+//           name: a.employee_name,
+//           contact_no: a.contact_no,
+//           role_name: a.role_name,
+//           level: a.level,
+//           total_target: 0,
+//           total_achieved: 0,
+//           targets: [],
+//         });
+//       }
+
+//       const entry = userMap.get(a.employee_id);
+
+//       r.breakdown.forEach((b) => {
+//         entry.targets.push({
+//           assignment_id: a.id,
+//           visit_type: b.visit_type,
+//           target_value: b.target_value,
+//           achieved: b.achieved,
+//           period_start: a.period_start,
+//           period_end: a.period_end,
+//         });
+//         entry.total_target += Number(b.target_value) || 0;
+//         entry.total_achieved += Number(b.achieved) || 0;
+//       });
+//     });
+
+//     return res.status(200).json({ success: true, data: Array.from(userMap.values()) });
+//   } catch (error) {
+//     console.error("getTeamProgress error:", error);
+//     return res.status(500).json({ success: false, message: "Failed to fetch team progress" });
+//   }
+// };

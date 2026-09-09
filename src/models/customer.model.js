@@ -11,7 +11,7 @@ exports.createCustomer = async (data) => {
 
 exports.getCustomersByType = async (type) => {
   const [rows] = await db.query(
-    "SELECT id, name FROM customers WHERE type = ?",
+    "SELECT id, name, contact_number FROM customers WHERE type = ?",
     [type]
   );
   return rows;

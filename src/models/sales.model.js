@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const {getCurrentLedgerBalance} = require("../models/ledger.model")
 
 exports.getSalesLedgerDropdown = async () => {
   const [rows] = await db.query(`
@@ -110,15 +111,11 @@ exports.createSales = async (connection, salesData) => {
         )
         VALUES (
             ?,?,?,?,
-            ?,?,
-            ?,?,
-            ?,
+            ?,?, ?,?,?,
             ?,?,?,?,?,
-            ?,?,?,
-            ?,?,
+            ?,?,?,?,?,
             ?,?,?,?,
-            ?,?,?,
-            ?,
+            ?,?,?,?,
             ?,?,?,?,?,?,
             ?,?,?,?,? ) `,
     [
@@ -236,9 +233,7 @@ exports.insertSalesBatch = async (connection, item, salesItemId) => {
 
 exports.insertLedgerTransaction = async (connection, data) => {
   await connection.query(
-    `
-        INSERT INTO ledger_transactions (
-
+    ` INSERT INTO ledger_transactions (
             transaction_type,
             reference_id,
             voucher_no,
@@ -249,13 +244,8 @@ exports.insertLedgerTransaction = async (connection, data) => {
             amount,
             remarks,
             created_by
-
         )
-        VALUES (
-            ?,?,?,?,?,?,
-            ?,?,?,?
-        )
-        `,
+        VALUES ( ?,?,?,?,?,?, ?,?,?,? ) `,
     [
       data.transaction_type,
       data.reference_id,
@@ -274,19 +264,9 @@ exports.insertSalesBillReference = async ( connection, data) => {
 
   const [result] = await connection.query(
     ` INSERT INTO sales_bill_references (
-      sale_id,
-      ledger_id,
-      reference_type,
-      reference_no,
-      reference_amount,
-      bill_amount,
-      pending_amount,
-       status,
-      due_date
-    )
-    VALUES (
-      ?,?,?,?,?,?,?,?,?
-    ) `,
+      sale_id, ledger_id, reference_type, reference_no,
+      reference_amount, bill_amount, pending_amount,  status, due_date )
+    VALUES ( ?,?,?,?,?,?,?,?,? ) `,
     [
       data.sale_id,
       data.ledger_id,
@@ -303,26 +283,16 @@ exports.insertSalesBillReference = async ( connection, data) => {
 
 exports.getAvailableStock = async ( connection, stockItemId, godownId, batchNo = null ) => {
 
-    let sql = `
-        SELECT
-        COALESCE(SUM(qty_in),0)
-        -
-        COALESCE(SUM(qty_out),0)
+    let sql = ` SELECT COALESCE(SUM(qty_in),0) - COALESCE(SUM(qty_out),0)
         AS available_stock
         FROM stock_transactions
         WHERE stock_item_id = ?
-        AND godown_id = ?
-    `;
+        AND godown_id = ? `;
 
-    const params = [
-        stockItemId,
-        godownId
-    ];
+    const params = [ stockItemId, godownId ];
 
     if (batchNo) {
-        sql += `
-            AND batch_no = ?
-        `;
+        sql += `  AND batch_no = ? `;
         params.push(batchNo);
     }
 
@@ -333,17 +303,8 @@ exports.getAvailableStock = async ( connection, stockItemId, godownId, batchNo =
 
 exports.insertExtraLedger = async ( connection, data) => {
   await connection.query(
-    ` INSERT INTO sales_extra_ledgers (
-      sale_id,
-      ledger_id,
-      amount,
-      operation,
-      comments
-    )
-    VALUES (
-      ?,?,?,?,?
-    )
-    `,
+    ` INSERT INTO sales_extra_ledgers ( sale_id, ledger_id, amount, operation, comments )
+    VALUES ( ?,?,?,?,? ) `,
     [
       data.sale_id,
       data.ledger_id,
@@ -353,134 +314,711 @@ exports.insertExtraLedger = async ( connection, data) => {
     ]
   );
 };
-
 exports.getSalesInvoice = async (saleId) => {
+  // Sales Header
   const [salesRows] = await db.query(
-      ` SELECT
-          s.*,
-          customer.ledger_name AS customer_name,
-          customer.gst_no AS customer_gst,
-          customerDetails.contact AS customer_mobile,
-          customerDetails.address AS customer_address,
-          customerDetails.firm_name,
-          customerDetails.customer_name,
+    ` SELECT
+        s.*,
+        customer.ledger_name AS customer_name,
+        customer.gst_no AS customer_gst,
+        customerDetails.contact AS customer_mobile,
+        customerDetails.address AS customer_address,
+        customerDetails.firm_name,
+        customerDetails.customer_name,
 
-          salesLedger.ledger_name AS sales_ledger_name,
+        salesLedger.ledger_name AS sales_ledger_name,
 
-          assignUser.name AS assign_employee_name,
-          underUser.name AS employee_under_name
+        assignUser.name AS assign_employee_name,
+        underUser.name AS employee_under_name
 
-      FROM sales s
-      LEFT JOIN ledgers customer ON customer.id = s.customer_ledger_id
-      LEFT JOIN ledger_other_details customerDetails ON customerDetails.ledger_id = s.customer_ledger_id
-      LEFT JOIN ledgers salesLedger ON salesLedger.id = s.sales_ledger_id
-      LEFT JOIN users assignUser ON assignUser.id = s.assign_employee_id
-      LEFT JOIN users underUser ON underUser.id = s.employee_under_id
+    FROM sales s
+    LEFT JOIN ledgers customer ON customer.id = s.customer_ledger_id
+    LEFT JOIN ledger_other_details customerDetails ON customerDetails.ledger_id = s.customer_ledger_id
+    LEFT JOIN ledgers salesLedger ON salesLedger.id = s.sales_ledger_id
+    LEFT JOIN users assignUser ON assignUser.id = s.assign_employee_id
+    LEFT JOIN users underUser ON underUser.id = s.employee_under_id
 
-      WHERE s.id = ?
-      `,
-      [saleId]
+    WHERE s.id = ?
+    `,
+    [saleId]
   );
 
   if (!salesRows.length) {
-      return null;
+    return null;
   }
 
   const sale = salesRows[0];
 
   // Sales Items
+  const [itemRows] = await db.query(
+    ` SELECT
+        si.id,
+        si.stock_item_id,
+        si.batch_no,
 
-const [itemRows] = await db.query(
-  `
-  SELECT
-      si.id,
-      si.stock_item_id,
+        gst.hsn_sac AS hsn_code,
 
-      si.batch_no,
+        si.available_qty,
+        si.billed_qty,
 
-      gst.hsn_sac AS hsn_code,
+        si.rate,
+        si.supercash_rate,
+        si.amount,
 
-      si.available_qty,
-      si.billed_qty,
+        si.igst_percent,
+        si.igst_amount,
 
-      si.rate,
-      si.supercash_rate,
+        si.cgst_percent,
+        si.cgst_amount,
 
-      si.amount,
+        si.sgst_percent,
+        si.sgst_amount,
 
-      si.igst_percent,
-      si.igst_amount,
+        si.total_amount,
 
-      si.cgst_percent,
-      si.cgst_amount,
+        stock.item_name,
 
-      si.sgst_percent,
-      si.sgst_amount,
+        stock.alternative_unit_value,
+        stock.base_unit_value,
+        stock.bulk_unit_value,
+        stock.bulk_base_value,
 
-      si.total_amount,
-      si.calculated_alt_unit,
+        u.symbol AS unit_name,
+        au.symbol AS alternative_unit_name,
+        bu.symbol AS bulk_unit_name
 
-      stock.alternative_unit_value,
-      stock.base_unit_value,
-      stock.bulk_unit_value,
+    FROM sales_items si
+    LEFT JOIN stock_items stock ON stock.id = si.stock_item_id
+    LEFT JOIN units u ON u.id = si.unit_id
+    LEFT JOIN units au ON au.id = stock.alternative_unit_id
+    LEFT JOIN units bu ON bu.id = stock.bulk_unit_id
+    LEFT JOIN stock_item_gst_details gst ON gst.stock_item_id = stock.id
 
-      stock.item_name,
-      u.symbol AS unit_name
+    WHERE si.sale_id = ?
 
-  FROM sales_items si
+    ORDER BY si.id ASC
+    `,
+    [saleId]
+  );
 
-  LEFT JOIN stock_items stock
-      ON stock.id = si.stock_item_id
+  // Calculate Alternative Unit and Bulk Unit
+  const items = itemRows.map((item) => {
+    const billedQty = Number(item.billed_qty) || 0;
+    const baseUnitValue = Number(item.base_unit_value) || 0;
+    const bulkBaseValue = Number(item.bulk_base_value) || 0;
 
-  LEFT JOIN units u
-      ON u.id = si.unit_id
+    let calculated_alt_unit = null;
+    let calculated_bulk_unit = null;
 
-  LEFT JOIN stock_item_gst_details gst
-      ON gst.stock_item_id = stock.id
+    /*
+      Example:
+      Base unit = KG
+      Alternative unit = PKT
+      Bulk unit = BAG
 
-  WHERE si.sale_id = ?
+      1 PKT = 4 KG
+      1 BAG = 48 KG
 
-  ORDER BY si.id ASC
-  `,
+      Packets inside 1 BAG:
+      48 / 4 = 12 PKT
+    */
+    if (
+      baseUnitValue > 0 &&
+      bulkBaseValue > 0 &&
+      item.alternative_unit_name
+    ) {
+      const altQty = bulkBaseValue / baseUnitValue;
+
+      calculated_alt_unit = `${Number(
+        altQty.toFixed(2)
+      )} ${item.alternative_unit_name}`;
+    }
+
+    /*
+      Calculate number of bulk units according to ordered quantity.
+
+      Example:
+      Ordered quantity = 288 KG
+      1 BAG = 48 KG
+
+      288 / 48 = 6 BAG
+    */
+    if (
+      billedQty > 0 &&
+      bulkBaseValue > 0 &&
+      item.bulk_unit_name
+    ) {
+      const bulkQty = billedQty / bulkBaseValue;
+
+      calculated_bulk_unit = `${Number(
+        bulkQty.toFixed(2)
+      )} ${item.bulk_unit_name}`;
+    }
+
+    return {
+      ...item,
+      calculated_alt_unit,
+      calculated_bulk_unit,
+    };
+  });
+
+  // Extra Ledgers
+// Extra Ledgers
+const [extraLedgers] = await db.query(
+  ` SELECT sel.*, l.ledger_name FROM sales_extra_ledgers sel
+  LEFT JOIN ledgers l ON l.id = sel.ledger_id
+  WHERE sel.sale_id = ? `,
   [saleId]
 );
 
-  // Extra Ledgers
+// add signed amount based on operation, so frontend doesn't need to re-derive it
+const extraLedgersMapped = extraLedgers.map((el) => ({
+  ...el,
+  amount: Number(el.amount),
+  signed_amount:
+    el.operation === "PLUS" ? Number(el.amount) : -Number(el.amount),
+}));
 
-  const [extraLedgers] = await db.query(
-      `
-      SELECT
+const extraLedgersNet = extraLedgersMapped.reduce(
+  (sum, el) => sum + el.signed_amount,
+  0
+);
 
-          sel.*,
-          l.ledger_name
+// Bill References
+const [billReferences] = await db.query(
+  ` SELECT * FROM sales_bill_references WHERE sale_id = ? `,
+  [saleId]
+);
 
-      FROM sales_extra_ledgers sel
-
-      LEFT JOIN ledgers l
-          ON l.id = sel.ledger_id
-
-      WHERE sel.sale_id = ?
-      `,
-      [saleId]
-  );
-
-  // Bill References
-
-  const [billReferences] = await db.query(
-      `
-      SELECT *
-
-      FROM sales_bill_references
-
-      WHERE sale_id = ?
-      `,
-      [saleId]
-  );
-
-  return {
-      sale,
-      items: itemRows,
-      extraLedgers,
-      billReferences
-  };
+return {
+  sale,
+  items,
+  extraLedgers: extraLedgersMapped,
+  extraLedgersNet,
+  billReferences,
 };
+};
+
+const addDays = (dateStr, days) => {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + Number(days || 0));
+  return d.toISOString().slice(0, 10);
+};
+
+const getOutstandingAmount = async (connection, ledgerId) => {
+  const [rows] = await connection.query(
+    `
+    SELECT COALESCE(SUM(pending_amount), 0) AS total_outstanding
+    FROM sales_bill_references
+    WHERE ledger_id = ?
+      AND pending_amount > 0
+      AND status IN ('PENDING', 'PARTIAL')
+    `,
+    [ledgerId]
+  );
+
+  return Number(rows[0]?.total_outstanding || 0);
+};
+
+const formatDate = (dateVal) => {
+  if (!dateVal) return "";
+  const d = new Date(dateVal);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${dd}-${mm}-${d.getFullYear()}`;
+};
+
+const getOverdueBills = async (connection, ledgerId, referenceDate) => {
+  const [rows] = await connection.query(
+    `
+    SELECT
+      sbr.id,
+      sbr.reference_no,
+      sbr.due_date,
+      sbr.bill_amount,
+      sbr.pending_amount,
+      s.sales_date AS bill_date,
+      DATEDIFF(?, sbr.due_date) AS duration_days
+    FROM sales_bill_references sbr
+    LEFT JOIN sales s ON s.id = sbr.sale_id
+    WHERE sbr.ledger_id = ?
+      AND sbr.pending_amount > 0
+      AND sbr.due_date IS NOT NULL
+      AND sbr.due_date < ?
+      AND sbr.status IN ('PENDING', 'PARTIAL')
+    ORDER BY sbr.due_date ASC
+    `,
+    [referenceDate, ledgerId, referenceDate]
+  );
+
+  return rows;
+};
+
+exports.enforceSalesRules = async (
+  connection,
+  customerLedger,
+  salesAmount,
+  salesDate
+) => {
+  const ledgerId = customerLedger.id;
+  const creditLimit = Number(customerLedger.credit_limit || 0);
+
+  const netBalance = await getCurrentLedgerBalance(connection, ledgerId);
+  const isCr = netBalance < 0;
+  const availableCredit = isCr ? Math.abs(netBalance) : 0;
+  const currentDrBalance = isCr ? 0 : netBalance;
+
+  // ── Case 1: Customer currently has a credit (Cr) balance ────────────────
+  if (isCr && availableCredit > 0) {
+    const totalAllowance = availableCredit + creditLimit; // Cr balance + extra credit limit
+
+    const outstanding = await getOutstandingAmount(connection, ledgerId);
+    const projectedOutstanding = outstanding + Number(salesAmount || 0);
+
+    if (projectedOutstanding > totalAllowance) {
+      const remaining = Math.max(totalAllowance - outstanding, 0);
+      const err = new Error(
+        `Sale exceeds available credit. Cr Balance: ₹${availableCredit}, Credit Limit: ₹${creditLimit}, Total Allowance: ₹${totalAllowance}, Already Used: ₹${outstanding}, You can order up to: ₹${remaining}`
+      );
+      err.code = "CREDIT_BALANCE_EXCEEDED";
+      err.creditLimitInfo = {
+        cr_balance: availableCredit,
+        credit_limit: creditLimit,
+        total_allowance: totalAllowance,
+        current_outstanding: outstanding,
+        remaining_amount: remaining,
+        new_sale_amount: Number(salesAmount || 0),
+        projected_outstanding: projectedOutstanding,
+      };
+      throw err;
+    }
+    return;
+  }
+
+  // ── Case 2: Customer owes us (Dr) or has no Cr balance ───────────────────
+  if (creditLimit > 0) {
+    const projectedBalance = currentDrBalance + Number(salesAmount || 0);
+    const remaining = creditLimit - currentDrBalance;
+
+    if (projectedBalance > creditLimit) {
+      const err = new Error(
+        `Credit limit exceeded. Credit Limit: ₹${creditLimit}, Already Used: ₹${currentDrBalance}, You can order up to: ₹${Math.max(remaining, 0)}`
+      );
+      err.code = "CREDIT_LIMIT_EXCEEDED";
+      err.creditLimitInfo = {
+        credit_limit: creditLimit,
+        used_amount: currentDrBalance,
+        remaining_amount: Math.max(remaining, 0),
+        new_sale_amount: Number(salesAmount || 0),
+        projected_balance: projectedBalance,
+      };
+      throw err;
+    }
+  } else {
+    const err = new Error(
+      `Sale blocked. No credit limit is set for this ledger and it has no credit (Cr) balance.`
+    );
+    err.code = "NO_CREDIT_FACILITY";
+    throw err;
+  }
+
+  // Overdue-bill check only applies to Dr customers
+  const overdueBills = await getOverdueBills(connection, ledgerId, salesDate);
+
+  if (overdueBills.length > 0) {
+    const formattedBills = overdueBills.map((b) => ({
+      voucher_no: b.reference_no,
+      bill_date: formatDate(b.bill_date),
+      bill_amount: Number(b.bill_amount),
+      pending_amount: Number(b.pending_amount),
+      due_date: formatDate(b.due_date),
+      duration_days: Number(b.duration_days),
+    }));
+
+    const message = formattedBills
+      .map(
+        (b) =>
+          `Voucher - ${b.voucher_no},Bill Date - ${b.bill_date},Bill Amt - ${b.bill_amount.toFixed(2)},Duration - ${b.duration_days} days`
+      )
+      .join("\n");
+
+    const err = new Error(message);
+    err.code = "OVERDUE_BILLS";
+    err.overdueBills = formattedBills;
+    throw err;
+  }
+};
+
+// exports.enforceSalesRules = async (
+//   connection,
+//   customerLedger,
+//   salesAmount,
+//   salesDate
+// ) => {
+//   const ledgerId = customerLedger.id;
+//   const creditLimit = Number(customerLedger.credit_limit || 0);
+
+//   const netBalance = await getCurrentLedgerBalance(connection, ledgerId);
+//   const isCr = netBalance < 0;
+//   const availableCredit = isCr ? Math.abs(netBalance) : 0;
+
+//   // ── Case 1: Customer currently has a credit (Cr) balance ────────────────
+//   if (isCr && availableCredit > 0) {
+//     const outstanding = await getOutstandingAmount(connection, ledgerId);
+//     const projectedOutstanding = outstanding + Number(salesAmount || 0);
+
+//     if (projectedOutstanding > availableCredit) {
+//       const err = new Error(
+//         `Sale exceeds available credit balance. Available: ${availableCredit}, current outstanding: ${outstanding}, new sale: ${salesAmount}`
+//       );
+//       err.code = "CREDIT_BALANCE_EXCEEDED";
+//       err.creditLimitInfo = {
+//         credit_limit: availableCredit,
+//         limit_source: "CURRENT_CR_BALANCE",
+//         current_outstanding: outstanding,
+//         new_sale_amount: Number(salesAmount || 0),
+//         projected_outstanding: projectedOutstanding,
+//       };
+//       throw err;
+//     }
+//     return; // Cr customer within balance — allow, skip overdue-bill check
+//   }
+
+//   // ── Case 2: Customer owes us (Dr) or has no Cr balance ───────────────────
+//   let effectiveLimit = 0;
+//   let limitSource = null;
+
+//   if (creditLimit > 0) {
+//     effectiveLimit = creditLimit;
+//     limitSource = "CREDIT_LIMIT";
+//   } else {
+//     const err = new Error(
+//       `Sale blocked. No credit limit is set for this ledger and it has no credit (Cr) balance.`
+//     );
+//     err.code = "NO_CREDIT_FACILITY";
+//     throw err;
+//   }
+
+//   const outstanding = await getOutstandingAmount(connection, ledgerId);
+//   const projectedOutstanding = outstanding + Number(salesAmount || 0);
+
+//   if (projectedOutstanding > effectiveLimit) {
+//     const err = new Error(
+//       `Credit limit exceeded. Limit: ${effectiveLimit} (${limitSource}), current outstanding: ${outstanding}, new sale: ${salesAmount}`
+//     );
+//     err.code = "CREDIT_LIMIT_EXCEEDED";
+//     err.creditLimitInfo = {
+//       credit_limit: effectiveLimit,
+//       limit_source: limitSource,
+//       current_outstanding: outstanding,
+//       new_sale_amount: Number(salesAmount || 0),
+//       projected_outstanding: projectedOutstanding,
+//     };
+//     throw err;
+//   }
+
+//   const overdueBills = await getOverdueBills(connection, ledgerId, salesDate);
+
+//   if (overdueBills.length > 0) {
+//     const formattedBills = overdueBills.map((b) => ({
+//       voucher_no: b.reference_no,
+//       bill_date: formatDate(b.bill_date),
+//       bill_amount: Number(b.bill_amount),
+//       pending_amount: Number(b.pending_amount),
+//       due_date: formatDate(b.due_date),
+//       duration_days: Number(b.duration_days),
+//     }));
+
+//     const message = formattedBills
+//       .map(
+//         (b) =>
+//           `Voucher - ${b.voucher_no},Bill Date - ${b.bill_date},Bill Amt - ${b.bill_amount.toFixed(2)},Duration - ${b.duration_days} days`
+//       )
+//       .join("\n");
+
+//     const err = new Error(message);
+//     err.code = "OVERDUE_BILLS";
+//     err.overdueBills = formattedBills;
+//     throw err;
+//   }
+// };
+
+// exports.enforceSalesRules = async (
+//   connection,
+//   customerLedger,
+//   salesAmount,
+//   salesDate
+// ) => {
+//   const ledgerId = customerLedger.id;
+//   const creditLimit = Number(customerLedger.credit_limit || 0);
+//   const openingBalance = Number(customerLedger.opening_balance || 0);
+//   const balanceType = customerLedger.balance_type;
+
+//   let effectiveLimit = 0;
+//   let limitSource = null;
+
+//   if (creditLimit > 0) {
+//     effectiveLimit = creditLimit;
+//     limitSource = "CREDIT_LIMIT";
+//   } else if (balanceType === "Cr" && openingBalance > 0) {
+//     effectiveLimit = openingBalance;
+//     limitSource = "OPENING_CR_BALANCE";
+//   } else {
+//     const err = new Error(
+//       `Sale blocked. No credit limit is set for this ledger and it has no credit (Cr) opening balance.`
+//     );
+//     err.code = "NO_CREDIT_FACILITY";
+//     throw err;
+//   }
+
+//   const outstanding = await getOutstandingAmount(connection, ledgerId);
+//   console.log("DEBUG ledgerId:", ledgerId, "outstanding:", outstanding, "effectiveLimit:", effectiveLimit, "source:", limitSource);
+//   const projectedOutstanding = outstanding + Number(salesAmount || 0);
+//   console.log("DEBUG projectedOutstanding:", projectedOutstanding);
+
+//   if (projectedOutstanding > effectiveLimit) {
+//     const err = new Error(
+//       `Credit limit exceeded. Limit: ${effectiveLimit} (${limitSource}), current outstanding: ${outstanding}, new sale: ${salesAmount}`
+//     );
+//     err.code = "CREDIT_LIMIT_EXCEEDED";
+//     err.creditLimitInfo = {
+//       credit_limit: effectiveLimit,
+//       limit_source: limitSource,
+//       current_outstanding: outstanding,
+//       new_sale_amount: Number(salesAmount || 0),
+//       projected_outstanding: projectedOutstanding,
+//     };
+//     throw err;
+//   }
+
+//   const overdueBills = await getOverdueBills(connection, ledgerId, salesDate);
+
+//   if (overdueBills.length > 0) {
+//     const formattedBills = overdueBills.map((b) => ({
+//       voucher_no: b.reference_no,
+//       bill_date: formatDate(b.bill_date),
+//       bill_amount: Number(b.bill_amount),
+//       pending_amount: Number(b.pending_amount),
+//       due_date: formatDate(b.due_date),
+//       duration_days: Number(b.duration_days),
+//     }));
+
+//     const message = formattedBills
+//       .map(
+//         (b) =>
+//           `Voucher - ${b.voucher_no},Bill Date - ${b.bill_date},Bill Amt - ${b.bill_amount.toFixed(2)},Duration - ${b.duration_days} days`
+//       )
+//       .join("\n");
+
+//     const err = new Error(message);
+//     err.code = "OVERDUE_BILLS";
+//     err.overdueBills = formattedBills;
+//     throw err;
+//   }
+// };
+
+exports.checkOverdueBills = async (connection, ledgerId, referenceDate) => {
+  const overdueBills = await getOverdueBills(connection, ledgerId, referenceDate);
+
+  if (overdueBills.length === 0) {
+    return [];
+  }
+
+  return overdueBills.map((b) => ({
+    voucher_no: b.reference_no,
+    bill_date: formatDate(b.bill_date),
+    bill_amount: Number(b.bill_amount),
+    pending_amount: Number(b.pending_amount),
+    due_date: formatDate(b.due_date),
+    duration_days: Number(b.duration_days),
+  }));
+};
+
+exports.getInterestConfigBySlab = async (connection, ledgerId, slabType) => {
+  const [rows] = await connection.query(
+    ` SELECT * FROM ledger_interest_config
+    WHERE ledger_id = ?
+      AND slab_type = ?
+    ORDER BY slab_no ASC LIMIT 1 `,
+    [ledgerId, slabType]
+  );
+
+  return rows[0] || null;
+};
+
+exports.getActiveBillsForReminders = async () => {
+  const [rows] = await db.query(`
+    SELECT
+      sbr.id AS bill_reference_id,
+      sbr.sale_id, sbr.ledger_id, sbr.reference_no,
+      sbr.pending_amount, sbr.bill_amount, sbr.due_date,
+      s.sales_date,
+      l.ledger_name, l.default_credit_period,
+      lod.customer_name, lod.contact,
+      lic.grace_period
+    FROM sales_bill_references sbr
+    INNER JOIN sales s ON s.id = sbr.sale_id
+    INNER JOIN ledgers l ON l.id = sbr.ledger_id
+    LEFT JOIN ledger_other_details lod ON lod.ledger_id = sbr.ledger_id
+    LEFT JOIN (
+      SELECT ledger_id, grace_period
+      FROM ledger_interest_config
+      WHERE slab_type = 'debit' AND slab_no = 1
+    ) lic ON lic.ledger_id = sbr.ledger_id
+    WHERE sbr.pending_amount > 0
+      AND sbr.status IN ('PENDING','PARTIAL')
+  `);
+  return rows;
+};
+
+exports.hasReminderBeenSentToday = async (billReferenceId, templateName, sentDate) => {
+  const [rows] = await db.query(
+    `SELECT id FROM whatsapp_reminder_logs
+     WHERE sales_bill_reference_id = ? AND template_name = ? AND sent_date = ?`,
+    [billReferenceId, templateName, sentDate]
+  );
+  return rows.length > 0;
+};
+
+exports.logReminderSent = async (data) => {
+  await db.query(
+    `INSERT INTO whatsapp_reminder_logs
+      (sales_bill_reference_id, template_name, sent_date, discount_percent, status, response_payload)
+     VALUES (?,?,?,?,?,?)`,
+    [
+      data.bill_reference_id, data.template_name, data.sent_date,
+      data.discount_percent || null, data.status || "SENT", data.response_payload || null,
+    ]
+  );
+};
+
+// exports.getSalesInvoice = async (saleId) => {
+//   const [salesRows] = await db.query(
+//       ` SELECT
+//           s.*,
+//           customer.ledger_name AS customer_name,
+//           customer.gst_no AS customer_gst,
+//           customerDetails.contact AS customer_mobile,
+//           customerDetails.address AS customer_address,
+//           customerDetails.firm_name,
+//           customerDetails.customer_name,
+
+//           salesLedger.ledger_name AS sales_ledger_name,
+
+//           assignUser.name AS assign_employee_name,
+//           underUser.name AS employee_under_name
+
+//       FROM sales s
+//       LEFT JOIN ledgers customer ON customer.id = s.customer_ledger_id
+//       LEFT JOIN ledger_other_details customerDetails ON customerDetails.ledger_id = s.customer_ledger_id
+//       LEFT JOIN ledgers salesLedger ON salesLedger.id = s.sales_ledger_id
+//       LEFT JOIN users assignUser ON assignUser.id = s.assign_employee_id
+//       LEFT JOIN users underUser ON underUser.id = s.employee_under_id
+
+//       WHERE s.id = ?
+//       `,
+//       [saleId]
+//   );
+
+//   if (!salesRows.length) {
+//       return null;
+//   }
+
+//   const sale = salesRows[0];
+
+//   // Sales Items
+
+// const [itemRows] = await db.query(
+//   `
+//   SELECT
+//       si.id,
+//       si.stock_item_id,
+
+//       si.batch_no,
+
+//       gst.hsn_sac AS hsn_code,
+
+//       si.available_qty,
+//       si.billed_qty,
+
+//       si.rate,
+//       si.supercash_rate,
+
+//       si.amount,
+
+//       si.igst_percent,
+//       si.igst_amount,
+
+//       si.cgst_percent,
+//       si.cgst_amount,
+
+//       si.sgst_percent,
+//       si.sgst_amount,
+
+//       si.total_amount,
+//       si.calculated_alt_unit,
+
+//       stock.alternative_unit_value,
+//       stock.base_unit_value,
+//       stock.bulk_unit_value,
+
+//       stock.item_name,
+//       u.symbol AS unit_name
+
+//   FROM sales_items si
+
+//   LEFT JOIN stock_items stock
+//       ON stock.id = si.stock_item_id
+
+//   LEFT JOIN units u
+//       ON u.id = si.unit_id
+
+//   LEFT JOIN stock_item_gst_details gst
+//       ON gst.stock_item_id = stock.id
+
+//   WHERE si.sale_id = ?
+
+//   ORDER BY si.id ASC
+//   `,
+//   [saleId]
+// );
+
+//   // Extra Ledgers
+
+//   const [extraLedgers] = await db.query(
+//       `
+//       SELECT
+
+//           sel.*,
+//           l.ledger_name
+
+//       FROM sales_extra_ledgers sel
+
+//       LEFT JOIN ledgers l
+//           ON l.id = sel.ledger_id
+
+//       WHERE sel.sale_id = ?
+//       `,
+//       [saleId]
+//   );
+
+//   // Bill References
+
+//   const [billReferences] = await db.query(
+//       `
+//       SELECT *
+
+//       FROM sales_bill_references
+
+//       WHERE sale_id = ?
+//       `,
+//       [saleId]
+//   );
+
+//   return {
+//       sale,
+//       items: itemRows,
+//       extraLedgers,
+//       billReferences
+//   };
+// };

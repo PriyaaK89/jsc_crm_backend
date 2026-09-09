@@ -42,7 +42,7 @@ exports.createJournal = async (req, res) => {
 
     try {
         await connection.beginTransaction();
-       
+
         const data = req.body;
 
         console.log(data);
@@ -80,10 +80,10 @@ exports.createJournal = async (req, res) => {
         }
 
         await validateVoucherDate(
-  connection,
-  "JOURNAL",
-  data.journal_date
-);
+            connection,
+            "JOURNAL",
+            data.journal_date
+        );
 
         const voucherData = await generateVoucherNo("JOURNAL");
 
@@ -117,7 +117,7 @@ exports.createJournal = async (req, res) => {
                     );
 
                     if (
-                        bill.reference_type === "AGAINST REF" ||
+                        bill.reference_type === "AGST REF" ||
                         bill.reference_type === "AGST REF"
                     ) {
                         if (bill.source === "PURCHASE") {

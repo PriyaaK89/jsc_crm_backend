@@ -7,18 +7,13 @@ const pool = mysql.createPool({
   database: process.env.DB_NAME,
   port: process.env.DB_PORT,
   waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-  charset: 'utf8mb4',
+  connectionLimit: 20,
+  queueLimit: 30,
+  connectTimeout: 10000,
+  charset: "utf8mb4",
   dateStrings: true,
 });
 
-console.log("ENV CHECK:", {
-  user: process.env.DB_USER,
-  password: process.env.DB_PASS,
-});
-
-console.log(process.env.DB_HOST, process.env.DB_USER, process.env.DB_PASS, process.env.DB_NAME, process.env.DB_PORT, "werty");
 // Test connection
 (async () => {
   try {

@@ -243,11 +243,7 @@ if (signingStatus === "signed" && data?.files?.length) {
     [objectName, documentId]
   );
 
-  previewUrl = await minioClient.presignedGetObject(
-    BUCKET,
-    objectName,
-    60 * 5
-  );
+  previewUrl = await minioClient.presignedGetObject( BUCKET, objectName, 60 * 5 );
 }
 
     //  Final response
@@ -258,13 +254,10 @@ if (signingStatus === "signed" && data?.files?.length) {
     });
 
   } catch (error) {
-
     console.error("Leegality status error:", error);
-
     res.status(500).json({
       status: 0,
       message: error.message
     });
-
   }
 };

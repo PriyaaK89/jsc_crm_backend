@@ -278,26 +278,14 @@ exports.getPartyTransactionReport = async ({
   const totalRecords = countRows[0].total;
 
   const [rows] = await db.query(
-    `
-            SELECT
-
-                lt.id,
- lt.reference_id,
-                lt.transaction_date
-                    AS bill_date,
-
+    ` SELECT
+                lt.id, lt.reference_id,
+                lt.transaction_date AS bill_date,
                 l.ledger_name,
-
-                u.name
-                    AS employee_name,
-
+                u.name AS employee_name,
                 lt.transaction_type,
-
                 lt.voucher_no,
-
-                lt.amount
-                    AS bill_amount,
-
+                lt.amount AS bill_amount,
                 lt.entry_type,
 
 GROUP_CONCAT(
@@ -462,14 +450,9 @@ LEFT JOIN ledgers debitReturnLedger
   };
 };
 
-exports.deleteTransaction = async (
-  db,
-  transactionType,
-  referenceId,
-  userId
-) => {
+exports.deleteTransaction = async ( connection, transactionType, referenceId, userId) => {
 
-  const [rows] = await db.query(
+  const [rows] = await connection.query(
     `
     SELECT id
     FROM ledger_transactions
@@ -485,7 +468,7 @@ exports.deleteTransaction = async (
     throw new Error("Transaction not found or already cancelled");
   }
 
-  await db.query(
+  await connection.query(
     `
     UPDATE ledger_transactions
     SET

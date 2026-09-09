@@ -110,129 +110,10 @@ exports.getUserById = async (req, res) => {
   }
 };
 
-const getClientDevice = (req) => {
-  return {
-    deviceId: req.body.device_id || req.headers["x-device-id"],
-    deviceName: req.body.device_name || req.headers["x-device-name"] || null,
-    platform: req.body.platform || req.headers["x-platform"] || null,
-  };
-};
-
-
-
-
-// exports.login = async (req, res) => {
-//   try {
-//     const { email, password } = req.body;
-
-//     // Check user
-//     const user = await User.findUserByEmail(email);
-//     if (!user) {
-//       return res.status(401).json({ message: "Invalid credentials" });
-//     }
-
-//     // Check active status
-//     if (user.is_active === 0) {
-//       return res.status(403).json({
-//         message: "Your account is deactivated. Please contact admin.",
-//       });
-//     }
-
-//     // Compare password
-//     const isMatch = await bcrypt.compare(password, user.password);
-//     if (!isMatch) {
-//       return res.status(401).json({ message: "Invalid credentials" });
-//     }
-
-//     // Generate JWT (NO device_id now)
-//     const token = jwt.sign(
-//       {
-//         id: user.id,
-//         role: user.role,
-//       },
-//       process.env.JWT_SECRET,
-//       { expiresIn: "1d" }
-//     );
-
-//     // Response
-//     return res.json({
-//       token,
-//       user: {
-//         id: user.id,
-//         name: user.name,
-//         role: user.role,
-//       },
-//     });
-
-//   } catch (err) {
-//     return res.status(500).json({ error: err.message });
-//   }
-// };
-
-// exports.login = async (req, res) => {
-//   try {
-//     const { email, password } = req.body;
-
-//     // Get user
-//     const userResult = await User.findUserByEmail(email);
-
-//     //  FIX: handle array response
-//     const user = Array.isArray(userResult) ? userResult[0] : userResult;
-
-//     if (!user) {
-//       return res.status(401).json({ message: "Invalid credentials" });
-//     }
-
-//     // Check active status
-//     if (user.is_active === 0) {
-//       return res.status(403).json({
-//         message: "Your account is deactivated. Please contact admin.",
-//       });
-//     }
-
-//     //  IMPORTANT DEBUG (remove later)
-//     console.log("Password from request:", password);
-//     console.log("Password from DB:", user.password);
-//     console.log("Type:", typeof user.password);
-
-//     //  FIX: ensure string
-//     const isMatch = await bcrypt.compare(
-//       password,
-//       user.password?.toString()
-//     );
-
-//     if (!isMatch) {
-//       return res.status(401).json({ message: "Invalid credentials" });
-//     }
-
-//     // Generate JWT
-//     const token = jwt.sign(
-//       {
-//         id: user.id,
-//         role: user.role,
-//       },
-//       process.env.JWT_SECRET,
-//       { expiresIn: "1d" }
-//     );
-
-//     return res.json({
-//       token,
-//       user: {
-//         id: user.id,
-//         name: user.name,
-//         role: user.role,
-//       },
-//     });
-
-//   } catch (err) {
-//     return res.status(500).json({ error: err.message });
-//   }
-// };
 
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-
     const user = await User.findUserByEmail(email);
 
     if (!user) {
@@ -418,7 +299,7 @@ exports.updateUserById = async (req, res) => {
       city_allowance_per_km, daily_allowance_with_doc,
       daily_allowance_without_doc, hotel_allowance,
       total_leaves, authentication_amount,
-      headquarter, working_area, login_time, logout_time,
+      headquarter, working_area, login_time, logout_time, visit_upto,
       pf, esi,
 
       approver_id, role_id,
@@ -480,7 +361,7 @@ exports.updateUserById = async (req, res) => {
       headquarter,
       working_area,
       login_time,
-      logout_time,
+      logout_time, visit_upto,
       pf,
       esi,
 
@@ -892,9 +773,7 @@ exports.getNotifications = async (req, res) => {
     const offset = (page - 1) * limit;
 
     // Get total count
-    const [[{ total }]] = await db.query(
-      `SELECT COUNT(*) AS total FROM notifications`
-    );
+    const [[{ total }]] = await db.query( `SELECT COUNT(*) AS total FROM notifications` );
 
     // Get paginated data
     const [rows] = await db.query(

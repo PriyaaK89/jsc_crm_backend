@@ -11,12 +11,15 @@ exports.resubmitSalesOrder = async (req, res) => {
     const userId = req.user.id;
 
     const approval = await transactionApprovalModel.getApprovalById(approvalId);
+    const employeeName = approval.employee_name || approval.created_by_name || "Employee";
+    const employeeId = approval.created_by;
 
     if (!approval) { throw new Error("Approval request not found") }
     if (approval.status !== "RETURNED") { throw new Error("Only returned requests can be resubmitted") }
 
     // Security check
     if (approval.returned_to_user_id !== userId) { throw new Error("You are not allowed to resubmit this order") }
+    await transactionApprovalModel.completeApprovalNotification(connection, approvalId, userId);
 
     let nextApprover = null;
     let nextLevel = null;
@@ -43,36 +46,32 @@ exports.resubmitSalesOrder = async (req, res) => {
 
       default: throw new Error("Invalid returned_from_level value");
     }
+    const updatedPayload = {
+  ...approval.payload_json,
+  ...req.body,
+};
 
-    await connection.query(
-      ` UPDATE transaction_approvals
-      SET
-        payload_json = ?,
-
-        status = 'PENDING',
-
-        approval_level = ?,
-        current_approver_id = ?,
-
-        current_status_message = ?,
-
-        returned_to_user_id = NULL,
-        returned_from_level = NULL,
-
-        resubmission_count =
-          resubmission_count + 1,
-
-        updated_at = CURRENT_TIMESTAMP
-
-      WHERE id = ? `,
-      [
-        JSON.stringify(req.body),
-        nextLevel,
-        nextApprover,
-        `Pending at ${approverName}`,
-        approvalId,
-      ],
-    );
+ await connection.query(
+  ` UPDATE transaction_approvals
+  SET
+    payload_json = ?,
+    status = 'PENDING',
+    approval_level = ?,
+    current_approver_id = ?,
+    current_status_message = ?,
+    returned_to_user_id = NULL,
+    returned_from_level = NULL,
+    resubmission_count = resubmission_count + 1,
+    updated_at = CURRENT_TIMESTAMP
+  WHERE id = ? `,
+  [
+    JSON.stringify(updatedPayload),
+    nextLevel,
+    nextApprover,
+    `Pending at ${approverName}`,
+    approvalId,
+  ],
+);
 
     // await transactionApprovalModel.createHistory(connection, {
     //   approval_id: approvalId,
@@ -97,6 +96,8 @@ exports.resubmitSalesOrder = async (req, res) => {
       notification_category: "APPROVAL",
       title: "Sales Order Resubmitted",
       message: "Returned Sales Order has been resubmitted for approval.",
+        generated_by_id: employeeId,
+      generated_by_name: employeeName,
     });
 
     // Update employee status notification

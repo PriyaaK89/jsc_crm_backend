@@ -494,6 +494,14 @@ exports.createAssignmentDetails = async (connection, assignmentId, targets) => {
   await connection.query(query, [values]);
 };
 
+// exports.checkExistingAssignment = async ( templateId, employeeId, startDate, endDate ) => {
+//   const [rows] = await db.query(
+//     ` SELECT id FROM visit_target_assignments WHERE template_id=? AND employee_id=? AND period_start=? AND period_end=? LIMIT 1 `,
+//     [templateId, employeeId, startDate, endDate]
+//   );
+//   return rows.length > 0;
+// };
+
 exports.checkExistingAssignment = async (
   templateId,
   employeeId,
@@ -507,6 +515,7 @@ exports.checkExistingAssignment = async (
         AND employee_id=?
         AND period_start=?
         AND period_end=?
+        AND status='ACTIVE'
         LIMIT 1 `,
 
     [templateId, employeeId, startDate, endDate]
@@ -631,8 +640,10 @@ exports.getAssignmentsPastPeriodEnd = async () => {
 exports.createNextAssignment = async (connection, previousAssignment, template) => {
   const nextPeriod = getNextPeriod(previousAssignment.period_end, template.frequency);
 
-  // Stop recurring once the next period would start beyond the template's end_date
-  if (nextPeriod.start_date > template.end_date) {
+  // For recurring templates, end_date is a rolling boundary — extend it
+  // to cover the new period instead of using it to cap recurrence.
+  // Non-recurring templates keep the old hard-stop behavior.
+  if (!template.is_recurring && nextPeriod.start_date > template.end_date) {
     return null;
   }
 
@@ -656,8 +667,16 @@ exports.createNextAssignment = async (connection, previousAssignment, template) 
   });
 
   const templateTargets = await exports.getTemplateTargets(template.id);
-
   await exports.createAssignmentDetails(connection, newAssignmentId, templateTargets);
+
+  // Keep the template's end_date in sync with the latest period it has
+  // rolled into, so getTemplateById/listTemplates reflect current state.
+  if (template.is_recurring && nextPeriod.end_date > template.end_date) {
+    await connection.query(
+      `UPDATE visit_target_templates SET end_date = ? WHERE id = ?`,
+      [nextPeriod.end_date, template.id]
+    );
+  }
 
   return newAssignmentId;
 };
@@ -913,7 +932,18 @@ exports.expireAllActiveAssignmentsForTemplate = async (connection, templateId) =
 
   return result.affectedRows;
 };
-
+exports.reactivateTemplate = async (connection, templateId, periodStart, periodEnd) => {
+  const [result] = await connection.query(
+    `
+      UPDATE visit_target_templates
+      SET status = 'ACTIVE', start_date = ?, end_date = ?
+      WHERE id = ? AND status = 'INACTIVE'
+    `,
+    [periodStart, periodEnd, templateId]
+  );
+ 
+  return result.affectedRows > 0;
+};
 /**
  * Update period_start / period_end on the ACTIVE assignments of a
  * specific set of employees under a template. Used when the template's
@@ -1018,18 +1048,7 @@ exports.syncActiveAssignmentDetailsForEmployees = async (
     );
   }
 };
-exports.reactivateTemplate = async (connection, templateId, periodStart, periodEnd) => {
-  const [result] = await connection.query(
-    `
-      UPDATE visit_target_templates
-      SET status = 'ACTIVE', start_date = ?, end_date = ?
-      WHERE id = ? AND status = 'INACTIVE'
-    `,
-    [periodStart, periodEnd, templateId]
-  );
- 
-  return result.affectedRows > 0;
-};
+
 exports.getAssignmentForPeriod = async (templateId, employeeId, periodStart, periodEnd) => {
   const [rows] = await db.query(
     `SELECT * FROM visit_target_assignments
@@ -1053,4 +1072,293 @@ exports.refreshAssignmentDetails = async (connection, assignmentId, targets) => 
   await exports.createAssignmentDetails(connection, assignmentId, targets);
 };
 
- 
+/**
+ * Permanently delete a template and all its dependent rows.
+ * IRREVERSIBLE — unlike deleteTemplate() (soft/INACTIVE), this removes
+ * history entirely. Deletes children first since there's no
+ * ON DELETE CASCADE on visit_target_assignments -> visit_target_templates.
+ */
+exports.hardDeleteTemplate = async (connection, templateId) => {
+  // 1. assignment_details for every assignment under this template
+  await connection.query(
+    `
+      DELETE ad FROM visit_target_assignment_details ad
+      INNER JOIN visit_target_assignments a ON a.id = ad.assignment_id
+      WHERE a.template_id = ?
+    `,
+    [templateId]
+  );
+
+  // 2. assignments themselves
+  await connection.query(
+    `DELETE FROM visit_target_assignments WHERE template_id = ?`,
+    [templateId]
+  );
+
+  // 3. template-level targets
+  await connection.query(
+    `DELETE FROM visit_target_template_details WHERE template_id = ?`,
+    [templateId]
+  );
+
+  // 4. template <-> employee mapping
+  await connection.query(
+    `DELETE FROM visit_target_template_users WHERE template_id = ?`,
+    [templateId]
+  );
+
+  // 5. the template row itself
+  const [result] = await connection.query(
+    `DELETE FROM visit_target_templates WHERE id = ?`,
+    [templateId]
+  );
+
+  return result.affectedRows > 0;
+};
+
+ exports.holdTemplate = async (connection, templateId) => {
+  const [result] = await connection.query(
+    `UPDATE visit_target_templates SET status = 'HOLD' WHERE id = ? AND status = 'ACTIVE'`,
+    [templateId]
+  );
+
+  return result.affectedRows > 0;
+};
+
+exports.unholdTemplate = async (connection, templateId) => {
+  const [result] = await connection.query(
+    `UPDATE visit_target_templates SET status = 'ACTIVE' WHERE id = ? AND status = 'HOLD'`,
+    [templateId]
+  );
+
+  return result.affectedRows > 0;
+};
+
+exports.getTeamProgress = async (filters = {}) => {
+  const { employeeIds, level, employeeId, templateId, periodStart, periodEnd } = filters;
+
+  if (!employeeIds || employeeIds.length === 0) {
+    return [];
+  }
+
+  const where = [`a.employee_id IN (${employeeIds.map(() => "?").join(",")})`];
+  const params = [...employeeIds];
+
+  if (periodStart && periodEnd) {
+    // Auto-detect: any assignment whose period overlaps the selected
+    // range, regardless of status — so past (COMPLETED/EXPIRED)
+    // assignments surface too when browsing historical dates.
+    where.push("a.period_start <= ? AND a.period_end >= ?");
+    params.push(periodEnd, periodStart);
+  } else {
+    // No range given — keep the original "current" behavior.
+    where.push("a.status = 'ACTIVE'");
+  }
+
+  if (level) {
+    where.push("jr.level = ?");
+    params.push(level);
+  }
+
+  if (employeeId) {
+    where.push("a.employee_id = ?");
+    params.push(employeeId);
+  }
+
+  if (templateId) {
+    where.push("a.template_id = ?");
+    params.push(templateId);
+  }
+
+  const [assignments] = await db.query(
+    `
+      SELECT
+        a.*,
+        u.name AS employee_name,
+        u.contact_no,
+        jr.name AS role_name,
+        jr.level
+      FROM visit_target_assignments a
+      INNER JOIN users u ON u.id = a.employee_id
+      LEFT JOIN job_roles jr ON jr.id = u.job_role_id
+      WHERE ${where.join(" AND ")}
+      ORDER BY jr.level, u.name, a.period_start DESC
+    `,
+    params
+  );
+
+  const result = [];
+
+  for (const assignment of assignments) {
+    const progress = await exports.getAssignmentProgress(assignment.id);
+
+    if (progress) {
+      progress.assignment.employee_name = assignment.employee_name;
+      progress.assignment.contact_no = assignment.contact_no;
+      progress.assignment.role_name = assignment.role_name;
+      progress.assignment.level = assignment.level;
+      result.push(progress);
+    }
+  }
+  return result;
+};
+
+// exports.getTeamProgress = async (filters = {}) => {
+//   const { employeeIds, level, employeeId, templateId } = filters;
+
+//   if (!employeeIds || employeeIds.length === 0) {
+//     return [];
+//   }
+
+//   const where = [
+//     "a.status = 'ACTIVE'",
+//     `a.employee_id IN (${employeeIds.map(() => "?").join(",")})`,
+//   ];
+//   const params = [...employeeIds];
+
+//   if (level) {
+//     where.push("jr.level = ?");
+//     params.push(level);
+//   }
+
+//   if (employeeId) {
+//     where.push("a.employee_id = ?");
+//     params.push(employeeId);
+//   }
+
+//   if (templateId) {
+//     where.push("a.template_id = ?");
+//     params.push(templateId);
+//   }
+
+//   const [assignments] = await db.query(
+//     `
+//       SELECT
+//         a.*,
+//         u.name AS employee_name,
+//         u.contact_no,
+//         jr.name AS role_name,
+//         jr.level
+//       FROM visit_target_assignments a
+//       INNER JOIN users u ON u.id = a.employee_id
+//       LEFT JOIN job_roles jr ON jr.id = u.job_role_id
+//       WHERE ${where.join(" AND ")}
+//       ORDER BY jr.level, u.name
+//     `,
+//     params
+//   );
+
+//   const result = [];
+
+//   for (const assignment of assignments) {
+//     const progress = await exports.getAssignmentProgress(assignment.id);
+
+//     if (progress) {
+//       progress.assignment.employee_name = assignment.employee_name;
+//       progress.assignment.contact_no = assignment.contact_no;
+//       progress.assignment.role_name = assignment.role_name;
+//       progress.assignment.level = assignment.level;
+//       result.push(progress);
+//     }
+//   }
+//   return result;
+// };
+
+exports.checkTemplateNameExists = async (templateName, excludeTemplateId = null) => {
+  let query = `
+    SELECT id FROM visit_target_templates
+    WHERE LOWER(TRIM(template_name)) = LOWER(TRIM(?))
+  `;
+  const params = [templateName];
+
+  if (excludeTemplateId) {
+    query += ` AND id <> ?`;
+    params.push(excludeTemplateId);
+  }
+
+  const [rows] = await db.query(query, params);
+  return rows.length > 0;
+};
+
+exports.getEmployeesWithActiveTarget = async (employeeIds, excludeTemplateId = null) => {
+  if (!employeeIds || employeeIds.length === 0) {
+    return [];
+  }
+
+  let query = `
+    SELECT
+      vta.employee_id,
+      u.name AS employee_name,
+      vta.template_id,
+      tt.template_name,
+      vta.period_start,
+      vta.period_end
+    FROM visit_target_assignments vta
+    INNER JOIN visit_target_templates tt ON tt.id = vta.template_id
+    INNER JOIN users u ON u.id = vta.employee_id
+    WHERE vta.employee_id IN (${employeeIds.map(() => "?").join(",")})
+      AND vta.status = 'ACTIVE'
+      AND tt.status = 'ACTIVE'
+  `;
+
+  const params = [...employeeIds];
+
+  if (excludeTemplateId) {
+    query += ` AND vta.template_id <> ?`;
+    params.push(excludeTemplateId);
+  }
+
+  const [rows] = await db.query(query, params);
+  return rows;
+};
+
+
+/**
+ * Get the assignment(s) for an employee whose period OVERLAPS a given
+ * date range — any status. Unlike getEmployeeActiveAssignment (which
+ * only matches CURDATE() + status='ACTIVE'), this lets a historical
+ * (COMPLETED/EXPIRED) assignment be found when the user browses past
+ * dates. Ordered most-recent-period-first so callers that want a
+ * single match can just take rows[0].
+ */
+exports.getEmployeeAssignmentsForRange = async (employeeId, startDate, endDate) => {
+  const [rows] = await db.query(
+    `
+      SELECT *
+      FROM visit_target_assignments
+      WHERE employee_id = ?
+        AND period_start <= ?
+        AND period_end >= ?
+      ORDER BY period_start DESC
+    `,
+    [employeeId, endDate, startDate]
+  );
+
+  return rows;
+};
+
+/**
+ * Get Employee Progress — current active assignment + its progress,
+ * OR (when startDate/endDate are passed) whichever assignment's period
+ * overlaps that range.
+ */
+exports.getEmployeeProgress = async (employeeId, startDate, endDate) => {
+  let assignment;
+
+  if (startDate && endDate) {
+    const assignments = await exports.getEmployeeAssignmentsForRange(
+      employeeId,
+      startDate,
+      endDate
+    );
+    assignment = assignments[0]; // most recent overlapping period
+  } else {
+    assignment = await exports.getEmployeeActiveAssignment(employeeId);
+  }
+
+  if (!assignment) {
+    return null;
+  }
+
+  return exports.getAssignmentProgress(assignment.id);
+};

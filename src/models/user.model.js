@@ -42,12 +42,12 @@ const createUser = async (user) => {
       working_area,
       approver_id,
       login_time,
-      logout_time,
+      logout_time, visit_upto,
       pf,
       esi, profile_image, reporting_under
     )
     VALUES (
-      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
     [
       user.name || null,
@@ -98,6 +98,7 @@ const createUser = async (user) => {
 
       user.login_time || null,
       user.logout_time || null,
+      user.visit_upto || null,
       user.pf || null,
       user.esi || null,
       user.profile_image || null,
@@ -143,13 +144,9 @@ const getAllUsers = async ({ search = "", page = 1, limit = 10 }) => {
   let whereClause = "";
   let params = [];
 
-  if (search) {
-    whereClause = `
-    WHERE 
-      u.name LIKE ? 
+  if (search) { whereClause = ` WHERE u.name LIKE ? 
       OR u.email LIKE ? 
-      OR u.contact_no LIKE ?
-  `;
+      OR u.contact_no LIKE ? `;
     params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
 
@@ -201,6 +198,7 @@ u.four_wheeler_allowance_per_km,
       u.working_area,
       u.login_time,
       u.logout_time,
+      u.visit_upto,
       u.pf,
       u.esi,
       u.is_active,
@@ -306,6 +304,7 @@ const getUserById = async (id) => {
 
       u.login_time,
       u.logout_time,
+      u.visit_upto,
       u.pf,
       u.esi,
 
@@ -388,7 +387,7 @@ const softDeleteUser = async (userId) => {
   avg_travel_km_per_day, city_allowance_per_km,
   daily_allowance_with_doc, daily_allowance_without_doc, hotel_allowance,
   total_leaves, authentication_amount, headquarter, working_area,
-  login_time, logout_time, pf, esi,
+  login_time, logout_time, visit_upto, pf, esi,
   must_change_password, week_off,
   deleted_at
 )
@@ -402,7 +401,7 @@ SELECT
   avg_travel_km_per_day, city_allowance_per_km,
   daily_allowance_with_doc, daily_allowance_without_doc, hotel_allowance,
   total_leaves, authentication_amount, headquarter, working_area,
-  login_time, logout_time, pf, esi,
+  login_time, logout_time, visit_upto, pf, esi,
   must_change_password, week_off,
   NOW()
 FROM users WHERE id = ?;`,
@@ -426,37 +425,6 @@ FROM users WHERE id = ?;`,
   }
 };
 
-// const softDeleteUser = async (userId) => {
-//   const conn = await db.getConnection();
-
-//   try {
-//     await conn.beginTransaction();
-
-//     // 1. Copy to deleted_users
-//     const [rows] = await conn.query(
-//       `INSERT INTO deleted_users SELECT *, NOW() FROM users WHERE id = ?`,
-//       [userId]
-//     );
-
-//     if (rows.affectedRows === 0) {
-//       await conn.rollback();
-//       return false;
-//     }
-
-//     // 2. Delete from users
-//     await conn.query(`DELETE FROM users WHERE id = ?`, [userId]);
-
-//     await conn.commit();
-//     return true;
-
-//   } catch (err) {
-//     await conn.rollback();
-//     throw err;
-//   } finally {
-//     conn.release();
-//   }
-// };
-
 const getDeletedUsers = async () => {
   const [rows] = await db.query(
     `SELECT * FROM deleted_users ORDER BY deleted_at DESC`,
@@ -466,7 +434,7 @@ const getDeletedUsers = async () => {
 
 const getUserDropdown = async () => {
   const [rows] = await db.query(
-    `SELECT id, name 
+    `SELECT id, name, contact_no
      FROM users
      WHERE is_active = 1
      ORDER BY name ASC`,
@@ -556,21 +524,63 @@ const saveUserPermissions = async (userId, permissions) => {
     );
   }
 };
-
-module.exports = {
-  createUser,
-  findUserByEmail,
-  getAllUsers,
-  getUserById,
-  updateUserById,
-  updatePasswordByAdmin,
-  updateUserStatus,
-  softDeleteUser,
-  getDeletedUsers,
-  getUserDropdown,
-  updateProfileImage,
-  getSubordinateIds,
-  getUsersUnderManager,
-  getPermissionsByUser,
-  saveUserPermissions,
+const getVisitUptoByUserId = async (userId) => {
+  const [rows] = await db.query(
+    `SELECT visit_upto FROM users WHERE id = ?`,
+    [userId]
+  );
+  return rows[0]?.visit_upto || null;
 };
+
+const getUserContactById = async (id) => {
+  const [rows] = await db.query(
+    `SELECT id, name, contact_no FROM users WHERE id = ? AND is_active = 1`,
+    [id]
+  );
+  return rows[0] || null;
+};
+
+const getEmployeeLoginTime = async (employeeId) => {
+  const [[row]] = await db.query(
+    `SELECT login_time FROM users WHERE id = ?`,
+    [employeeId]
+  );
+  return row ? row.login_time : null;
+};
+
+// const softDeleteUser = async (userId) => {
+//   const conn = await db.getConnection();
+
+//   try {
+//     await conn.beginTransaction();
+
+//     // 1. Copy to deleted_users
+//     const [rows] = await conn.query(
+//       `INSERT INTO deleted_users SELECT *, NOW() FROM users WHERE id = ?`,
+//       [userId]
+//     );
+
+//     if (rows.affectedRows === 0) {
+//       await conn.rollback();
+//       return false;
+//     }
+
+//     // 2. Delete from users
+//     await conn.query(`DELETE FROM users WHERE id = ?`, [userId]);
+
+//     await conn.commit();
+//     return true;
+
+//   } catch (err) {
+//     await conn.rollback();
+//     throw err;
+//   } finally {
+//     conn.release();
+//   }
+// };
+
+
+module.exports = { createUser, findUserByEmail, getAllUsers, getUserById,
+  updateUserById, updatePasswordByAdmin, updateUserStatus, softDeleteUser,
+  getDeletedUsers, getUserDropdown, updateProfileImage, getSubordinateIds,
+  getUsersUnderManager, getPermissionsByUser, saveUserPermissions, getVisitUptoByUserId, getUserContactById ,getEmployeeLoginTime};

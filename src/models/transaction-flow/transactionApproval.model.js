@@ -1,26 +1,52 @@
 const db = require("../../config/db");
 
+exports.generateOrderNo = async (connection, transactionType) => {
+  const [rows] = await connection.query(
+    ` SELECT COALESCE(
+      MAX(
+        CAST(
+          SUBSTRING_INDEX(order_no, '-', -1) AS UNSIGNED
+        )
+      ), 0
+    ) + 1 AS nextOrderNo
+    FROM transaction_approvals
+    WHERE transaction_type = ?
+    FOR UPDATE
+    `, [transactionType]
+  );
+
+  const nextNumber = rows[0].nextOrderNo;
+  const prefix = transactionType.slice(0, 4);
+
+  return `${prefix}-${nextNumber}`;
+};
+
 exports.createApprovalRequest = async (connection, data) => {
+  // Generate the next order number for this transaction type
+  const orderNo = await exports.generateOrderNo(
+    connection,
+    data.transaction_type
+  );
+
   const [result] = await connection.query(
     ` INSERT INTO transaction_approvals
-      (
-        transaction_type,
-        created_by,
-        junior_accountant_id,
-        dispatcher_id,
-        senior_accountant_id,
-
-        current_approver_id,
-        approval_level,
-        payload_json,
-        current_status_message
-      )
-      VALUES
-      ( ?,?, ?,?,?, ?, ?, ?, ? ) `,
+    (
+      transaction_type,
+      created_by,
+      junior_accountant_id,
+      dispatcher_id,
+      senior_accountant_id,
+      current_approver_id,
+      approval_level,
+      payload_json,
+      current_status_message,
+      order_no
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
     [
       data.transaction_type,
       data.created_by,
-
       data.junior_accountant_id,
       data.dispatcher_id,
       data.senior_accountant_id,
@@ -28,7 +54,8 @@ exports.createApprovalRequest = async (connection, data) => {
       data.approval_level,
       JSON.stringify(data.payload_json),
       data.current_status_message,
-    ],
+      orderNo,
+    ]
   );
 
   return result.insertId;
@@ -36,25 +63,24 @@ exports.createApprovalRequest = async (connection, data) => {
 
 exports.createNotification = async (connection, data) => {
   const [result] = await connection.query(
-    `
-    INSERT INTO order_notifications
+    ` INSERT INTO order_notifications
     (
       user_id,
       approval_id,
       module_type,
       notification_category,
       title,
-      message
+      message, attachment,  generated_by_id, generated_by_name
     )
-    VALUES (?, ?, ?, ?, ?, ?)
-    `,
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) `,
     [
       data.user_id,
       data.approval_id,
       data.module_type,
       data.notification_category,
       data.title,
-      data.message,
+      data.message, data.attachment || null,  data.generated_by_id ?? null,
+      data.generated_by_name ?? null,
     ],
   );
 
@@ -88,17 +114,11 @@ exports.createHistory = async (connection, data) => {
 
 exports.createPayloadHistory = async (connection, data) => {
   await connection.query(
-    `
-    INSERT INTO approval_payload_history
+    ` INSERT INTO approval_payload_history
     (
-      approval_id,
-      modified_by,
-      modified_level,
-      old_payload,
-      new_payload
+      approval_id, modified_by, modified_level, old_payload, new_payload
     )
-    VALUES (?, ?, ?, ?, ?)
-    `,
+    VALUES (?, ?, ?, ?, ?) `,
     [
       data.approval_id,
       data.modified_by,
@@ -111,19 +131,24 @@ exports.createPayloadHistory = async (connection, data) => {
 
 exports.getPendingApprovals = async (userId) => {
   const [rows] = await db.query(
-    ` SELECT
+    `SELECT
         ta.*,
-        u.name
-      FROM transaction_approvals ta
+        creator.name AS created_by_name,
+        junior.name  AS junior_name,
+        disp.name    AS dispatcher_name,
+        senior.name  AS senior_name,
+        cu.name      AS current_approver_name
 
-      INNER JOIN users u
-        ON u.id =
-        ta.created_by
+      FROM transaction_approvals ta
+      LEFT JOIN users creator ON creator.id = ta.created_by
+      LEFT JOIN users junior  ON junior.id  = ta.junior_accountant_id
+      LEFT JOIN users disp    ON disp.id    = ta.dispatcher_id
+      LEFT JOIN users senior  ON senior.id  = ta.senior_accountant_id
+      LEFT JOIN users cu      ON cu.id      = ta.current_approver_id
 
       WHERE ta.current_approver_id = ?
       AND ta.status = 'PENDING'
-
-      ORDER BY ta.created_at DESC `,
+      ORDER BY ta.created_at DESC`,
     [userId],
   );
   return rows;
@@ -184,32 +209,47 @@ exports.updateApproval = async (connection, approvalId, data) => {
 
   return result;
 };
-
-exports.getNotifications = async ( userId, moduleType = null, notificationCategory = null, ) => {
+exports.getNotifications = async (userId, moduleType = null, notificationCategory = null) => {
   let sql = `
     SELECT
-      n.*,
-      ta.status,
-      ta.transaction_type,
-      ta.created_at AS approval_created_at
-
-    FROM order_notifications n
-
-    LEFT JOIN transaction_approvals ta
-      ON ta.id = n.approval_id
-
-    WHERE n.user_id = ?
-    AND n.is_read = 0
+      t.*
+    FROM (
+      SELECT
+        n.*,
+        ta.order_no,
+        ta.status,
+        ta.transaction_type,
+        ta.approval_level,
+        ta.created_at        AS approval_created_at,
+        creator.name         AS created_by_name,
+        junior.name          AS junior_name,
+        disp.name            AS dispatcher_name,
+        senior.name          AS senior_name,
+        cu.name              AS current_approver_name,
+        @seq := @seq + 1     AS display_seq
+      FROM order_notifications n
+      LEFT JOIN transaction_approvals ta
+        ON ta.id = n.approval_id
+      LEFT JOIN users creator ON creator.id = ta.created_by
+      LEFT JOIN users junior  ON junior.id  = ta.junior_accountant_id
+      LEFT JOIN users disp    ON disp.id    = ta.dispatcher_id
+      LEFT JOIN users senior  ON senior.id  = ta.senior_accountant_id
+      LEFT JOIN users cu      ON cu.id      = ta.current_approver_id
+      JOIN (SELECT @seq := 0) AS init
+      WHERE n.user_id = ?
+      AND n.is_read = 0
+      ${moduleType           ? "AND n.module_type = ?"            : ""}
+      ${notificationCategory ? "AND n.notification_category = ?" : ""}
+      ORDER BY n.created_at ASC
+    ) AS t
+    ORDER BY t.created_at DESC
   `;
 
   const params = [userId];
-
-  if (moduleType) { sql += ` AND n.module_type = ?`; params.push(moduleType) }
-  if (notificationCategory) { sql += ` AND n.notification_category = ?`; params.push(notificationCategory) }
-  sql += ` ORDER BY n.created_at DESC`;
+  if (moduleType)           params.push(moduleType);
+  if (notificationCategory) params.push(notificationCategory);
 
   const [rows] = await db.query(sql, params);
-
   return rows;
 };
 
@@ -350,11 +390,44 @@ exports.completeApprovalNotification = async ( connection, approvalId, userId ) 
   );
 };
 
+// exports.getNextOrderNumber = async (transactionType) => {
+//   const [rows] = await db.query(
+//     ` SELECT MAX(id) AS lastId FROM transaction_approvals WHERE transaction_type = ? `,
+//     [transactionType]
+//   );
+
+//   return (rows[0]?.lastId || 0) + 1;
+// };
 exports.getNextOrderNumber = async (transactionType) => {
   const [rows] = await db.query(
-    ` SELECT MAX(id) AS lastId FROM transaction_approvals WHERE transaction_type = ? `,
+    `
+    SELECT COALESCE(
+      MAX( CAST( SUBSTRING_INDEX(order_no, '-', -1) AS UNSIGNED ) ), 0
+    ) + 1 AS nextOrderNo
+    FROM transaction_approvals
+    WHERE transaction_type = ?
+    `,
     [transactionType]
   );
 
-  return (rows[0]?.lastId || 0) + 1;
+  const nextNumber = rows[0].nextOrderNo;
+  // const prefix = transactionType.slice(0, 4);
+
+  // return `${prefix}-${nextNumber}`;
+  return `${nextNumber}`;
+};
+
+exports.markNotificationsRead = async (userId, notificationIds = null) => {
+  let sql = `UPDATE order_notifications SET is_read = 1 WHERE user_id = ?`;
+  const params = [userId];
+
+  if (notificationIds && notificationIds.length > 0) {
+    sql += ` AND id IN (${notificationIds.map(() => "?").join(",")})`;
+    params.push(...notificationIds);
+  } else {
+    sql += ` AND is_read = 0`;
+  }
+
+  const [result] = await db.query(sql, params);
+  return result;
 };

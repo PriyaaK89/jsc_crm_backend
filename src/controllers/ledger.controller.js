@@ -1,43 +1,77 @@
 const {
-  createLedger,
-  createLedgerBankDetails,
-  createLedgerOtherDetails,
-  createLedgerInterestConfigs,
-  findLedgerByName,
-  getLedgersModel,
-  getLedgerCountModel,
-  getLedgerByIdModel,
-  updateLedgerModel,
-  updateLedgerBankDetailsModel,
-  replaceLedgerInterestConfigsModel,
-  updateLedgerOtherDetailsModel,
-  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel
+  createLedger, createLedgerBankDetails, createLedgerOtherDetails,
+  createLedgerInterestConfigs, findLedgerByName, getLedgersModel, getLedgerCountModel, getLedgerByIdModel,
+  updateLedgerModel, updateLedgerBankDetailsModel, replaceLedgerInterestConfigsModel, updateLedgerOtherDetailsModel,
+  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel, getLedgerWhatsappData
 } = require("../models/ledger.model");
-
 const { getGroupById } = require("../models/accountGroup.model");
-
-// FIX: import db so controllers can use getConnection()
 const db = require("../config/db");
+const whatsappService = require("../services/whatsapp.service");
+const companyConfig = require("../config/company");
+const { formatMobileForWhatsapp } = require("../utils/helper"); 
 
-const isValidBoolean = (value) => {
-  return value === 0 || value === 1;
-};
+// console.log(companyConfig, "company bank details")
 
+const isValidBoolean = (value) => { return value === 0 || value === 1; };
+
+const INTEREST_SLAB_TYPES = ["debit", "credit", "security"];
+
+// const normalizeInterestConfigs = (interest_configs = []) => {
+//   return interest_configs.map((config, index) => ({
+//     slab_no: config.slab_no ?? index + 1,
+//     slab_type: config.slab_type || INTEREST_SLAB_TYPES[index] || null,
+//     calculate_transaction_by_transaction: config.calculate_transaction_by_transaction ?? 0,
+//     interest_based_on: config.interest_based_on ?? null,
+//     amount_added: config.amount_added ?? 0,
+//     amount_deducted: config.amount_deducted ?? 0,
+//     rate: config.rate ?? 0,
+//     rate_per: config.rate_per ?? null,
+//     rate_on: config.rate_on ?? null,
+//     applicability: config.applicability ?? null,
+//     applicability_days: config.applicability_days ?? 0,
+//     grace_period: config.grace_period ?? 0,
+//     security_enabled: config.security_enabled ?? 0,
+//     security_amount: config.security_amount ?? 0,
+//   }));
+// };
 
 // ===============================
 // CREATE LEDGER
 // ===============================
 
+const normalizeInterestConfigs = (interest_configs = []) => {
+  return interest_configs.map((config, index) => {
+    const security_enabled = config.security_enabled ?? 0;
+
+    return {
+      slab_no: config.slab_no ?? index + 1,
+      slab_type: config.slab_type || INTEREST_SLAB_TYPES[index] || null,
+      calculate_transaction_by_transaction: config.calculate_transaction_by_transaction ?? 0,
+      interest_based_on: config.interest_based_on ?? null,
+      amount_added: config.amount_added ?? 0,
+      amount_deducted: config.amount_deducted ?? 0,
+      rate: config.rate ?? 0,
+      rate_per: config.rate_per ?? null,
+      rate_on: config.rate_on ?? null,
+      applicability: config.applicability ?? null,
+      applicability_days: config.applicability_days ?? 0,
+      grace_period: config.grace_period ?? 0,
+      security_enabled,
+      // FIX: never persist a security_amount when security is disabled,
+      // regardless of what the frontend sends
+      security_amount: security_enabled ? (config.security_amount ?? 0) : 0,
+    };
+  });
+};
+
 const createLedgerController = async (req, res) => {
   try {
-    const {
-      ledger_name, group_id, employee_under,
+    const { ledger_name, group_id, employee_under,
       opening_balance, balance_type, opening_date,
       mailing_name, location, country, state, pincode, pan_no, gst_no,
       maintain_bill_by_bill, default_credit_period, check_credit_days, credit_limit,
       inventory_values_affected, use_for_payroll, activate_interest_calculation, od_limit,
-      bank_details, interest_configs, crm_details,
-    } = req.body;
+      bank_details, interest_configs, crm_details, } = req.body;
 
     // --- Validations ---
 
@@ -179,28 +213,9 @@ const createLedgerController = async (req, res) => {
 
     if (
       Array.isArray(interest_configs) &&
-      interest_configs.length > 0 &&
-      activate_interest_calculation === 1
+      interest_configs.length > 0 && activate_interest_calculation === 1
     ) {
-      await createLedgerInterestConfigs(
-        ledgerId,
-        interest_configs.map((config, index) => ({
-          slab_no: config.slab_no ?? index + 1,
-          calculate_transaction_by_transaction:
-            config.calculate_transaction_by_transaction ?? 0,
-          interest_based_on: config.interest_based_on ?? null,
-          amount_added: config.amount_added ?? 0,
-          amount_deducted: config.amount_deducted ?? 0,
-          rate: config.rate ?? 0,
-          rate_per: config.rate_per ?? null,
-          rate_on: config.rate_on ?? null,
-          applicability: config.applicability ?? null,
-          applicability_days: config.applicability_days ?? 0,
-          grace_period: config.grace_period ?? 0,
-          security_enabled: config.security_enabled ?? 0,
-          security_amount: config.security_amount ?? 0,
-        }))
-      );
+      await createLedgerInterestConfigs( ledgerId, normalizeInterestConfigs(interest_configs) );
     }
 
     // --- CRM / Other Details ---
@@ -266,14 +281,7 @@ const createLedgerController = async (req, res) => {
 
 const getLedgers = async (req, res) => {
   try {
-    let {
-      page = 1,
-      limit = 10,
-      search = "",
-      group_id,
-      state,
-      activate_interest_calculation,
-    } = req.query;
+    let { page = 1, limit = 10, search = "", group_id, state, activate_interest_calculation } = req.query;
 
     page = parseInt(page);
     limit = parseInt(limit);
@@ -335,15 +343,15 @@ const getLedgers = async (req, res) => {
 
       bank_details: row.bank_detail_id
         ? {
-            id: row.bank_detail_id,
-            account_holder_name: row.account_holder_name,
-            account_number: row.account_number,
-            ifsc_code: row.ifsc_code,
-            bank_name: row.bank_name,
-            branch_name: row.branch_name,
-            cheque_book_enabled: row.cheque_book_enabled,
-            cheque_printing_enabled: row.cheque_printing_enabled,
-          }
+          id: row.bank_detail_id,
+          account_holder_name: row.account_holder_name,
+          account_number: row.account_number,
+          ifsc_code: row.ifsc_code,
+          bank_name: row.bank_name,
+          branch_name: row.branch_name,
+          cheque_book_enabled: row.cheque_book_enabled,
+          cheque_printing_enabled: row.cheque_printing_enabled,
+        }
         : null,
 
       interest_configs: row.interest_configs
@@ -354,61 +362,62 @@ const getLedgers = async (req, res) => {
 
       crm_details: row.crm_detail_id
         ? {
-            id: row.crm_detail_id,
-            customer_name: row.customer_name,
-            customer_dob: row.customer_dob,
+          id: row.crm_detail_id,
+          customer_name: row.customer_name,
+          customer_dob: row.customer_dob,
+          contact: row.contact,
 
-            firm_details: {
-              firm_name: row.firm_name,
-              firm_type: row.firm_type,
-              firm_email: row.firm_email,
-              firm_since: row.firm_since,
-              firm_pan: row.firm_pan,
-              firm_aadhar: row.firm_aadhar,
-              firm_gstn_type: row.firm_gstn_type,
-              firm_annual_turnover: Number(row.firm_annual_turnover || 0),
-              expected_sale_per_year: Number(row.expected_sale_per_year || 0),
-              other_company_detail: row.other_company_detail,
-            },
+          firm_details: {
+            firm_name: row.firm_name,
+            firm_type: row.firm_type,
+            firm_email: row.firm_email,
+            firm_since: row.firm_since,
+            firm_pan: row.firm_pan,
+            firm_aadhar: row.firm_aadhar,
+            firm_gstn_type: row.firm_gstn_type,
+            firm_annual_turnover: Number(row.firm_annual_turnover || 0),
+            expected_sale_per_year: Number(row.expected_sale_per_year || 0),
+            other_company_detail: row.other_company_detail,
+          },
 
-            address_details: {
-              address: row.address,
-              state: row.crm_state,
-              district: row.district,
-              tehsil: row.tehsil,
-              pincode: row.crm_pincode,
-              landmark: row.landmark,
-              branch: row.branch,
-            },
+          address_details: {
+            address: row.address,
+            state: row.crm_state,
+            district: row.district,
+            tehsil: row.tehsil,
+            pincode: row.crm_pincode,
+            landmark: row.landmark,
+            branch: row.branch,
+          },
 
-            contact: row.contact,
+          contact: row.contact,
 
-            responsible_person: {
-              name: row.responsible_person_name,
-              address: row.responsible_person_address,
-              contact: row.responsible_person_contact,
-            },
+          responsible_person: {
+            name: row.responsible_person_name,
+            address: row.responsible_person_address,
+            contact: row.responsible_person_contact,
+          },
 
-            licence_details: {
-              seed_licence_no: row.seed_licence_no,
-              fert_licence_no: row.fert_licence_no,
-              pest_licence_no: row.pest_licence_no,
-            },
+          licence_details: {
+            seed_licence_no: row.seed_licence_no,
+            fert_licence_no: row.fert_licence_no,
+            pest_licence_no: row.pest_licence_no,
+          },
 
-            transport_name: row.transport_name,
+          transport_name: row.transport_name,
 
-            bank_details: {
-              bank_name: row.crm_bank_name,
-              bank_acc_number: row.bank_acc_number,
-              bank_ifsc: row.bank_ifsc,
-              bank_branch: row.bank_branch,
-            },
+          bank_details: {
+            bank_name: row.crm_bank_name,
+            bank_acc_number: row.bank_acc_number,
+            bank_ifsc: row.bank_ifsc,
+            bank_branch: row.bank_branch,
+          },
 
-            security_cheques: {
-              cheque_1: row.security_cheque_no1,
-              cheque_2: row.security_cheque_no2,
-            },
-          }
+          security_cheques: {
+            cheque_1: row.security_cheque_no1,
+            cheque_2: row.security_cheque_no2,
+          },
+        }
         : null,
 
       created_by: row.created_by,
@@ -450,9 +459,9 @@ const getLedgerByIdController = async (req, res) => {
         message: "Ledger not found",
       });
     }
-        const currentBalance =
-      await getCurrentLedgerBalance( connection, id );
-ledger.current_balance = Number(currentBalance.toFixed(2));
+    const currentBalance =
+      await getCurrentLedgerBalance(connection, id);
+    ledger.current_balance = Number(currentBalance.toFixed(2));
     // ledger.current_balance = currentBalance;
 
 
@@ -467,6 +476,8 @@ ledger.current_balance = Number(currentBalance.toFixed(2));
       message: "Failed to fetch ledger",
       error: error.message,
     });
+  } finally {
+    connection.release();
   }
 };
 
@@ -496,11 +507,15 @@ const updateLedgerController = async (req, res) => {
     }
 
     if (bank_details) {
-      await updateLedgerBankDetailsModel(connection,id, bank_details);
+      await updateLedgerBankDetailsModel(connection, id, bank_details);
     }
 
     if (interest_configs && Array.isArray(interest_configs)) {
-      await replaceLedgerInterestConfigsModel(connection, id, interest_configs);
+      await replaceLedgerInterestConfigsModel(
+        connection,
+        id,
+        normalizeInterestConfigs(interest_configs)
+      );
     }
 
     if (other_details) {
@@ -613,10 +628,7 @@ const getLedgerDropdown = async (req, res) => {
   }
 };
 
-const reassignLedgerEmployee = async (
-  req,
-  res
-) => {
+const reassignLedgerEmployee = async (req, res) => {
 
   const connection = await db.getConnection();
 
@@ -624,20 +636,11 @@ const reassignLedgerEmployee = async (
 
     console.log("BODY:", req.body);
 
-    const {
-      ledger_id,
-      employee_under,
-    } = req.body;
+    const { ledger_id, employee_under, } = req.body;
 
-    console.log(
-      "CONTROLLER ledger_id:",
-      ledger_id
-    );
+    console.log("CONTROLLER ledger_id:", ledger_id);
 
-    console.log(
-      "CONTROLLER employee_under:",
-      employee_under
-    );
+    console.log("CONTROLLER employee_under:", employee_under);
 
     if (
       ledger_id === undefined ||
@@ -650,11 +653,7 @@ const reassignLedgerEmployee = async (
       });
     }
 
-    const ledger =
-      await getLedgerByIdModel(
-        connection,
-        Number(ledger_id)
-      );
+    const ledger = await getLedgerByIdModel(connection, Number(ledger_id));
 
     if (!ledger) {
       return res.status(404).json({
@@ -663,10 +662,7 @@ const reassignLedgerEmployee = async (
       });
     }
 
-    await reassignLedgerEmployeeModel(
-      ledger_id,
-      employee_under
-    );
+    await reassignLedgerEmployeeModel(ledger_id, employee_under);
 
     return res.status(200).json({
       success: true,
@@ -675,7 +671,6 @@ const reassignLedgerEmployee = async (
     });
 
   } catch (error) {
-
     console.log(
       "Reassign Ledger Error:",
       error
@@ -688,49 +683,87 @@ const reassignLedgerEmployee = async (
     });
 
   } finally {
-
     connection.release();
-
   }
 };
 
 
 const getMyAssignedLedgers = async (req, res) => {
-    try {
-      const employeeId = req.user.id;
+  try {
+    const employeeId = req.user.id;
+    const ledgers = await getMyAssignedLedgersModel(employeeId);
 
-      const ledgers =
-        await getMyAssignedLedgersModel(
-          employeeId
-        );
+    return res.status(200).json({
+      success: true,
+      message: "Assigned ledgers fetched successfully",
+      count: ledgers.length,
+      data: ledgers,
+    });
+  } catch (error) {
+    console.error("getMyAssignedLedgers Error:", error);
 
-      return res.status(200).json({
-        success: true,
-        message:
-          "Assigned ledgers fetched successfully",
-        count: ledgers.length,
-        data: ledgers,
-      });
-    } catch (error) {
-      console.error(
-        "getMyAssignedLedgers Error:",
-        error
-      );
+    return res.status(500).json({
+      success: false,
+      message:
+        "Failed to fetch assigned ledgers",
+      error: error.message,
+    });
+  }
+};
 
-      return res.status(500).json({
+const sendLedgerCreatedWhatsapp = async (req, res) => {
+  try {
+    const { ledgerId } = req.params;
+
+    const ledger = await getLedgerWhatsappData(ledgerId);
+
+    if (!ledger) {
+      return res.status(404).json({ success: false, message: "Ledger not found" });
+    }
+
+    const mobile = formatMobileForWhatsapp(ledger.contact);
+
+    if (!mobile || !ledger.customer_name) {
+      return res.status(400).json({
         success: false,
-        message:
-          "Failed to fetch assigned ledgers",
-        error: error.message,
+        message: "Missing contact number or customer name for this ledger",
       });
     }
-  };
 
+    const ledgerCode = `JSC-${ledger.id}`;
+
+    const response = await whatsappService.sendTemplateMessage(
+      mobile,
+      "ledger_created",
+      "en_US",
+      [
+        {
+          type: "body",
+          parameters: [
+            { type: "text", text: ledger.customer_name },
+            { type: "text", text: ledgerCode },
+            { type: "text", text: ledger.ledger_name },
+            { type: "text", text: companyConfig.bank.bankName },
+            { type: "text", text: companyConfig.bank.accountName },
+            { type: "text", text: companyConfig.bank.accountNumber },
+            { type: "text", text: companyConfig.bank.ifscCode }
+          ],
+        },
+      ]
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "WhatsApp notification sent",
+      messageId: response.messages?.[0]?.id,
+    });
+  } catch (err) {
+    console.error("Ledger WhatsApp Error:", err.response?.data || err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
 
 module.exports = {
-  createLedgerController,
-  getLedgers,
-  getLedgerByIdController,
-  updateLedgerController,
-  deleteLedgerController, getLedgerDropdown, reassignLedgerEmployee, getMyAssignedLedgers
+  createLedgerController, getLedgers, getLedgerByIdController, updateLedgerController,
+  deleteLedgerController, getLedgerDropdown, reassignLedgerEmployee, getMyAssignedLedgers, sendLedgerCreatedWhatsapp
 };

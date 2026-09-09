@@ -60,6 +60,21 @@ exports.createStockItem = async (req, res) => {
       });
     }
 
+    const trimmedItemName = item_name.trim();
+
+const [existingItem] = await connection.query(
+  `SELECT id FROM stock_items WHERE item_name = ? LIMIT 1`,
+  [trimmedItemName]
+);
+
+if (existingItem.length > 0) {
+  await connection.rollback();
+  return res.status(409).json({
+    success: false,
+    message: "An item with this name already exists",
+  });
+}
+
     if (is_returnable == 1) {
       if (returnable_percentage == null || returnable_percentage === "") {
         return res.status(400).json({
@@ -349,17 +364,25 @@ if (
       message: "Stock item created successfully",
       stock_item_id,
     });
-  } catch (error) {
-    await connection.rollback();
-    console.log("CREATE STOCK ITEM ERROR:", error);
-    return res.status(500).json({
+  }  catch (error) {
+  await connection.rollback();
+  console.log("CREATE STOCK ITEM ERROR:", error);
+
+  if (error.code === "ER_DUP_ENTRY") {
+    return res.status(409).json({
       success: false,
-      message: "Internal server error",
-      error: error.message,
+      message: "An item with this name already exists",
     });
-  } finally {
-    connection.release();
   }
+
+  return res.status(500).json({
+    success: false,
+    message: "Internal server error",
+    error: error.message,
+  });
+} finally {
+  connection.release();
+}
 };
 
 exports.getStockItems = async (req, res) => {
@@ -455,6 +478,30 @@ exports.updateStockItem = async (req, res) => {
       gst_details,
       opening_stock,
     } = req.body;
+
+    if (!item_name || !item_name.trim()) {
+  await connection.rollback();
+  return res.status(400).json({
+    success: false,
+    message: "Item name is required",
+  });
+}
+const trimmedItemName = item_name.trim();
+
+// --- Duplicate item_name check, excluding this item itself ---
+const [existingItem] = await connection.query(
+  `SELECT id FROM stock_items WHERE item_name = ? AND id != ? LIMIT 1`,
+  [trimmedItemName, id]
+);
+
+if (existingItem.length > 0) {
+  await connection.rollback();
+  return res.status(409).json({
+    success: false,
+    message: "An item with this name already exists",
+  });
+}
+
 
     // UPDATE STOCK ITEM
 
@@ -643,39 +690,44 @@ exports.updateStockItem = async (req, res) => {
       message: "Stock item updated successfully",
     });
   } catch (error) {
-    await connection.rollback();
+  await connection.rollback();
+  console.log("UPDATE STOCK ITEM ERROR:", error);
 
-    console.log("UPDATE STOCK ITEM ERROR:", error);
-
-    return res.status(500).json({
+  if (error.code === "ER_DUP_ENTRY") {
+    return res.status(409).json({
       success: false,
-      message: "Internal server error",
-      error: error.message,
+      message: "An item with this name already exists",
     });
-  } finally {
-    connection.release();
   }
+
+  return res.status(500).json({
+    success: false,
+    message: "Internal server error",
+    error: error.message,
+  });
+} finally {
+  connection.release();
+}
 };
 
 exports.deleteStockItem = async (req, res) => {
   try {
     const { id } = req.params;
-
     const result = await stockItemModel.deleteStockItem(id);
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Stock item not found",
-      });
+      return res.status(404).json({ success: false, message: "Stock item not found" });
     }
-
-    return res.status(200).json({
-      success: true,
-      message: "Stock item deleted successfully",
-    });
+    return res.status(200).json({ success: true, message: "Stock item deleted successfully" });
   } catch (error) {
     console.log("DELETE STOCK ITEM ERROR:", error);
+
+    if (error.code === "ITEM_IN_USE") {
+      return res.status(409).json({
+        success: false,
+        message: "This item has related transactions and cannot be deleted.",
+      });
+    }
 
     return res.status(500).json({
       success: false,
@@ -684,3 +736,31 @@ exports.deleteStockItem = async (req, res) => {
     });
   }
 };
+
+// exports.deleteStockItem = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+
+//     const result = await stockItemModel.deleteStockItem(id);
+
+//     if (result.affectedRows === 0) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Stock item not found",
+//       });
+//     }
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Stock item deleted successfully",
+//     });
+//   } catch (error) {
+//     console.log("DELETE STOCK ITEM ERROR:", error);
+
+//     return res.status(500).json({
+//       success: false,
+//       message: "Internal server error",
+//       error: error.message,
+//     });
+//   }
+// };

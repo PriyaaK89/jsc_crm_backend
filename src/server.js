@@ -9,10 +9,22 @@
 require('dotenv').config({
   path: require('path').resolve(__dirname, '../.env')
 });
+
+process.on("uncaughtException", (err) => {
+  console.error("UNCAUGHT EXCEPTION:", err);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("UNHANDLED REJECTION:", reason);
+});
 console.log("SERVER FILE STARTED");
 // require('dotenv').config();
 require('../src/jobs/cleanup.job');
 require("../src/jobs/attendanceAutoClose");
+require("../src/jobs/visitTargetSheduler");
+require("../src/jobs/reminderCron");
+require("../src/jobs/attendanceReminder.cron");
+// require("../src/jobs/ledgerOutstandingReminder.cron");
 const db = require('./config/db');
 
 const http = require("http");
@@ -65,6 +77,11 @@ console.log("ENV CHECK:", {
   pass: process.env.DB_PASS,
   db: process.env.DB_NAME
 });
+// quick manual test, e.g. in a scratch file or temp route
+// const { processExpiredAssignments } = require("../src/jobs/visitTargetSheduler");
+// processExpiredAssignments()
+//   .then(() => console.log("rollover done"))
+//   .catch(err => console.error("rollover failed:", err));
 
 //  Start server (IMPORTANT: use server.listen, NOT app.listen)
 server.listen(PORT, "0.0.0.0", () => {

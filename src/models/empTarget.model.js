@@ -1,19 +1,11 @@
 const db = require('../config/db')
 
 const createEmployeeTarget = async ({
-  user_id,
-  role,
-  target_type,
-  duration_type,
-  start_date,
-  end_date,
-  target_amount,
-  created_by
-}) => {
+  user_id, role, target_type, duration_type,
+  start_date, end_date, target_amount, created_by }) => {
 
-  const [result] = await db.query(
-    `
-    INSERT INTO employee_targets
+  const [result] = await connection.query(
+    ` INSERT INTO employee_targets
     (
       user_id,
       role,
@@ -44,23 +36,11 @@ const createEmployeeTarget = async ({
 
   return result.insertId;
 };
-const insertTargetCategories = async (
-  connection,
-  employee_target_id,
-  categories
-) => {
+const insertTargetCategories = async ( connection, employee_target_id, categories) => {
 
-  const values = categories.map((category_id) => [
-    employee_target_id,
-    category_id
-  ]);
+  const values = categories.map((category_id) => [ employee_target_id, category_id ]);
 
-  await connection.query(
-    `INSERT INTO employee_target_categories
-    (employee_target_id, category_id)
-    VALUES ?`,
-    [values]
-  );
+  await connection.query( `INSERT INTO employee_target_categories (employee_target_id, category_id) VALUES ?`, [values] );
 };
 
 
@@ -119,7 +99,6 @@ const getEmployeeTargets = async ({
   const [countResult] = await db.query(
     `
     SELECT COUNT(DISTINCT et.id) AS total
-
     FROM employee_targets et
 
     LEFT JOIN employee_target_categories etc
@@ -135,8 +114,7 @@ const getEmployeeTargets = async ({
 
   // ================= MAIN DATA =================
 const [rows] = await db.query(
-  `
-  SELECT
+  ` SELECT
     et.id,
     et.user_id,
 
@@ -191,8 +169,7 @@ const [rows] = await db.query(
 const getEmployeeTargetById = async (id) => {
 
  const [rows] = await db.query(
-  `
-  SELECT
+  ` SELECT
     et.id,
     et.user_id,
 
@@ -219,9 +196,7 @@ const getEmployeeTargetById = async (id) => {
   ON et.id = etc.employee_target_id
 
   WHERE et.id = ?
-
-  GROUP BY et.id
-  `,
+  GROUP BY et.id `,
   [id]
 );
 
@@ -230,21 +205,9 @@ const getEmployeeTargetById = async (id) => {
 
 
 // ================= UPDATE =================
-const updateEmployeeTarget = async (
-  connection,
-  id,
-  data
-) => {
+const updateEmployeeTarget = async ( connection, id, data ) => {
 
-  const {
-    user_id,
-    role,
-    target_type,
-    duration_type,
-    start_date,
-    end_date,
-    target_amount
-  } = data;
+  const { user_id, role, target_type, duration_type, start_date, end_date, target_amount } = data;
 
   await connection.query(
     `
@@ -276,43 +239,16 @@ const updateEmployeeTarget = async (
 
 
 // ================= DELETE OLD CATEGORIES =================
-const deleteTargetCategories = async (
-  connection,
-  employee_target_id
-) => {
+const deleteTargetCategories = async ( connection, employee_target_id ) => {
 
-  await connection.query(
-    `
-    DELETE FROM employee_target_categories
-    WHERE employee_target_id = ?
-    `,
-    [employee_target_id]
-  );
+  await connection.query( ` DELETE FROM employee_target_categories WHERE employee_target_id = ? `, [employee_target_id] );
 };
 
 
 // ================= DELETE TARGET =================
-const deleteEmployeeTarget = async (
-  connection,
-  id
-) => {
-
-  await connection.query(
-    `
-    DELETE FROM employee_targets
-    WHERE id = ?
-    `,
-    [id]
-  );
+const deleteEmployeeTarget = async ( connection, id) => {
+  await connection.query( ` DELETE FROM employee_targets WHERE id = ? `, [id] );
 };
 
 
-module.exports = {
-  createEmployeeTarget,
-  insertTargetCategories,
-  getEmployeeTargets,
-  getEmployeeTargetById,
-  updateEmployeeTarget,
-  deleteTargetCategories,
-  deleteEmployeeTarget
-};
+module.exports = { createEmployeeTarget, insertTargetCategories, getEmployeeTargets, getEmployeeTargetById, updateEmployeeTarget, deleteTargetCategories, deleteEmployeeTarget };

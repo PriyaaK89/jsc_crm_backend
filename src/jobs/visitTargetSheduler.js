@@ -1,6 +1,6 @@
 const cron = require("node-cron"); // npm install node-cron
 const db = require("../config/db");
-const visitTargetModel = require("../models/visitTarget.model");
+const visitTargetModel = require("../models/visitTargetTemplate.model");
 
 /**
  * Daily rollover job:

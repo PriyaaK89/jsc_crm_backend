@@ -7,7 +7,9 @@ const { TYPES, TYPE_TO_SALARY_FIELD, isExpenseType } = holdModel;
 const LABELS = {
   SALARY: "Salary",
   TA: "TA",
-  DA: "DA",
+  // DA: "DA",
+  DA_WITH_DOC: "DA (With Doc)",
+  DA_WITHOUT_DOC: "DA (Without Doc)",
   HOTEL: "Hotel Expense",
   OTHER: "Other Expense",
   BUS_TRAIN_TOLL: "Bus/Train/Toll Expense",

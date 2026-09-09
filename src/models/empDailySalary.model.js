@@ -14,6 +14,7 @@ exports.getUserSalaryInfo = async (employeeId) => {
       avg_travel_km_per_day,
       city_allowance_per_km,
       daily_allowance_with_doc,
+      daily_allowance_without_doc,
       hotel_allowance
     FROM users
     WHERE id = ?
@@ -58,7 +59,8 @@ exports.saveDailySalary = async (data) => {
       per_day_salary,
       basic_salary,
       travelling_allowance,
-      daily_allowance,
+      daily_allowance_with_doc,
+daily_allowance_without_doc,
 
        hotel_expense,
       other_expense,
@@ -68,7 +70,7 @@ exports.saveDailySalary = async (data) => {
       gross_salary,
       net_salary
     )
-    VALUES (?,?,?,?,?,?,?,?,?,?, ?, ?, ?, ?)
+    VALUES (?,?,?,?,?,?,?,?,?,?, ?, ?, ?, ?, ?)
     
     ON DUPLICATE KEY UPDATE
       attendance_type = VALUES(attendance_type),
@@ -76,7 +78,8 @@ exports.saveDailySalary = async (data) => {
       per_day_salary = VALUES(per_day_salary),
       basic_salary = VALUES(basic_salary),
       travelling_allowance = VALUES(travelling_allowance),
-      daily_allowance = VALUES(daily_allowance),
+      daily_allowance_with_doc = VALUES(daily_allowance_with_doc),
+      daily_allowance_without_doc = VALUES(daily_allowance_without_doc),
       hotel_expense = VALUES(hotel_expense),
       other_expense = VALUES(other_expense),
       bus_train_toll_expense = VALUES(bus_train_toll_expense),
@@ -133,7 +136,8 @@ exports.getMonthlyTotals = async (employeeId, month, year) => {
       SUM(basic_salary) as total_basic,
       SUM(travelling_allowance) as total_ta,
       SUM(city_allowance) as total_ca,
-      SUM(daily_allowance) as total_da,
+      SUM(daily_allowance_with_doc) as total_da_with_doc,
+      SUM(daily_allowance_without_doc) as total_da_without_doc,
       SUM(hotel_allowance) as total_hotel,
       SUM(other_expense) as total_other,
       SUM(gross_salary) as total_gross,

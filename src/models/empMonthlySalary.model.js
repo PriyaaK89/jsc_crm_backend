@@ -4,15 +4,10 @@ const db = require("../config/db");
    GET MONTHLY SUMMARY FROM DAILY TABLE
 ===================================================== */
 
-exports.getMonthlySalarySummary = async (
-  employeeId,
-  month,
-  year
-) => {
+exports.getMonthlySalarySummary = async ( employeeId, month, year) => {
 
   const [[row]] = await db.query(
-    `
-    SELECT
+    ` SELECT
 
       COUNT(
         CASE WHEN attendance_type = 'full'
@@ -39,29 +34,17 @@ exports.getMonthlySalarySummary = async (
         THEN 1 END
       ) AS total_leave,
 
-      SUM(total_reading)
-        AS total_reading,
+      SUM(total_reading) AS total_reading,
+      SUM(basic_salary) AS total_basic_salary,
+      SUM(travelling_allowance) AS total_travelling_allowance,
 
-      SUM(basic_salary)
-        AS total_basic_salary,
-
-      SUM(travelling_allowance)
-        AS total_travelling_allowance,
-
-      SUM(daily_allowance)
-        AS total_daily_allowance,
-
-      SUM(hotel_expense)
-        AS total_hotel_expense,
-
-      SUM(other_expense)
-        AS total_other_expense,
-
-      SUM(bus_train_toll_expense)
-        AS total_bus_train_toll_expense,
-
-      SUM(gross_salary)
-        AS gross_salary
+      // SUM(daily_allowance) AS total_daily_allowance,
+      SUM(daily_allowance_with_doc) AS total_daily_allowance_with_doc,
+SUM(daily_allowance_without_doc) AS total_daily_allowance_without_doc,
+      SUM(hotel_expense) AS total_hotel_expense,
+      SUM(other_expense) AS total_other_expense,
+      SUM(bus_train_toll_expense) AS total_bus_train_toll_expense,
+      SUM(gross_salary) AS gross_salary
 
     FROM emp_salary_daily
 
@@ -82,9 +65,7 @@ exports.getMonthlySalarySummary = async (
 exports.saveMonthlySalary = async (data) => {
 
   const [result] = await db.query(
-    `
-    INSERT INTO emp_salary_monthly (
-
+    ` INSERT INTO emp_salary_monthly (
       employee_id,
 
       month,
@@ -101,7 +82,8 @@ exports.saveMonthlySalary = async (data) => {
       total_basic_salary,
 
       total_travelling_allowance,
-      total_daily_allowance,
+      total_daily_allowance_with_doc,
+  total_daily_allowance_without_doc,
 
       total_hotel_expense,
       total_other_expense,
@@ -113,13 +95,12 @@ exports.saveMonthlySalary = async (data) => {
       esi_deduction,
 
       net_salary,
-
       generated_at
 
     )
-    VALUES (
-      ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW()
-    )
+   VALUES (
+  ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW()
+)
 
     ON DUPLICATE KEY UPDATE
 
@@ -130,24 +111,13 @@ exports.saveMonthlySalary = async (data) => {
       total_leave = VALUES(total_leave),
 
       total_reading = VALUES(total_reading),
-
-      total_basic_salary =
-        VALUES(total_basic_salary),
-
-      total_travelling_allowance =
-        VALUES(total_travelling_allowance),
-
-      total_daily_allowance =
-        VALUES(total_daily_allowance),
-
-      total_hotel_expense =
-        VALUES(total_hotel_expense),
-
-      total_other_expense =
-        VALUES(total_other_expense),
-
-      total_bus_train_toll_expense =
-        VALUES(total_bus_train_toll_expense),
+      total_basic_salary = VALUES(total_basic_salary),
+      total_travelling_allowance = VALUES(total_travelling_allowance),
+      total_daily_allowance_with_doc = VALUES(total_daily_allowance_with_doc),
+  total_daily_allowance_without_doc = VALUES(total_daily_allowance_without_doc),
+      total_hotel_expense = VALUES(total_hotel_expense),
+      total_other_expense = VALUES(total_other_expense),
+      total_bus_train_toll_expense = VALUES(total_bus_train_toll_expense),
 
       gross_salary = VALUES(gross_salary),
 

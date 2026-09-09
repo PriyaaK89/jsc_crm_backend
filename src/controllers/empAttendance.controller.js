@@ -45,7 +45,7 @@ const generateDailySalaryInternal = async (employeeId, date) => {
     holdRows.forEach((r) => (holdByType[r.type] = r));
 
     const [[row]] = await db.query(
-      `SELECT basic_salary, travelling_allowance, daily_allowance
+      `SELECT basic_salary, travelling_allowance, daily_allowance_with_doc, daily_allowance_without_doc
      FROM emp_salary_daily WHERE employee_id = ? AND salary_date = ?`,
       [employeeId, date]
     );
@@ -88,7 +88,9 @@ const generateDailySalaryInternal = async (employeeId, date) => {
 
   /* ---------- Travel & Daily Allowance ---------- */
   let travelAllowance = 0;
-  let dailyAllowance = 0;
+  // let dailyAllowance = 0;
+  let dailyAllowanceWithDoc = 0;
+  let dailyAllowanceWithoutDoc = 0;
   let totalReading = 0;
 
   if (attendance.attendance_unit !== "week_off" && attendance.check_out_time && attendance.work_type !== "wfh") {
@@ -138,9 +140,13 @@ const generateDailySalaryInternal = async (employeeId, date) => {
       attendance.attendance_unit === "full" &&
       travelledKm >= (user.avg_travel_km_per_day || 0)
     ) {
-      dailyAllowance = Number(user.daily_allowance_with_doc) || 0;
+      // dailyAllowance = Number(user.daily_allowance_with_doc) || 0;
+      dailyAllowanceWithDoc = Number(user.daily_allowance_with_doc) || 0;
+      dailyAllowanceWithoutDoc = Number(user.daily_allowance_without_doc) || 0;
     } else {
-      dailyAllowance = 0;
+      // dailyAllowance = 0;
+      dailyAllowanceWithDoc = 0;
+      dailyAllowanceWithoutDoc = 0;
     }
 
     /* ---------- Debug Logs ---------- */
@@ -151,7 +157,8 @@ const generateDailySalaryInternal = async (employeeId, date) => {
       travelledKm,
       perKmRate,
       travelAllowance,
-      dailyAllowance,
+      dailyAllowanceWithDoc,
+      dailyAllowanceWithoutDoc,
     });
   }
 
@@ -173,12 +180,25 @@ const generateDailySalaryInternal = async (employeeId, date) => {
       : Number(existingSalaryRow?.travelling_allowance ?? travelAllowance);
   }
 
-  if (holdByType.DA) {
-    dailyAllowance = holdByType.DA.status === "HOLD"
-      ? 0
-      : Number(existingSalaryRow?.daily_allowance ?? dailyAllowance);
+  // if (holdByType.DA) {
+  //   if (holdByType.DA.status === "HOLD") {
+  //     dailyAllowanceWithDoc = 0;
+  //     dailyAllowanceWithoutDoc = 0;
+  //   } else {
+  //     dailyAllowanceWithDoc = Number( existingSalaryRow?.daily_allowance_with_doc ?? dailyAllowanceWithDoc );
+  //     dailyAllowanceWithoutDoc = Number( existingSalaryRow?.daily_allowance_without_doc ?? dailyAllowanceWithoutDoc );
+  //   }
+  // }
+
+  if (holdByType.DA_WITH_DOC) {
+    dailyAllowanceWithDoc = holdByType.DA_WITH_DOC.status === "HOLD" ? 0
+      : Number(existingSalaryRow?.daily_allowance_with_doc ?? dailyAllowanceWithDoc);
   }
-  /* --------------------------------------------------------- */
+
+  if (holdByType.DA_WITHOUT_DOC) {
+    dailyAllowanceWithoutDoc = holdByType.DA_WITHOUT_DOC.status === "HOLD" ? 0
+      : Number(existingSalaryRow?.daily_allowance_without_doc ?? dailyAllowanceWithoutDoc);
+  }
 
   /* ---------- Expense Calculation ---------- */
 
@@ -219,7 +239,8 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   }
 
   /* ---------- Final Salary ---------- */
-  const grossSalary = basicSalary + travelAllowance + dailyAllowance + hotelExpense +
+  const grossSalary = basicSalary + travelAllowance + dailyAllowanceWithDoc +
+    dailyAllowanceWithoutDoc + hotelExpense +
     otherExpense +
     busTrainTollExpense;
   const netSalary = grossSalary;
@@ -233,7 +254,8 @@ const generateDailySalaryInternal = async (employeeId, date) => {
       perDaySalary.toFixed(2),
       basicSalary.toFixed(2),
       travelAllowance.toFixed(2),
-      dailyAllowance.toFixed(2),
+      dailyAllowanceWithDoc.toFixed(2),
+      dailyAllowanceWithoutDoc.toFixed(2),
 
       hotelExpense.toFixed(2),
       otherExpense.toFixed(2),

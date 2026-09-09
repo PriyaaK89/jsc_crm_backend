@@ -250,7 +250,9 @@ exports.getEmployeeMonthlyReport = async (req, res) => {
 
         esd.travelling_allowance AS ta,
 
-        esd.daily_allowance AS da,
+    
+        esd.daily_allowance_with_doc AS da_with_doc,
+esd.daily_allowance_without_doc AS da_without_doc,
 
         /* =========================
            HOTEL — approved (esd) + pending (entries), combined
@@ -420,7 +422,8 @@ exports.getEmployeeMonthlyReport = async (req, res) => {
 
         COALESCE(SUM(esd.basic_salary),0) AS total_salary,
         COALESCE(SUM(esd.travelling_allowance),0) AS total_ta,
-        COALESCE(SUM(esd.daily_allowance),0) AS total_da,
+        COALESCE(SUM(esd.daily_allowance_with_doc),0) AS total_da_with_doc,
+COALESCE(SUM(esd.daily_allowance_without_doc),0) AS total_da_without_doc,
 
         COALESCE(SUM(esd.hotel_expense),0) AS total_hotel_approved,
         COALESCE(SUM(esd.other_expense),0) AS total_other_approved,
@@ -480,7 +483,9 @@ exports.getEmployeeMonthlyReport = async (req, res) => {
     const totals = {
       salary: Number(totalRows[0].total_salary || 0),
       ta: Number(totalRows[0].total_ta || 0),
-      da: Number(totalRows[0].total_da || 0),
+      // da: Number(totalRows[0].total_da || 0),
+      da_with_doc: Number(totalRows[0].total_da_with_doc || 0),
+da_without_doc: Number(totalRows[0].total_da_without_doc || 0),
 
       hotel: totalHotelApproved + totalHotelPending,
       hotel_approved: totalHotelApproved,

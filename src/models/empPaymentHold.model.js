@@ -4,7 +4,8 @@ const SalaryDaily = require("./empDailySalary.model");
 const TYPE_TO_SALARY_FIELD = {
   SALARY: "basic_salary",
   TA: "travelling_allowance",
-  DA: "daily_allowance",
+  DA_WITH_DOC: "daily_allowance_with_doc",
+  DA_WITHOUT_DOC: "daily_allowance_without_doc",
   HOTEL: "hotel_expense",
   OTHER: "other_expense",
   BUS_TRAIN_TOLL: "bus_train_toll_expense",
@@ -47,7 +48,8 @@ exports.ensureSalaryDailyRow = async (employeeId, date, connection = db) => {
     "0.00",        // per_day_salary
     "0.00",        // basic_salary
     "0.00",        // travelling_allowance
-    "0.00",        // daily_allowance
+    "0.00",        // daily_allowance_with_doc
+    "0.00",        // daily_allowance_without_doc
     "0.00",        // hotel_expense
     "0.00",        // other_expense
     "0.00",        // bus_train_toll_expense
@@ -101,7 +103,9 @@ exports.getExpenseEntry = async (employeeId, date, expenseType, connection = db)
 // emp_salary_daily and writes them back. Call after any field write.
 exports.recalculateTotals = async (connection, employeeId, date) => {
   const [[row]] = await connection.query(
-    `SELECT basic_salary, travelling_allowance, daily_allowance,
+    `SELECT basic_salary, travelling_allowance, 
+    daily_allowance_with_doc,
+      daily_allowance_without_doc,
             hotel_expense, other_expense, bus_train_toll_expense
      FROM emp_salary_daily WHERE employee_id = ? AND salary_date = ?`,
     [employeeId, date]
@@ -110,7 +114,8 @@ exports.recalculateTotals = async (connection, employeeId, date) => {
   const grossSalary =
     Number(row.basic_salary) +
     Number(row.travelling_allowance) +
-    Number(row.daily_allowance) +
+     Number(row.daily_allowance_with_doc || 0) +
+  Number(row.daily_allowance_without_doc || 0) +
     Number(row.hotel_expense) +
     Number(row.other_expense) +
     Number(row.bus_train_toll_expense);

@@ -5,6 +5,7 @@ const db = require("../config/db");
 const { getHierarchyIds } = require("../controllers/rollingUser.controller");
 const { uploadFileToMinio, getPresignedUrl } = require("../utils/fileUpload");
 const userModal = require("../models/user.model")
+const Holiday = require("../models/companyHoliday.model");
 
 const generateDailySalaryInternal = async (employeeId, date) => {
   const user = await SalaryDaily.getUserSalaryInfo(employeeId);
@@ -73,9 +74,9 @@ const generateDailySalaryInternal = async (employeeId, date) => {
     basicSalary = perDaySalary;
   } else if (attendance.attendance_unit === "half") {
     basicSalary = perDaySalary * 0.5;
-  } else if (attendance.attendance_unit === "week_off") {
-    basicSalary = perDaySalary;
-  } else if (["absent", "leave"].includes(attendance.attendance_unit)) {
+  }  else if (["week_off", "holiday"].includes(attendance.attendance_unit)) {
+  basicSalary = perDaySalary; // paid, no work required
+}  else if (["absent", "leave"].includes(attendance.attendance_unit)) {
     basicSalary = 0;
     // Still continue — don't return early — so a ₹0 row gets saved
   }
@@ -93,7 +94,8 @@ const generateDailySalaryInternal = async (employeeId, date) => {
   let dailyAllowanceWithoutDoc = 0;
   let totalReading = 0;
 
-  if (attendance.attendance_unit !== "week_off" && attendance.check_out_time && attendance.work_type !== "wfh") {
+  // if (attendance.attendance_unit !== "week_off" && attendance.check_out_time && attendance.work_type !== "wfh") {
+  if (!["week_off", "holiday"].includes(attendance.attendance_unit) && attendance.check_out_time && attendance.work_type !== "wfh") {
     const startKm = Number(attendance.odometer_reading) || 0;
     const endKm = Number(attendance.day_over_odometer_reading) || 0;
 
@@ -274,26 +276,6 @@ const generateDailySalaryInternal = async (employeeId, date) => {
 
 };
 
-const autoClosePreviousDay = async (employeeId) => {
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-
-  const dateStr = yesterday.toISOString().split("T")[0];
-
-  const attendance = await SalaryDaily.getAttendanceByDate(employeeId, dateStr);
-
-  if (
-    attendance &&
-    attendance.status === "present" &&
-    attendance.check_in_time && //  ADD THIS
-    !attendance.check_out_time
-  ) {
-    await Attendance.updateDayOver([0, "half", 0, null, null, attendance.id]);
-
-    await generateDailySalaryInternal(employeeId, dateStr);
-  }
-};
-
 // Add near the top of the controller, alongside other helpers
 const isPastCheckInCutoff = (loginTime) => {
   // No login_time configured for this user -> don't block them
@@ -336,6 +318,17 @@ const formatTimeTo12Hour = (timeStr) => {
     : `${hour12}:${String(mm).padStart(2, "0")} ${period}`;
 };
 
+const deriveDayStatus = (row) => {
+  if (row.attendance_unit === 'holiday') return 'holiday'; 
+  if (row.status === 'leave') return 'leave';
+  if (row.attendance_unit === 'absent') return 'absent';
+  if (row.attendance_unit === 'half') return 'half_day';
+  if (row.work_type === 'wfh') return 'wfh';
+  if (row.work_type === 'office') return 'office';
+  if (row.work_type === 'field') return 'present_field';
+  return 'unmarked';
+};
+
 exports.getTodayAttendance = async (req, res) => {
   try {
     const { employee_id } = req.params;
@@ -361,6 +354,24 @@ exports.getTodayAttendance = async (req, res) => {
       message: "Server error",
     });
   }
+};
+
+const getWorkingDaysInfo = async (month, year) => {
+  const daysInMonth = new Date(year, month, 0).getDate();
+
+  let sundays = 0;
+  for (let d = 1; d <= daysInMonth; d++) {
+    if (new Date(year, month - 1, d).getDay() === 0) sundays++;
+  }
+
+  const holidays = await Holiday.countHolidaysExcludingSunday(month, year);
+
+  return {
+    daysInMonth,
+    sundays,
+    holidays,
+    workingDays: daysInMonth - sundays - holidays,
+  };
 };
 
 const MARKETING_DEPARTMENT_ID = 2;
@@ -391,31 +402,26 @@ exports.markAttendance = async (req, res) => {
         return res.status(400).json({ message: "Attendance already marked" });
       }
 
-      if (work_type === "office") {
-        const departmentId = await getEmployeeDepartmentId(employee_id);
-
-        if (departmentId === MARKETING_DEPARTMENT_ID) {
-          return res.status(400).json({
-            message:
-              "Marketing employees cannot mark attendance as Office Sitting. Please mark attendance as Field work.",
-          });
-        }
-      }
-
-      await Attendance.createAttendance([
-        employee_id,
-        "leave",
-        "leave",
-        null, // work_type
-        null, // field_work_type
-        null, // travel_mode
-        null, // vehicle_type
-        null, // public_transport
-        null, // odometer
-        null, // visit_location
-        null, // check_in_time
-        req.body.leave_reason,
-      ]);
+       await Attendance.createAttendance([
+    employee_id,
+    "leave",
+    "leave",
+    null, // work_type
+    null, // field_work_type
+    null, // travel_mode
+    null, // vehicle_type
+    null, // public_transport
+    null, // odometer
+    null, // visit_location
+    null, // district
+    null, // route
+    null, // check_in_time
+    null, // check_in_latitude
+    null, // check_in_longitude
+    null, // check_in_accuracy
+    null, // check_in_device
+    req.body.leave_reason,
+  ]);
 
       await generateDailySalaryInternal(
         employee_id,
@@ -437,7 +443,13 @@ exports.markAttendance = async (req, res) => {
       // }
 
 
-      const { work_type, field_work_type, travel_mode, vehicle_type, public_transport, odometer_reading, visit_location, } = req.body;
+      const {
+    work_type, field_work_type, travel_mode, vehicle_type,
+    public_transport, odometer_reading, visit_location,
+    district, route,
+    check_in_latitude, check_in_longitude, check_in_accuracy, check_in_device,
+  } = req.body;
+
       if (!work_type) { return res.status(400).json({ message: "Work type required" }); }
       if (work_type === "field" && !field_work_type) { return res.status(400).json({ message: "Field work type required" }); }
 
@@ -446,6 +458,9 @@ exports.markAttendance = async (req, res) => {
           message: "Invalid work type",
         });
       }
+      if (work_type === "field" && travel_mode && !["public", "private", "company"].includes(travel_mode)) {
+    return res.status(400).json({ message: "Invalid travel mode" });
+  }
 
       if (work_type === "office") {
         const departmentId = await getEmployeeDepartmentId(employee_id);
@@ -463,18 +478,24 @@ exports.markAttendance = async (req, res) => {
       }
 
       const attendanceId = await Attendance.createAttendance([
-        employee_id,
-        "present",
-        null,
-        work_type,
-        field_work_type,
-        travel_mode,
-        vehicle_type,
-        public_transport,
-        odometer_reading,
-        visit_location,
-        new Date(), // check_in_time
-        null,
+         employee_id,
+    "present",
+    null,
+    work_type,
+    field_work_type,
+    travel_mode,
+    vehicle_type,
+    public_transport,
+    odometer_reading,
+    visit_location,
+    district,
+    route,
+    new Date(),          // check_in_time
+    check_in_latitude || null,
+    check_in_longitude || null,
+    check_in_accuracy || null,
+    check_in_device || null,
+    null, 
       ]);
 
       if (req.files) {
@@ -489,7 +510,7 @@ exports.markAttendance = async (req, res) => {
           await Attendance.saveAttendanceImage([
             attendanceId,                 // attendance_id
             field,                        // image_type
-            process.env.MINIO_BUCKET || "jsc-crm",                 // storage_bucket
+            process.env.MINIO_BUCKET || "test-crm",                 // storage_bucket
             upload.object_path,           // object_path
             upload.file_url,              // file_url
             file.mimetype,                // mime_type
@@ -519,7 +540,10 @@ exports.markAttendance = async (req, res) => {
         return res.status(400).json({ message: "Day over already marked" });
       }
 
-      const { day_over_odometer_reading, day_over_location } = req.body;
+      const {
+    day_over_odometer_reading, day_over_location,
+    day_over_latitude, day_over_longitude, day_over_accuracy, day_over_device,
+  } = req.body;
 
       if (todayAttendance.work_type === "field" && todayAttendance.travel_mode === "private" && !day_over_odometer_reading
       ) {
@@ -576,9 +600,13 @@ exports.markAttendance = async (req, res) => {
         workingMinutes,
         unit,
         late,
-        day_over_odometer_reading,
-        day_over_location,
-        todayAttendance.id,
+          day_over_odometer_reading,
+    day_over_location,
+    day_over_latitude || null,
+    day_over_longitude || null,
+    day_over_accuracy || null,
+    day_over_device || null,
+    todayAttendance.id,
       ]);
       await generateDailySalaryInternal(employee_id, new Date().toISOString().split("T")[0],);
 
@@ -591,7 +619,7 @@ exports.markAttendance = async (req, res) => {
         await Attendance.saveAttendanceImage([
           todayAttendance.id,           // attendance_id
           field,                        // image_type
-          process.env.MINIO_BUCKET || "jsc-crm",                // storage_bucket
+          process.env.MINIO_BUCKET || "test-crm",                // storage_bucket
           upload.object_path,           // object_path
           upload.file_url,              // file_url
           file.mimetype,                // mime_type
@@ -672,6 +700,12 @@ exports.getMyAttendance = async (req, res) => {
       offset,
     });
 
+      const attendanceWithStatus = attendance.map((row) => ({
+      ...row,
+      day_status: deriveDayStatus(row),
+    }));
+
+
     const totalRecords = await Attendance.getDayWiseAttendanceCount({
       employeeId,
       startDate: start_date,
@@ -685,7 +719,8 @@ exports.getMyAttendance = async (req, res) => {
         total_records: totalRecords,
         total_pages: Math.ceil(totalRecords / limit),
       },
-      attendance,
+      // attendance,
+        attendance: attendanceWithStatus, 
     });
   } catch (error) {
     console.error("My Attendance Error:", error);
@@ -697,14 +732,7 @@ exports.getMyAttendance = async (req, res) => {
 
 exports.getDayWiseAttendance = async (req, res) => {
   try {
-    let {
-      employee_id,
-      search,
-      start_date,
-      end_date,
-      page = 1,
-      limit = 10,
-    } = req.query;
+    let { employee_id, search, start_date, end_date, page = 1, limit = 10, } = req.query;
 
     page = Number(page);
     limit = Number(limit);
@@ -718,6 +746,11 @@ exports.getDayWiseAttendance = async (req, res) => {
       limit,
       offset,
     });
+
+     const attendanceWithStatus = attendance.map((row) => ({
+      ...row,
+      day_status: deriveDayStatus(row),
+    }));
 
     const totalRecords = await Attendance.getDayWiseAttendanceCount({
       employeeId: employee_id,
@@ -739,7 +772,8 @@ exports.getDayWiseAttendance = async (req, res) => {
         total_records: totalRecords,
         total_pages: Math.ceil(totalRecords / limit),
       },
-      attendance,
+      // attendance,
+       attendance: attendanceWithStatus,
     });
   } catch (error) {
     console.error("Day-wise Attendance Error:", error);
@@ -766,7 +800,16 @@ exports.getMonthlyAttendanceSummary = async (req, res) => {
       year,
     );
 
-    const [[user]] = await require("../config/db").query(
+    // NEW: calendar-based working days (independent of attendance rows)
+    const { workingDays, sundays, holidays } = await getWorkingDaysInfo(
+      Number(month),
+      Number(year),
+    );
+
+    // NEW: present = full + half, regardless of unit
+    const presentDays = Number(summary.full_days) + Number(summary.half_days);
+
+    const [[user]] = await db.query(
       `SELECT name FROM users WHERE id = ?`,
       [employeeId],
     );
@@ -777,11 +820,19 @@ exports.getMonthlyAttendanceSummary = async (req, res) => {
       month: Number(month),
       year: Number(year),
       summary: {
+        working_days: workingDays,       // NEW — daysInMonth - Sundays - holidays
+        sundays,                         // NEW — for transparency/debugging
+        holidays,                        // NEW
+        present_days: presentDays,       // NEW — full + half
         full_days: Number(summary.full_days),
         half_days: Number(summary.half_days),
+        holiday_days: Number(summary.holiday_days),
         absent_days: Number(summary.absent_days),
         leave_days: Number(summary.leave_days),
-        total_working_days: Number(summary.total_days),
+        field_days: Number(summary.field_days),
+        tour_days: Number(summary.tour_days),
+        office_days: Number(summary.office_days),
+        wfh_days: Number(summary.wfh_days),
       },
     });
   } catch (error) {
@@ -791,8 +842,6 @@ exports.getMonthlyAttendanceSummary = async (req, res) => {
     });
   }
 };
-
-
 
 exports.getDailyAttendanceSummary = async (req, res) => {
   try {
@@ -852,6 +901,26 @@ exports.getMyTeamAttendance = async (req, res) => {
       success: false,
       message: error.message
     });
+  }
+};
+
+const autoClosePreviousDay = async (employeeId) => {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const dateStr = yesterday.toISOString().split("T")[0];
+
+  const attendance = await SalaryDaily.getAttendanceByDate(employeeId, dateStr);
+
+  if (
+    attendance &&
+    attendance.status === "present" &&
+    attendance.check_in_time && //  ADD THIS
+    !attendance.check_out_time
+  ) {
+    await Attendance.updateDayOver([0, "half", 0, null, null, attendance.id]);
+
+    await generateDailySalaryInternal(employeeId, dateStr);
   }
 };
 

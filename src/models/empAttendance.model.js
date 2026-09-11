@@ -22,8 +22,14 @@ exports.createAttendance = async (data) => {
  public_transport,
  odometer_reading,
  visit_location,
+ district,
+ route,
  check_in_time,
- leave_reason ) VALUES (?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) `,
+ check_in_latitude,
+ check_in_longitude,
+ check_in_accuracy,
+ check_in_device,
+ leave_reason ) VALUES (?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) `,
     data,
   );
   return result.insertId;
@@ -38,7 +44,11 @@ exports.updateDayOver = async (data) => {
       attendance_unit = ?,
       late_login = ?,
       day_over_odometer_reading = ?,
-      day_over_location = ?
+      day_over_location = ?,
+       day_over_latitude = ?,
+      day_over_longitude = ?,
+      day_over_accuracy = ?,
+      day_over_device = ?
     WHERE id = ? `, data,
   );
 };
@@ -146,6 +156,7 @@ exports.getMonthlyAttendanceSummary = async (employeeId, month, year) => {
         END
       ) AS leave_days,
 
+
       -- Full Days
       SUM(
         CASE 
@@ -183,6 +194,7 @@ exports.getMonthlyAttendanceSummary = async (employeeId, month, year) => {
   );
 
   return {
+     present_days: row.present_days || 0,
     leave_days: row.leave_days || 0,
     full_days: row.full_days || 0,
     half_days: row.half_days || 0,
@@ -334,4 +346,62 @@ SUM(
   );
 
   return rows[0];
+};
+
+exports.getMonthlyAttendanceSummary = async (employeeId, month, year) => {
+  const [[row]] = await db.query(
+    ` SELECT
+      SUM(CASE WHEN status = 'leave' THEN 1 ELSE 0 END) AS leave_days,
+      SUM(CASE WHEN attendance_unit = 'full' THEN 1 ELSE 0 END) AS full_days,
+      SUM(CASE WHEN attendance_unit = 'half' THEN 1 ELSE 0 END) AS half_days,
+      SUM(CASE WHEN attendance_unit = 'holiday' THEN 1 ELSE 0 END) AS holiday_days,
+      SUM(CASE WHEN attendance_unit = 'absent' OR status = 'present' THEN 1 ELSE 0 END) AS absent_days,
+      COUNT(*) AS total_days,
+
+      -- NEW: work-type breakdown
+      SUM(CASE WHEN work_type = 'field' THEN 1 ELSE 0 END) AS field_days,
+      SUM(CASE WHEN work_type = 'field' AND field_work_type = 'tour' THEN 1 ELSE 0 END) AS tour_days,
+      SUM(CASE WHEN work_type = 'office' THEN 1 ELSE 0 END) AS office_days,
+      SUM(CASE WHEN work_type = 'wfh' THEN 1 ELSE 0 END) AS wfh_days,
+      
+
+      -- NEW: distance (only private-vehicle days have both odometer readings)
+      SUM(
+        CASE WHEN travel_mode = 'private'
+             AND day_over_odometer_reading IS NOT NULL
+             AND odometer_reading IS NOT NULL
+        THEN (day_over_odometer_reading - odometer_reading) ELSE 0 END
+      ) AS total_km,
+      SUM(
+        CASE WHEN travel_mode = 'private'
+             AND day_over_odometer_reading IS NOT NULL
+             AND odometer_reading IS NOT NULL
+        THEN 1 ELSE 0 END
+      ) AS travel_tracked_days,
+
+      -- NEW: timing averages
+      SEC_TO_TIME(AVG(CASE WHEN check_in_time IS NOT NULL THEN TIME_TO_SEC(TIME(check_in_time)) END)) AS avg_login_time,
+      AVG(working_minutes) AS avg_working_minutes
+
+    FROM emp_attendance
+    WHERE employee_id = ? AND MONTH(attendance_date) = ? AND YEAR(attendance_date) = ?
+    `,
+    [employeeId, month, year],
+  );
+
+  return {
+    leave_days: row.leave_days || 0,
+    full_days: row.full_days || 0,
+    half_days: row.half_days || 0,
+    absent_days: row.absent_days || 0,
+    total_days: row.total_days || 0,
+    field_days: row.field_days || 0,
+    tour_days: row.tour_days || 0,
+    office_days: row.office_days || 0,
+    wfh_days: row.wfh_days || 0,
+    total_km: row.total_km || 0,
+    travel_tracked_days: row.travel_tracked_days || 0,
+    avg_login_time: row.avg_login_time,        // "HH:MM:SS" or null
+    avg_working_minutes: row.avg_working_minutes || 0,
+  };
 };

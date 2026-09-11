@@ -17,11 +17,38 @@
 //   return { unit: "absent", late: isLate };
 // };
 
+// exports.calculateAttendanceUnit = ({
+//   checkInTime,
+//   workingMinutes
+// }) => {
+//   const checkInHour = new Date(checkInTime).getHours();
+//   const isLate = checkInHour >= 11;
+
+//   if (!workingMinutes || workingMinutes <= 0) {
+//     return { unit: "absent", late: isLate };
+//   }
+
+//   if (workingMinutes >= 360) {
+//     return { unit: "full", late: isLate };
+//   }
+
+//   if (workingMinutes >= 240) {
+//     return { unit: "half", late: isLate };
+//   }
+
+//   return { unit: "absent", late: isLate };
+// };
+
+
 exports.calculateAttendanceUnit = ({
   checkInTime,
   workingMinutes
 }) => {
-  const checkInHour = new Date(checkInTime).getHours();
+  // Convert to IST regardless of server timezone
+  const checkInIST = new Date(
+    new Date(checkInTime).toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+  );
+  const checkInHour = checkInIST.getHours();
   const isLate = checkInHour >= 11;
 
   if (!workingMinutes || workingMinutes <= 0) {

@@ -3,32 +3,21 @@ const db = require("../config/db");
 // Get employee salary details
 exports.getUserSalaryInfo = async (employeeId) => {
   const [[row]] = await db.query(
-    `
-    SELECT 
-      name,
-      salary,
-      pf,
-      esi,
-       two_wheeler_allowance_per_km,
-      four_wheeler_allowance_per_km,
-      avg_travel_km_per_day,
-      city_allowance_per_km,
-      daily_allowance_with_doc,
-      daily_allowance_without_doc,
-      hotel_allowance
+    ` SELECT name, salary, pf,
+      esi, two_wheeler_allowance_per_km,
+      four_wheeler_allowance_per_km, avg_travel_km_per_day,
+      city_allowance_per_km, daily_allowance_with_doc,
+      daily_allowance_without_doc, hotel_allowance
     FROM users
     WHERE id = ?
-    `,
-    [employeeId]
+    `, [employeeId]
   );
-
   return row;
 };
 
 exports.getAttendanceByDate = async (employeeId, date) => {
   const [[row]] = await db.query(
-    `
-    SELECT
+    ` SELECT
       id,
       status,
       attendance_unit,

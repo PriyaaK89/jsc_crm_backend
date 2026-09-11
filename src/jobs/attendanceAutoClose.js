@@ -18,18 +18,16 @@ cron.schedule("10 0 * * *", async () => {
        YESTERDAY DATE (IST SAFE)
     ===================================================== */
 
-    const yesterday = new Date();
+    const nowIST = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+    );
 
-    yesterday.setDate(yesterday.getDate() - 1);
+    // Step back one day, still in IST terms
+    nowIST.setDate(nowIST.getDate() - 1);
 
-    // Prevent UTC issue
-    const localDate = new Date( yesterday.getTime() - yesterday.getTimezoneOffset() * 60000 );
+    const dateStr = `${nowIST.getFullYear()}-${String(nowIST.getMonth() + 1).padStart(2, "0")}-${String(nowIST.getDate()).padStart(2, "0")}`;
 
-    const dateStr = localDate.toISOString().split("T")[0];
-
-    const day = yesterday.getDay();
-
-    // Sunday = 0
+    const day = nowIST.getDay(); // 0 = Sunday, now correctly IST-based
     const isSunday = day === 0;
 
     console.log("Date:", dateStr);
@@ -102,6 +100,18 @@ cron.schedule("10 0 * * *", async () => {
 
     console.log("Step 1 completed");
 
+    // check for holiday =====================================
+
+
+      const [holidayRows] = await db.query(
+      `SELECT id, holiday_name FROM company_holidays WHERE holiday_date = ?`,
+      [dateStr]
+    );
+    const isHoliday = holidayRows.length > 0;
+    const holidayName = isHoliday ? holidayRows[0].holiday_name : null;
+
+    console.log("Is Holiday:", isHoliday, holidayName || "");
+
     /* =====================================================
        STEP 2 -> CREATE ABSENT / WEEK OFF
     ===================================================== */
@@ -137,8 +147,18 @@ cron.schedule("10 0 * * *", async () => {
         /* =====================================================
            WEEK OFF
         ===================================================== */
+         if (isHoliday) {
+          // Holiday takes priority over Sunday — if a holiday happens to
+          // fall on a Sunday, it's still just one non-working day, not both
+          console.log(`Creating holiday record for employee ${emp.id}`);
 
-        if (isSunday) {
+          await db.query(
+            `INSERT INTO emp_attendance (
+              employee_id, attendance_date, status, attendance_unit, leave_reason, created_at, updated_at
+            ) VALUES (?, ?, 'holiday', 'holiday', ?, NOW(), NOW())`,
+            [emp.id, dateStr, holidayName]
+          );
+        }  else if (isSunday) {
 
           console.log( `Creating week off for employee ${emp.id}` );
 

@@ -19,7 +19,6 @@ router.post("/mark-emp-attendance", auth, (req, res) => {
         message: err.message || "File upload error"
       });
     }
-
     attendanceController.markAttendance(req, res);
   });
 });
@@ -30,7 +29,6 @@ router.get( "/attendance/monthly-summary/:employeeId", auth, attendanceControlle
 router.get("/daily-summary", auth, attendanceController.getDailyAttendanceSummary);
 router.get( "/today-attendance/:employee_id", auth, attendanceController.getTodayAttendance);
 router.get( "/my-team-attendance", auth, attendanceController.getMyTeamAttendance );
-const { generateDailySalaryInternal } = require("../controllers/empAttendance.controller");
 
 router.get("/test-sunday-salary", async (req, res) => {
   try {

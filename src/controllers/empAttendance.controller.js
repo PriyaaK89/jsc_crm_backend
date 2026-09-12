@@ -329,32 +329,7 @@ const deriveDayStatus = (row) => {
   return 'unmarked';
 };
 
-exports.getTodayAttendance = async (req, res) => {
-  try {
-    const { employee_id } = req.params;
 
-    const attendance = await Attendance.getTodayAttendance(employee_id);
-
-    if (!attendance) {
-      return res.status(404).json({
-        success: false,
-        message: "No attendance found for today",
-      });
-    }
-
-    return res.json({
-      success: true,
-      data: attendance,
-    });
-  } catch (error) {
-    console.error(error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
-  }
-};
 
 const getWorkingDaysInfo = async (month, year) => {
   const daysInMonth = new Date(year, month, 0).getDate();
@@ -789,30 +764,29 @@ exports.getMonthlyAttendanceSummary = async (req, res) => {
     const { month, year } = req.query;
 
     if (!month || !year) {
-      return res.status(400).json({
-        message: "Month and year are required",
-      });
+      return res.status(400).json({ message: "Month and year are required" });
     }
 
-    const summary = await Attendance.getMonthlyAttendanceSummary(
-      employeeId,
-      month,
-      year,
-    );
+    const summary = await Attendance.getMonthlyAttendanceSummary(employeeId, month, year);
+    const { workingDays, sundays, holidays } = await getWorkingDaysInfo(Number(month), Number(year));
+    const presentDays = Number(summary.present_days);
 
-    // NEW: calendar-based working days (independent of attendance rows)
-    const { workingDays, sundays, holidays } = await getWorkingDaysInfo(
-      Number(month),
-      Number(year),
-    );
+    const avgKmPerFieldDay = summary.travel_tracked_days > 0
+      ? (Number(summary.total_km) / Number(summary.travel_tracked_days)).toFixed(1)
+      : "0.0";
 
-    // NEW: present = full + half, regardless of unit
-    const presentDays = Number(summary.full_days) + Number(summary.half_days);
+    // NEW: format avg_login_time ("HH:MM:SS", already IST from the SQL fix)
+    // into a friendly 12-hour display, reusing your existing helper
+    const avgLoginTimeDisplay = summary.avg_login_time
+      ? formatTimeTo12Hour(summary.avg_login_time.slice(0, 5)) // "HH:MM:SS" -> "HH:MM"
+      : "—";
 
-    const [[user]] = await db.query(
-      `SELECT name FROM users WHERE id = ?`,
-      [employeeId],
-    );
+    // NEW: format avg_working_minutes into "Xh Ym"
+    const avgHours = Math.floor(summary.avg_working_minutes / 60);
+    const avgMins = Math.round(summary.avg_working_minutes % 60);
+    const avgWorkingHoursDisplay = `${avgHours}h ${avgMins}m`;
+
+    const [[user]] = await db.query(`SELECT name FROM users WHERE id = ?`, [employeeId]);
 
     return res.json({
       employee_id: employeeId,
@@ -820,10 +794,10 @@ exports.getMonthlyAttendanceSummary = async (req, res) => {
       month: Number(month),
       year: Number(year),
       summary: {
-        working_days: workingDays,       // NEW — daysInMonth - Sundays - holidays
-        sundays,                         // NEW — for transparency/debugging
-        holidays,                        // NEW
-        present_days: presentDays,       // NEW — full + half
+        working_days: workingDays,
+        sundays,
+        holidays,
+        present_days: presentDays,
         full_days: Number(summary.full_days),
         half_days: Number(summary.half_days),
         holiday_days: Number(summary.holiday_days),
@@ -833,13 +807,15 @@ exports.getMonthlyAttendanceSummary = async (req, res) => {
         tour_days: Number(summary.tour_days),
         office_days: Number(summary.office_days),
         wfh_days: Number(summary.wfh_days),
+        total_km: Number(summary.total_km),
+        avg_km_per_field_day: avgKmPerFieldDay,
+        avg_login_time: avgLoginTimeDisplay,       // NEW — e.g. "9:24 AM"
+        avg_working_hours: avgWorkingHoursDisplay, // NEW — e.g. "8h 32m"
       },
     });
   } catch (error) {
     console.error("Monthly Summary Error:", error);
-    return res.status(500).json({
-      message: "Server error",
-    });
+    return res.status(500).json({ message: "Server error" });
   }
 };
 
@@ -904,6 +880,61 @@ exports.getMyTeamAttendance = async (req, res) => {
   }
 };
 
+exports.getMyTodayAttendance = async (req, res) => {
+  try {
+  const { employee_id } = req.params; // CHANGED — matches the route's :employee_id
+
+    if (!employee_id) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const attendance = await Attendance.getMyTodayAttendance(employee_id);
+
+    if (!attendance) {
+      return res.status(404).json({ success: false, message: "No attendance found for today" });
+    }
+
+    const checkIn = attendance.check_in_time ? new Date(attendance.check_in_time) : null;
+    const checkOut = attendance.check_out_time ? new Date(attendance.check_out_time) : null;
+    const now = new Date();
+
+    const endPoint = checkOut || now;
+    const durationMinutes = checkIn
+      ? Math.max(0, Math.floor((endPoint - checkIn) / 60000))
+      : 0;
+    const durationHours = Math.floor(durationMinutes / 60);
+    const durationRemMins = durationMinutes % 60;
+
+    const formatIST = (date) =>
+      date
+        ? date.toLocaleTimeString("en-IN", {
+            timeZone: "Asia/Kolkata",
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          })
+        : null;
+
+    return res.json({
+      success: true,
+      data: {
+        status: attendance.status,
+        work_type: attendance.work_type,
+        field_work_type: attendance.field_work_type,
+        visit_location: attendance.visit_location,
+        start_time: formatIST(checkIn),
+        end_time: formatIST(checkOut),
+        duration: `${durationHours}h ${durationRemMins}m`,
+        check_in_time_iso: attendance.check_in_time,
+        check_out_time_iso: attendance.check_out_time,
+        is_active: !checkOut,
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
 const autoClosePreviousDay = async (employeeId) => {
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
@@ -1150,6 +1181,32 @@ const autoClosePreviousDay = async (employeeId) => {
 
 // };
 
+exports.getTodayAttendance = async (req, res) => {
+  try {
+    const { employee_id } = req.params;
+
+    const attendance = await Attendance.getTodayAttendance(employee_id);
+
+    if (!attendance) {
+      return res.status(404).json({
+        success: false,
+        message: "No attendance found for today",
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: attendance,
+    });
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
 
 
 module.exports.generateDailySalaryInternal = generateDailySalaryInternal;

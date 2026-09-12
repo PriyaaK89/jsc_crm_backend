@@ -29,6 +29,7 @@ router.get( "/attendance/monthly-summary/:employeeId", auth, attendanceControlle
 router.get("/daily-summary", auth, attendanceController.getDailyAttendanceSummary);
 router.get( "/today-attendance/:employee_id", auth, attendanceController.getTodayAttendance);
 router.get( "/my-team-attendance", auth, attendanceController.getMyTeamAttendance );
+router.get("/get-my-today-attendance/:employee_id", auth, attendanceController.getMyTodayAttendance);
 
 router.get("/test-sunday-salary", async (req, res) => {
   try {

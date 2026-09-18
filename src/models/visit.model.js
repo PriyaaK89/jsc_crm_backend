@@ -1,9 +1,11 @@
 const db = require("../config/db");
 
 exports.createVisit = async (data) => {
-  const query = ` INSERT INTO visits 
-    (user_id, customer_id, visit_type, customer_type, visit_purpose, comment, reminder_date, image_path)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ? )`;
+  const query = `INSERT INTO visits
+    (user_id, customer_id, visit_type, customer_type, visit_purpose, visit_outcome,
+     comment, reminder_date, reminder_time, reminder_reason, priority,
+     image_path, shop_image_path, document_image_path, latitude, longitude)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
   const [result] = await db.query(query, data);
   return result.insertId;
@@ -75,7 +77,9 @@ if (filters.user_ids && filters.user_ids.length > 0) {
       v.visit_type,
       v.customer_type,
       v.visit_purpose,
+        v.visit_outcome,
       v.comment,
+    
       v.reminder_date,
       v.image_path,
       v.created_at,
@@ -326,28 +330,7 @@ exports.getUserVisitDetails = async (userId, fromDate, toDate) => {
   return rows;
 };
 
-// exports.getUserVisitDetails = async (userId, date) => {
-//   let query = `
-//     SELECT
-//       v.id, v.created_at, v.visit_type, v.customer_type, v.visit_purpose, v.comment, v.reminder_date, v.image_path,
-//       u.id AS user_id, u.name AS employee_name, u.contact_no,
-//       c.id AS customer_id, c.name AS customer_name, c.firm_name, c.contact_number, c.address, c.area, c.district, c.pincode
-//     FROM visits v
-//     LEFT JOIN users u ON u.id = v.user_id
-//     LEFT JOIN customers c ON c.id = v.customer_id
-//     WHERE v.user_id = ?
-//   `;
 
-//   const params = [userId];
-
-//   if (date) {
-//     query += ` AND DATE(v.created_at) = ?`;
-//     params.push(date);
-//   }
-//   query += ` ORDER BY v.created_at DESC`;
-//   const [rows] = await db.query(query, params);
-//   return rows;
-// };
 
 exports.getVisitWhatsappData = async (visitId) => {
 
@@ -379,6 +362,76 @@ exports.getVisitWhatsappData = async (visitId) => {
 
   return rows[0];
 };
+
+exports.getMonthlySummary = async (userId, year, month) => {
+  const [rows] = await db.query(
+    `SELECT
+      COUNT(*) AS total_visits,
+      SUM(CASE WHEN visit_outcome = 'successful' THEN 1 ELSE 0 END) AS successful,
+      SUM(CASE WHEN visit_outcome = 'follow_up_required' THEN 1 ELSE 0 END) AS follow_ups,
+      SUM(CASE WHEN visit_outcome = 'order_received' THEN 1 ELSE 0 END) AS orders_from_visits,
+      SUM(CASE WHEN customer_type = 'new' THEN 1 ELSE 0 END) AS new_customers
+     FROM visits
+     WHERE user_id = ? AND YEAR(created_at) = ? AND MONTH(created_at) = ?`,
+    [userId, year, month]
+  );
+  return rows[0];
+};
+
+exports.getVisitByIdForUser = async (visitId, userId) => {
+  const [rows] = await db.query(
+    `SELECT v.*, u.name AS employee_name, u.contact_no,
+       c.name AS customer_name, c.firm_name, c.firm_address, c.contact_number,
+       c.alt_contact_number, c.gst_number, c.address, c.area, c.town, c.state,
+       c.district, c.pincode
+     FROM visits v
+     LEFT JOIN users u ON u.id = v.user_id
+     LEFT JOIN customers c ON c.id = v.customer_id
+     WHERE v.id = ? AND v.user_id = ?`,
+    [visitId, userId]
+  );
+  return rows[0];
+};
+
+exports.getVisitByIdAdmin = async (visitId) => {
+  const [rows] = await db.query(
+    `SELECT v.*, u.name AS employee_name, u.contact_no,
+       c.name AS customer_name, c.firm_name, c.firm_address, c.contact_number,
+       c.alt_contact_number, c.gst_number, c.address, c.area, c.town, c.state,
+       c.district, c.pincode
+     FROM visits v
+     LEFT JOIN users u ON u.id = v.user_id
+     LEFT JOIN customers c ON c.id = v.customer_id
+     WHERE v.id = ?`,
+    [visitId]
+  );
+  return rows[0];
+};
+
+
+// exports.getUserVisitDetails = async (userId, date) => {
+//   let query = `
+//     SELECT
+//       v.id, v.created_at, v.visit_type, v.customer_type, v.visit_purpose, v.comment, v.reminder_date, v.image_path,
+//       u.id AS user_id, u.name AS employee_name, u.contact_no,
+//       c.id AS customer_id, c.name AS customer_name, c.firm_name, c.contact_number, c.address, c.area, c.district, c.pincode
+//     FROM visits v
+//     LEFT JOIN users u ON u.id = v.user_id
+//     LEFT JOIN customers c ON c.id = v.customer_id
+//     WHERE v.user_id = ?
+//   `;
+
+//   const params = [userId];
+
+//   if (date) {
+//     query += ` AND DATE(v.created_at) = ?`;
+//     params.push(date);
+//   }
+//   query += ` ORDER BY v.created_at DESC`;
+//   const [rows] = await db.query(query, params);
+//   return rows;
+// };
+
 // exports.getUserVisitDetails = async (userId) => {
 //   const [rows] = await db.query(
 //     ` SELECT

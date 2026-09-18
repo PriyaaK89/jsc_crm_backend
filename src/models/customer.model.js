@@ -1,9 +1,19 @@
 const db = require("../config/db");
 
+// exports.createCustomer = async (data) => {
+//   const query = `INSERT INTO customers 
+//     (type, name, firm_name, firm_address, contact_number, address, area, district, pincode, created_by)
+//     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) `;
+
+//   const [result] = await db.query(query, data);
+//   return result.insertId;
+// };
+
 exports.createCustomer = async (data) => {
   const query = `INSERT INTO customers 
-    (type, name, firm_name, firm_address, contact_number, address, area, district, pincode, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) `;
+    (type, name, firm_name, firm_address, contact_number, alt_contact_number, gst_number,
+     address, area, town, state, district, pincode, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
   const [result] = await db.query(query, data);
   return result.insertId;

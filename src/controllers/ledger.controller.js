@@ -8,7 +8,7 @@ const { getGroupById } = require("../models/accountGroup.model");
 const db = require("../config/db");
 const whatsappService = require("../services/whatsapp.service");
 const companyConfig = require("../config/company");
-const { formatMobileForWhatsapp } = require("../utils/helper"); 
+const { formatMobileForWhatsapp } = require("../utils/helper");
 
 // console.log(companyConfig, "company bank details")
 
@@ -69,6 +69,7 @@ const createLedgerController = async (req, res) => {
     const { ledger_name, group_id, employee_under,
       opening_balance, balance_type, opening_date,
       mailing_name, location, country, state, pincode, pan_no, gst_no,
+      gst_verified, gst_status,
       maintain_bill_by_bill, default_credit_period, check_credit_days, credit_limit,
       inventory_values_affected, use_for_payroll, activate_interest_calculation, od_limit,
       bank_details, interest_configs, crm_details, } = req.body;
@@ -114,6 +115,7 @@ const createLedgerController = async (req, res) => {
       inventory_values_affected,
       use_for_payroll,
       activate_interest_calculation,
+       gst_verified, 
       bank_details?.cheque_book_enabled,
       bank_details?.cheque_printing_enabled,
       ...(interest_configs || []).flatMap((config) => [
@@ -182,6 +184,8 @@ const createLedgerController = async (req, res) => {
       pincode: pincode || null,
       pan_no: pan_no || null,
       gst_no: gst_no || null,
+      gst_verified: gst_verified ?? 0,
+      gst_status: gst_status || null,
       maintain_bill_by_bill: maintain_bill_by_bill ?? 0,
       default_credit_period: default_credit_period || 0,
       check_credit_days: check_credit_days ?? 0,
@@ -215,7 +219,7 @@ const createLedgerController = async (req, res) => {
       Array.isArray(interest_configs) &&
       interest_configs.length > 0 && activate_interest_calculation === 1
     ) {
-      await createLedgerInterestConfigs( ledgerId, normalizeInterestConfigs(interest_configs) );
+      await createLedgerInterestConfigs(ledgerId, normalizeInterestConfigs(interest_configs));
     }
 
     // --- CRM / Other Details ---

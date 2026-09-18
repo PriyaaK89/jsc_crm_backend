@@ -1,8 +1,57 @@
 const db = require("../config/db");
 
+// const getStockItemsDropdown = async () => {
+//   const [rows] = await db.query(
+//     ` SELECT id, item_name, FROM stock_items WHERE is_active = 1 ORDER BY item_name ASC `,
+//   );
+
+//   return rows;
+// };
+
 const getStockItemsDropdown = async () => {
   const [rows] = await db.query(
-    ` SELECT id, item_name FROM stock_items WHERE is_active = 1 ORDER BY item_name ASC `,
+    `
+    SELECT
+      si.id,
+      si.item_name,
+
+      u.symbol AS base_unit_name,
+
+      bu.symbol AS bulk_unit_name,
+      si.bulk_unit_value,
+      si.bulk_base_value,
+
+      os.rate,
+      os.supercash_price,
+      os.quantity,
+      os.per_unit_id,
+
+      gd.integrated_tax,
+      gd.central_tax,
+      gd.state_tax,
+      gd.taxability
+
+    FROM stock_items si
+
+    LEFT JOIN units u
+      ON u.id = si.unit_id
+
+    LEFT JOIN units bu
+      ON bu.id = si.bulk_unit_id
+
+    LEFT JOIN stock_item_opening_stock os
+      ON os.id = (
+        SELECT MIN(os2.id)
+        FROM stock_item_opening_stock os2
+        WHERE os2.stock_item_id = si.id
+      )
+
+    LEFT JOIN stock_item_gst_details gd
+      ON gd.stock_item_id = si.id
+
+    WHERE si.is_active = 1
+    ORDER BY si.item_name ASC
+    `
   );
 
   return rows;

@@ -5,6 +5,7 @@ const createLedger = async (ledgerData) => {
     ledger_name, group_id, employee_under,
     opening_balance, balance_type, opening_date,
     mailing_name, location, country, state, pincode, pan_no, gst_no,
+    gst_verified, gst_status,
     maintain_bill_by_bill,
     default_credit_period,
     check_credit_days,
@@ -20,18 +21,20 @@ const createLedger = async (ledgerData) => {
       opening_balance, balance_type, opening_date,
       mailing_name, location, country, state, pincode,
       pan_no, gst_no,
+       gst_verified, gst_status,    
       maintain_bill_by_bill, default_credit_period, check_credit_days, credit_limit,
       inventory_values_affected, use_for_payroll,
       activate_interest_calculation,
       od_limit,
       created_by
     )
-    VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ) `,
+    VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ,? ) `,
     [
       ledger_name, group_id, employee_under || null,
       opening_balance || 0, balance_type || "Dr", opening_date || null,
       mailing_name || null, location || null, country || null, state || null, pincode || null,
       pan_no || null, gst_no || null,
+      gst_verified ? 1 : 0, gst_status || null,
       maintain_bill_by_bill || 0, default_credit_period || 0, check_credit_days || 0, credit_limit || 0,
       inventory_values_affected || 0, use_for_payroll || 0,
       activate_interest_calculation || 0,
@@ -42,7 +45,7 @@ const createLedger = async (ledgerData) => {
   return result.insertId;
 };
 
-const createLedgerBankDetails = async ( ledger_id, bankData ) => {
+const createLedgerBankDetails = async (ledger_id, bankData) => {
 
   const {
     account_holder_name, account_number, ifsc_code,
@@ -75,7 +78,7 @@ const createLedgerBankDetails = async ( ledger_id, bankData ) => {
   );
 };
 
-const createLedgerInterestConfigs = async ( ledger_id, interestConfigs ) => {
+const createLedgerInterestConfigs = async (ledger_id, interestConfigs) => {
 
   if (!Array.isArray(interestConfigs) || interestConfigs.length === 0) {
     return;
@@ -214,7 +217,7 @@ const createLedgerOtherDetails = async (ledger_id, crmData) => {
 };
 
 const findLedgerByName = async (ledger_name) => {
-  const [rows] = await db.query( ` SELECT * FROM ledgers WHERE ledger_name = ? `, [ledger_name] );
+  const [rows] = await db.query(` SELECT * FROM ledgers WHERE ledger_name = ? `, [ledger_name]);
   return rows[0];
 };
 
@@ -296,6 +299,8 @@ const getLedgersModel = async (filters, limit, offset) => {
 
       l.pan_no,
       l.gst_no,
+      l.gst_verified,
+      l.gst_status,
 
       l.maintain_bill_by_bill,
       l.default_credit_period,
@@ -453,7 +458,7 @@ const getLedgerCountModel = async (filters) => {
       ? `WHERE ${whereConditions.join(" AND ")}`
       : "";
 
-  const [rows] = await db.query( ` SELECT COUNT(DISTINCT l.id) AS total FROM ledgers l
+  const [rows] = await db.query(` SELECT COUNT(DISTINCT l.id) AS total FROM ledgers l
     LEFT JOIN ledger_other_details lod ON lod.ledger_id = l.id ${whereClause} `, queryParams
   );
 
@@ -465,7 +470,7 @@ const getLedgerCountModel = async (filters) => {
 // GET LEDGER BY ID
 // ===============================
 
-const getLedgerByIdModel = async (connection,id) => {
+const getLedgerByIdModel = async (connection, id) => {
 
   const [ledgerRows] = await connection.query(
     `
@@ -488,6 +493,8 @@ const getLedgerByIdModel = async (connection,id) => {
       l.pincode,
       l.pan_no,
       l.gst_no,
+      l.gst_verified,
+      l.gst_status,
       l.maintain_bill_by_bill,
       l.default_credit_period,
       l.check_credit_days,
@@ -596,7 +603,7 @@ const getLedgerByIdModel = async (connection,id) => {
 // UPDATE LEDGER
 // ===============================
 
-const updateLedgerModel = async ( connection,  id, ledgerData ) => {
+const updateLedgerModel = async (connection, id, ledgerData) => {
 
   const {
     ledger_name,
@@ -612,6 +619,8 @@ const updateLedgerModel = async ( connection,  id, ledgerData ) => {
     pincode,
     pan_no,
     gst_no,
+     gst_verified,      
+    gst_status,     
     maintain_bill_by_bill,
     default_credit_period,
     check_credit_days,
@@ -643,6 +652,8 @@ const updateLedgerModel = async ( connection,  id, ledgerData ) => {
 
       pan_no = ?,
       gst_no = ?,
+       gst_verified = ?,
+      gst_status = ?,
 
       maintain_bill_by_bill = ?,
       default_credit_period = ?,
@@ -674,6 +685,8 @@ const updateLedgerModel = async ( connection,  id, ledgerData ) => {
 
       pan_no || null,
       gst_no || null,
+       gst_verified ? 1 : 0,
+      gst_status || null,
 
       maintain_bill_by_bill || 0,
       default_credit_period || 0,
@@ -742,9 +755,9 @@ const updateLedgerBankDetailsModel = async (connection, ledger_id, bankData) => 
   }
 };
 
-const replaceLedgerInterestConfigsModel = async ( connection, ledger_id, interestConfigs ) => {
+const replaceLedgerInterestConfigsModel = async (connection, ledger_id, interestConfigs) => {
 
-  await db.query( ` DELETE FROM ledger_interest_config WHERE ledger_id = ? `, [ledger_id] );
+  await db.query(` DELETE FROM ledger_interest_config WHERE ledger_id = ? `, [ledger_id]);
 
   for (const interestData of interestConfigs) {
 
@@ -823,7 +836,7 @@ const replaceLedgerInterestConfigsModel = async ( connection, ledger_id, interes
   }
 };
 
-const updateLedgerOtherDetailsModel = async (connection, ledger_id, crmData ) => {
+const updateLedgerOtherDetailsModel = async (connection, ledger_id, crmData) => {
 
   const {
     customer_name,
@@ -947,10 +960,10 @@ const updateLedgerOtherDetailsModel = async (connection, ledger_id, crmData ) =>
 // Previously used db.query independently — if the final DELETE FROM ledgers
 // failed, child rows would already be gone with no way to roll back.
 const deleteLedgerModel = async (connection, id) => {
-  await connection.query( `DELETE FROM ledger_bank_details WHERE ledger_id = ?`, [id] );
-  await connection.query( `DELETE FROM ledger_interest_config WHERE ledger_id = ?`, [id] );
-  await connection.query( `DELETE FROM ledger_other_details WHERE ledger_id = ?`, [id] );
-  await connection.query( `DELETE FROM ledgers WHERE id = ?`, [id] );
+  await connection.query(`DELETE FROM ledger_bank_details WHERE ledger_id = ?`, [id]);
+  await connection.query(`DELETE FROM ledger_interest_config WHERE ledger_id = ?`, [id]);
+  await connection.query(`DELETE FROM ledger_other_details WHERE ledger_id = ?`, [id]);
+  await connection.query(`DELETE FROM ledgers WHERE id = ?`, [id]);
 };
 
 const getLedgerDropdownModel = async (search = "") => {
@@ -1025,8 +1038,8 @@ const reassignLedgerEmployeeModel = async (
 
   const parsedEmployeeUnder =
     employee_under !== undefined &&
-    employee_under !== null &&
-    employee_under !== ""
+      employee_under !== null &&
+      employee_under !== ""
       ? Number(employee_under)
       : null;
 
@@ -1139,6 +1152,26 @@ const getMyAssignedLedgersModel = async (employeeId) => {
       l.pan_no,
       l.gst_no,
       l.credit_limit,
+      l.gst_verified,
+      l.gst_status,
+      l.default_credit_period,
+      lod.address,
+      lod.contact,
+
+      -- ==========================
+      -- CURRENT BALANCE (outstanding)
+      -- ==========================
+      (
+        CASE WHEN l.balance_type = 'Cr' THEN -l.opening_balance ELSE l.opening_balance END
+        +
+        COALESCE((
+          SELECT SUM(
+            CASE WHEN lt.entry_type = 'Dr' THEN lt.amount ELSE -lt.amount END
+          )
+          FROM ledger_transactions lt
+          WHERE lt.ledger_id = l.id AND lt.is_cancelled = 0
+        ), 0)
+      ) AS current_balance,
 
       (
         SELECT lic.security_amount
@@ -1163,6 +1196,7 @@ const getMyAssignedLedgersModel = async (employeeId) => {
 
       l.created_at
     FROM ledgers l
+    LEFT JOIN ledger_other_details lod ON lod.ledger_id = l.id
     WHERE l.employee_under = ?
     ORDER BY l.ledger_name ASC
     `,
@@ -1172,10 +1206,62 @@ const getMyAssignedLedgersModel = async (employeeId) => {
   return rows;
 };
 
+// const getMyAssignedLedgersModel = async (employeeId) => {
+//   const [rows] = await db.query(
+//     ` SELECT
+//       l.id,
+//       l.ledger_name,
+//       l.group_id,
+//       l.employee_under,
+//       l.opening_balance,
+//       l.balance_type,
+//       l.mailing_name,
+//       l.location,
+//       l.country,
+//       l.state,
+//       l.pincode,
+//       l.pan_no,
+//       l.gst_no,
+//       l.credit_limit,
+//       l.gst_verified,
+//       l.gst_status,
+
+//       (
+//         SELECT lic.security_amount
+//         FROM ledger_interest_config lic
+//         WHERE lic.ledger_id = l.id AND lic.slab_type = 'security'
+//         LIMIT 1
+//       ) AS security_amount,
+
+//       (
+//         SELECT lic.rate
+//         FROM ledger_interest_config lic
+//         WHERE lic.ledger_id = l.id AND lic.slab_type = 'debit'
+//         LIMIT 1
+//       ) AS debit_interest_rate,
+
+//       (
+//         SELECT lic.rate
+//         FROM ledger_interest_config lic
+//         WHERE lic.ledger_id = l.id AND lic.slab_type = 'credit'
+//         LIMIT 1
+//       ) AS credit_interest_rate,
+
+//       l.created_at
+//     FROM ledgers l
+//     WHERE l.employee_under = ?
+//     ORDER BY l.ledger_name ASC
+//     `,
+//     [employeeId]
+//   );
+
+//   return rows;
+// };
+
 const getLedgerWhatsappData = async (ledgerId) => {
 
-    const [rows] = await db.query(
-        `
+  const [rows] = await db.query(
+    `
         SELECT
             l.id,
             l.ledger_name,
@@ -1189,10 +1275,10 @@ const getLedgerWhatsappData = async (ledgerId) => {
 
         WHERE l.id = ?
         `,
-        [ledgerId]
-    );
+    [ledgerId]
+  );
 
-    return rows[0];
+  return rows[0];
 };
 
 const getLedgerContactById = async (ledger_id) => {
@@ -1233,7 +1319,9 @@ const getCurrentLedgerBalanceforMessage = async (connection, ledgerId) => {
   return balance;
 };
 
-module.exports = { createLedger, createLedgerBankDetails, createLedgerInterestConfigs, createLedgerOtherDetails,
+module.exports = {
+  createLedger, createLedgerBankDetails, createLedgerInterestConfigs, createLedgerOtherDetails,
   findLedgerByName, getLedgersModel, getLedgerCountModel, getLedgerByIdModel, updateLedgerModel,
   updateLedgerBankDetailsModel, replaceLedgerInterestConfigsModel, updateLedgerOtherDetailsModel,
-  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel, getLedgerWhatsappData ,getLedgerContactById, getCurrentLedgerBalanceforMessage };
+  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel, getLedgerWhatsappData, getLedgerContactById, getCurrentLedgerBalanceforMessage
+};

@@ -5,9 +5,51 @@ const {
   getAvailableStock, 
 } = require("../utils/manufacturingValidator");
 
+// const getStockItemsDropdown = async (req, res) => {
+//   try {
+//     const data = await manufacturingModel.getStockItemsDropdown();
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Stock items fetched successfully",
+//       data,
+//     });
+//   } catch (error) {
+//     console.error("getStockItemsDropdown Error:", error);
+
+//     return res.status(500).json({
+//       success: false,
+//       message: "Internal server error",
+//       error: error.message,
+//     });
+//   }
+// };
+
+
 const getStockItemsDropdown = async (req, res) => {
   try {
-    const data = await manufacturingModel.getStockItemsDropdown();
+    const rows = await manufacturingModel.getStockItemsDropdown();
+
+    const data = rows.map((r) => ({
+      id: r.id,
+      item_name: r.item_name,
+      base_unit_name: r.base_unit_name,
+      bulk_unit_name: r.bulk_unit_name,
+      bulk_unit_value: r.bulk_unit_value,
+      bulk_base_value: r.bulk_base_value,
+      opening_stock: {
+        rate: r.rate,
+        supercash_price: r.supercash_price,
+        quantity: r.quantity,
+        per_unit_id: r.per_unit_id,
+      },
+      gst_details: {
+        integrated_tax: r.integrated_tax,
+        central_tax: r.central_tax,
+        state_tax: r.state_tax,
+        taxability: r.taxability,
+      },
+    }));
 
     return res.status(200).json({
       success: true,

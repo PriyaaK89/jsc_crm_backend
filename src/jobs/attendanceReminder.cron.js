@@ -33,7 +33,7 @@ const getISTDateParts = () => {
 };
 
 cron.schedule(
-  "0 14 * * *",
+  "30 9 * * *",
   async () => {
     console.log("======================================");
     console.log("Running attendance reminder cron (9:30 AM IST)...");

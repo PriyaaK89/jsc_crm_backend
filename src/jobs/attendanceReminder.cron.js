@@ -33,7 +33,7 @@ const getISTDateParts = () => {
 };
 
 cron.schedule(
-  "30 9 * * *",
+  "30 9 * * 1-6",
   async () => {
     console.log("======================================");
     console.log("Running attendance reminder cron (9:30 AM IST)...");
@@ -41,6 +41,11 @@ cron.schedule(
 
     try {
       const { dateStr, todayName } = getISTDateParts();
+
+       if (todayName === "Sunday") {
+    console.log("Sunday — attendance reminders skipped");
+    return;
+  }
 
       // Debug — remove once you've confirmed this is computing the right date/day
       console.log("DEBUG dateStr:", dateStr, "todayName:", todayName);

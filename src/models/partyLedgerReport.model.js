@@ -15,6 +15,7 @@ exports.getLedgerDetails = async (
             state,
             country,
             gst_no,
+            gst_verified,
             pan_no,
             credit_limit
         FROM ledgers

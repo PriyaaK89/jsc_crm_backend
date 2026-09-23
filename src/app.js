@@ -90,6 +90,7 @@ const penaltyRoute = require("../src/routes/penalty.routes")
 const whatsappRoutes = require("../src/routes/whatsapp.routes");
 // const reminderRoute = require("../src/routes/reminder.routes");
 const companyHolidayRoutes  =require("../src/routes/companyHoliday.routes");
+const demoRoute  =require("../src/routes/product-demo/productDemo.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -161,6 +162,7 @@ app.use(generateOfferLetterRoute)
 app.use(penaltyRoute)
 app.use("/api/whatsapp", whatsappRoutes);
 app.use(companyHolidayRoutes);
+app.use(demoRoute);
 
 // 404 handler
 app.use((req, res) => {

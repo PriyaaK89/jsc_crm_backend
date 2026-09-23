@@ -1,11 +1,63 @@
 const db = require("../config/db");
 
-const getStockItemsDropdown = async () => {
-  const [rows] = await db.query(
-    ` SELECT id, item_name FROM stock_items WHERE is_active = 1 ORDER BY item_name ASC `,
-  );
+// const getStockItemsDropdown = async () => {
+//   const [rows] = await db.query(
+//     ` SELECT id, item_name, unit_id, base_unit_value, bulk_unit_id,
+//         bulk_unit_value FROM stock_items WHERE is_active = 1 ORDER BY item_name ASC `,
+//   );
 
-  return rows;
+//   return rows;
+// };
+
+// =============================
+// GET STOCK ITEMS FOR DROPDOWN (id, name, rate, base/bulk unit info)
+// =============================
+const getStockItemsDropdown = async () => {
+    const [rows] = await db.query(`
+        SELECT
+            si.id,
+            si.item_name,
+
+            si.unit_id,
+            u.symbol AS base_unit_name,
+            si.base_unit_value,
+
+            si.bulk_unit_id,
+            bu.symbol AS bulk_unit_name,
+            si.bulk_unit_value,
+
+            sg.name AS stock_group_name,
+
+            os.rate
+
+        FROM stock_items si
+
+        LEFT JOIN units u
+            ON si.unit_id = u.id
+
+        LEFT JOIN units bu
+            ON si.bulk_unit_id = bu.id
+
+        LEFT JOIN stock_groups sg
+            ON si.stock_group_id = sg.id
+
+        LEFT JOIN (
+            SELECT t1.stock_item_id, t1.rate
+            FROM stock_item_opening_stock t1
+            INNER JOIN (
+                SELECT stock_item_id, MAX(id) AS max_id
+                FROM stock_item_opening_stock
+                GROUP BY stock_item_id
+            ) latest
+                ON latest.stock_item_id = t1.stock_item_id
+                AND latest.max_id = t1.id
+        ) os
+            ON os.stock_item_id = si.id
+
+        ORDER BY si.item_name ASC
+    `);
+
+    return rows;
 };
 
 const getStockItemBatches = async (itemId, godownId) => {

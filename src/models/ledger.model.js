@@ -1146,7 +1146,19 @@ const getMyAssignedLedgersModel = async (employeeId) => {
         WHERE lic.ledger_id = l.id AND lic.slab_type = 'security'
         LIMIT 1
       ) AS security_amount,
+(
+        SELECT lod.contact
+        FROM ledger_other_details lod
+        WHERE lod.ledger_id = l.id
+        LIMIT 1
+      ) AS contact,
 
+      (
+        SELECT lod.customer_name
+        FROM ledger_other_details lod
+        WHERE lod.ledger_id = l.id
+        LIMIT 1
+      ) AS contact_person,
       (
         SELECT lic.rate
         FROM ledger_interest_config lic

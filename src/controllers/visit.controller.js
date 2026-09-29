@@ -79,21 +79,26 @@ exports.createVisit = async (req, res) => {
       address, area, town, state, district, pincode,
       visit_purpose, visit_outcome, comment,
       reminder_date, reminder_time, reminder_reason, priority,
-      latitude, longitude
+      latitude, longitude,
+      distributor_ledger_id,                          // used directly for visit_type = distributor,
+                                                        // and as the distributor picked for a new retailer
+      retailer_id,                                     // existing retailer picked for a new farmer
+      new_retailer_name, new_retailer_firm_name,
+      new_retailer_contact_number, new_retailer_area,
+      new_retailer_district, new_retailer_pincode,
+      new_retailer_distributor_ledger_id
     } = req.body;
-
+ 
     console.log("createVisit called | user_id:", user_id, "| body keys:", Object.keys(req.body));
-
-    // Validate purpose
+ 
     if (!validPurposes.includes(visit_purpose)) {
       return res.status(400).json({ message: "Invalid visit purpose" });
     }
-
-    // Validate outcome (optional field, but must be a known value if sent)
+ 
     if (visit_outcome && !validOutcomes.includes(visit_outcome)) {
       return res.status(400).json({ message: "Invalid visit outcome" });
     }
-
+ 
     const attendance = await attendanceModel.getTodayAttendance(user_id);
     if (!attendance) {
       return res.status(400).json({
@@ -101,25 +106,35 @@ exports.createVisit = async (req, res) => {
         message: "Please mark attendance before submitting a visit"
       });
     }
-
-    // if (isPastVisitCutoff()) {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: "You can submit a visit only up to 7:00 PM. Please contact your reporting manager if you need to log it late."
-    //   });
-    // }
-
+ 
     if (attendance.status === "day_over") {
       return res.status(400).json({
         success: false,
         message: "Attendance already marked as day over. Cannot submit visit."
       });
     }
-
+ 
     let finalCustomerId = customer_id;
-
-    // NEW CUSTOMER FLOW
-    if (customer_type === "new") {
+ 
+    // ============================================================
+    // DISTRIBUTOR VISIT — always resolves to the one customers row
+    // that represents this employee's assigned ledger. Never goes
+    // through the new/existing customer_type flow at all.
+    // ============================================================
+    if (visit_type === "distributor") {
+      if (!distributor_ledger_id) {
+        return res.status(400).json({ message: "Please select a distributor" });
+      }
+      finalCustomerId = await customerModel.findOrCreateDistributorCustomer(
+        distributor_ledger_id,
+        user_id
+      );
+    }
+ 
+    // ============================================================
+    // NEW CUSTOMER FLOW — retailer or farmer
+    // ============================================================
+    if (customer_type === "new" && (visit_type === "retailer" || visit_type === "farmer")) {
       if (!name) {
         return res.status(400).json({ message: "Customer name required" });
       }
@@ -128,25 +143,65 @@ exports.createVisit = async (req, res) => {
         return res.status(400).json({ message: "Customer already exists with this mobile number" });
       }
 
+      let resolvedRetailerId = clean(retailer_id);
+      let resolvedDistributorLedgerId = clean(distributor_ledger_id);
+
+      if (visit_type === "retailer" && !resolvedDistributorLedgerId) {
+        return res.status(400).json({ message: "Please assign a distributor for this retailer" });
+      }
+
+      // Farmer visit, creating a brand-new retailer inline
+      if (visit_type === "farmer" && !resolvedRetailerId && new_retailer_name) {
+        if (!new_retailer_distributor_ledger_id) {
+          return res.status(400).json({ message: "Please assign a distributor for the new retailer" });
+        }
+
+        resolvedRetailerId = await customerModel.createCustomer([
+          "retailer", new_retailer_name, clean(new_retailer_firm_name), null,
+          new_retailer_contact_number, null, null,
+          clean(new_retailer_area) || "", clean(new_retailer_area) || "",
+          null, null,
+          clean(new_retailer_district) || "", clean(new_retailer_pincode) || "",
+          null, new_retailer_distributor_ledger_id, user_id
+        ]);
+        resolvedDistributorLedgerId = new_retailer_distributor_ledger_id;
+      }
+
+      if (visit_type === "farmer") {
+        if (!resolvedRetailerId) {
+          return res.status(400).json({ message: "Please assign a retailer for this farmer" });
+        }
+        if (!resolvedDistributorLedgerId) {
+          return res.status(400).json({ message: "Please assign a distributor for this farmer" });
+        }
+        const retailer = await customerModel.getCustomerById(resolvedRetailerId);
+        if (!retailer || retailer.type !== "retailer") {
+          return res.status(400).json({ message: "Selected retailer is invalid" });
+        }
+      }
+
       finalCustomerId = await customerModel.createCustomer([
-        visit_type,
-        name,
-        firm_name,
-        firm_address,
-        contact_number,
-        clean(alt_contact_number),
-        clean(gst_number),
-        address,
-        area,
-        clean(town),
-        clean(state),
-        district,
-        pincode,
+        visit_type, name, firm_name, firm_address, contact_number,
+        clean(alt_contact_number), clean(gst_number),
+        address, area, clean(town), clean(state), district, pincode,
+        visit_type === "farmer" ? resolvedRetailerId : null,
+        resolvedDistributorLedgerId,
         user_id
       ]);
-    }
 
-    // EXISTING CUSTOMER FLOW
+      // ---- many-to-many links (idempotent) ----
+      if (visit_type === "retailer") {
+        await customerModel.linkRetailerToDistributor(finalCustomerId, resolvedDistributorLedgerId, user_id);
+      }
+      if (visit_type === "farmer") {
+        // Retailer picked (or created) under this distributor -> make sure the
+        // retailer<->distributor link exists. This is the "forgotten retailer" case.
+        await customerModel.linkRetailerToDistributor(resolvedRetailerId, resolvedDistributorLedgerId, user_id);
+        await customerModel.linkFarmerToRetailer(finalCustomerId, resolvedRetailerId, user_id);
+      }
+    }
+ 
+    // EXISTING CUSTOMER FLOW (retailer / farmer / distributor all share this)
     if (customer_type === "existing") {
       if (!customer_id) {
         return res.status(400).json({
@@ -154,8 +209,7 @@ exports.createVisit = async (req, res) => {
         });
       }
     }
-
-    // FILES — main image mandatory, shop/document optional
+ 
     const files = req.files || {};
     if (!files.image || !files.image[0]) {
       return res.status(400).json({
@@ -163,73 +217,60 @@ exports.createVisit = async (req, res) => {
         message: "Image is mandatory. Please upload an image."
       });
     }
-
+ 
     const cleanedReminderDate = clean(reminder_date);
     const cleanedReminderTime = clean(reminder_time);
-
+ 
     const mainUpload = await uploadFileToMinio(files.image[0], "visits");
     const imagePath = mainUpload.object_path;
+ 
+  let shopImagePath = null;
+if (files.shop_image && files.shop_image[0]) {
+  const shopUpload = await uploadFileToMinio(files.shop_image[0], "visits_shop");
+  shopImagePath = shopUpload.object_path;
+}
 
-    let shopImagePath = null;
-    if (files.shop_image && files.shop_image[0]) {
-      const shopUpload = await uploadFileToMinio(files.shop_image[0], "visits/shop");
-      shopImagePath = shopUpload.object_path;
-    }
-
-    let documentImagePath = null;
-    if (files.document_image && files.document_image[0]) {
-      const docUpload = await uploadFileToMinio(files.document_image[0], "visits/documents");
-      documentImagePath = docUpload.object_path;
-    }
-
-    // Save Visit
+let documentImagePath = null;
+if (files.document_image && files.document_image[0]) {
+  const docUpload = await uploadFileToMinio(files.document_image[0], "visits_documents");
+  documentImagePath = docUpload.object_path;
+}
+ 
     const visitId = await visitModel.createVisit([
       user_id,
       finalCustomerId,
       visit_type,
-      customer_type,
+       customer_type === "existing" ? "old" : customer_type, 
       visit_purpose,
       clean(visit_outcome),
       comment,
       cleanedReminderDate,
       cleanedReminderTime,
       clean(reminder_reason),
-      clean(priority),
+       clean(priority) ? String(clean(priority)).toLowerCase() : null, 
       imagePath,
       shopImagePath,
       documentImagePath,
       clean(latitude),
       clean(longitude)
     ]);
-
-    // Resolve labels once, reused below for both WhatsApp and the response
+ 
     const resolvedVisitType = visitTypeLabels[visit_type] || visit_type;
     const resolvedVisitPurpose = visitPurposeLabels[visit_purpose] || visit_purpose;
     const resolvedVisitOutcome = visit_outcome
       ? (visitOutcomeLabels[visit_outcome] || visit_outcome)
       : null;
-
+ 
     try {
-      console.log("========================================");
-      console.log("VISIT WHATSAPP START");
-      console.log("Visit ID:", visitId);
       const visit = await visitModel.getVisitWhatsappData(visitId);
-      console.log("Visit WhatsApp Data:", visit);
-
-      if (
-        visit &&
-        visit.contact_number &&
-        visit.customer_name &&
-        visit.employee_name
-      ) {
+ 
+      if (visit && visit.contact_number && visit.customer_name && visit.employee_name) {
         let mobile = visit.contact_number.replace(/\D/g, "");
-        console.log("Mobile before country code:", mobile);
-
         if (!mobile.startsWith("91")) {
           mobile = "91" + mobile;
         }
-
-        const response = await whatsappService.sendTemplateMessage(
+ 
+        await whatsappService.sendTemplateMessage(
           mobile,
           "visit_submitted",
           "en_US",
@@ -246,20 +287,11 @@ exports.createVisit = async (req, res) => {
             }
           ]
         );
-
-        console.log("Visit WhatsApp sent:", response.messages?.[0]?.id);
-        console.log("WhatsApp API SUCCESS");
-        console.log("WhatsApp Response:", JSON.stringify(response, null, 2));
-      } else {
-        console.log("WhatsApp NOT sent because required data is missing");
       }
     } catch (err) {
-      console.error("Error message:", err.message);
-      console.error("Meta/API error:", JSON.stringify(err.response?.data || {}, null, 2));
-      console.error("HTTP status:", err.response?.status);
       console.error("WhatsApp Error:", err.response?.data || err.message);
     }
-
+ 
     return res.status(201).json({
       success: true,
       message: "Visit created successfully",
@@ -273,7 +305,7 @@ exports.createVisit = async (req, res) => {
         visit_outcome_label: resolvedVisitOutcome
       }
     });
-
+ 
   } catch (err) {
     console.error(" ERROR:", err);
     return res.status(500).json({
@@ -293,7 +325,6 @@ const clean = (value) => {
 exports.getVisits = async (req, res) => {
   try {
     const loggedInUser = req.user;
-
     const filters = {
       user_id: clean(req.query.user_id),
       visit_type: clean(req.query.visit_type),
@@ -303,7 +334,6 @@ exports.getVisits = async (req, res) => {
       search: clean(req.query.search),
       page: req.query.page || 1,
       limit: req.query.limit || 10,
-
     };
 
     let userIds = null; //  default = no restriction
@@ -313,26 +343,16 @@ exports.getVisits = async (req, res) => {
       userIds = await User.getSubordinateIds(loggedInUser.id);
     }
 
-    const result = await visitModel.getVisits({
-      ...filters,
-      user_ids: userIds
-    });
+    const result = await visitModel.getVisits({ ...filters, user_ids: userIds });
 
     const data = await Promise.all(
       result.data.map(async (item) => ({
-        ...item,
-        image_url: item.image_path
-          ? await getPresignedUrl(item.image_path)
-          : null
-      }))
+        ...item, image_url: item.image_path ? await getPresignedUrl(item.image_path) : null }))
     );
 
     res.status(200).json({
-      success: true,
-      total: result.total,
-      page: result.page,
-      limit: result.limit,
-      totalPages: result.totalPages,
+      success: true, total: result.total, page: result.page,
+      limit: result.limit, totalPages: result.totalPages,
       data
     });
 

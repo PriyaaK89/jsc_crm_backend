@@ -12,6 +12,8 @@ const folderMap = {
   employee_letters: "employee/letter",
   bills: "employee/expenses/bills",
   visits: "employee/visits",
+  visits_shop: "employee/visits/shop",           // NEW
+  visits_documents: "employee/visits/documents", // NEW
   distributor_documents: "employee/dist-documents",
   distributor_agreement: 'distributor/dist-letters',
   company: 'company/images',

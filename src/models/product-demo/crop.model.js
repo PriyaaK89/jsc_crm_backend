@@ -214,6 +214,7 @@ async function listFieldOptions(fieldId, { includeInactive = false } = {}) {
 //   return r.insertId;
 // }
 
+
 async function mapFieldToCrop(
   cropId,
   fieldId,
@@ -333,18 +334,18 @@ async function unmapFieldFromCrop(mappingId) {
 // The full Result-2 form for a crop: ordered fields + options for DROPDOWN ones.
 async function getCropGrowthForm(cropId, { resultStage = 2,activeOnly = true } = {}) {
       const stage = Number(resultStage) === 3 ? 3 : 2;
-   const [rows] = await db.query(
-    `SELECT m.id AS mapping_id, m.display_order, m.is_required, m.is_active AS mapping_is_active,
-            m.unit_override, m.help_text AS mapping_help_text,
-            f.id AS field_id, f.field_code, f.field_name, f.description, f.input_type,
-            f.default_unit, f.min_value, f.max_value, f.decimal_places, f.help_text AS field_help_text
-       FROM crop_growth_field_mapping m
-       JOIN crop_growth_fields f ON f.id = m.field_id
-      WHERE m.crop_id = ? ${activeOnly ? 'AND m.is_active = 1 AND f.is_active = 1' : ''}
-       WHERE m.crop_id = ? AND m.result_stage = ? ${activeOnly ? 'AND m.is_active = 1 AND f.is_active = 1' : ''}
-      ORDER BY m.display_order ASC, m.id ASC`,
-    [cropId, stage]
-  );
+  const [rows] = await db.query(
+  `SELECT m.id AS mapping_id, m.display_order, m.is_required, m.is_active AS mapping_is_active,
+          m.unit_override, m.help_text AS mapping_help_text,
+          f.id AS field_id, f.field_code, f.field_name, f.description, f.input_type,
+          f.default_unit, f.min_value, f.max_value, f.decimal_places, f.help_text AS field_help_text
+     FROM crop_growth_field_mapping m
+     JOIN crop_growth_fields f ON f.id = m.field_id
+    WHERE m.crop_id = ? AND m.result_stage = ?
+      ${activeOnly ? 'AND m.is_active = 1 AND f.is_active = 1' : ''}
+    ORDER BY m.display_order ASC, m.id ASC`,
+  [cropId, stage]
+);
 
   const dropdownFieldIds = rows.filter((r) => r.input_type === 'DROPDOWN').map((r) => r.field_id);
   let optionsByField = {};
@@ -384,13 +385,28 @@ async function getCropGrowthForm(cropId, { resultStage = 2,activeOnly = true } =
 }
 
 // Fields not yet mapped to a crop, for the admin "pick from catalog" UI.
-async function listUnmappedFieldsForCrop(cropId,  { resultStage = 2 } = {}) {
-      const stage = Number(resultStage) === 3 ? 3 : 2;
+// async function listUnmappedFieldsForCrop(cropId,  { resultStage = 2 } = {}) {
+//       const stage = Number(resultStage) === 3 ? 3 : 2;
+//   const [rows] = await db.query(
+//     `SELECT f.* FROM crop_growth_fields f
+//       WHERE f.is_active = 1
+//         AND f.id NOT IN (
+//           SELECT field_id FROM crop_growth_field_mapping WHERE crop_id = ? AND result_stage = ? AND is_active = 1
+//         )
+//       ORDER BY f.field_name ASC`,
+//     [cropId, stage]
+//   );
+//   return rows;
+// }
+
+async function listUnmappedFieldsForCrop(cropId, { resultStage = 2 } = {}) {
+  const stage = Number(resultStage) === 3 ? 3 : 2;
   const [rows] = await db.query(
     `SELECT f.* FROM crop_growth_fields f
       WHERE f.is_active = 1
         AND f.id NOT IN (
-          SELECT field_id FROM crop_growth_field_mapping WHERE crop_id = ? AND result_stage = ? AND is_active = 1
+          SELECT field_id FROM crop_growth_field_mapping
+           WHERE crop_id = ? AND result_stage = ?
         )
       ORDER BY f.field_name ASC`,
     [cropId, stage]
@@ -398,10 +414,18 @@ async function listUnmappedFieldsForCrop(cropId,  { resultStage = 2 } = {}) {
   return rows;
 }
 
+async function getCropIdByStockItem(stockItemId) {
+  const [[row]] = await db.query(
+    'SELECT id, crop_id FROM stock_items WHERE id = ?',
+    [stockItemId]
+  );
+  return row || null; // null => stock item not found
+}
+
 module.exports = {
   HttpError, INPUT_TYPES, canManageCrops, requireCropAccess,
   createCrop, updateCrop, setCropActive, listCrops, getCrop,
   createGrowthField, updateGrowthField, setGrowthFieldActive, listGrowthFields,
   addFieldOption, setFieldOptionActive, listFieldOptions,
-  mapFieldToCrop, unmapFieldFromCrop, getCropGrowthForm, listUnmappedFieldsForCrop,
+  mapFieldToCrop, unmapFieldFromCrop, getCropGrowthForm, listUnmappedFieldsForCrop,getCropIdByStockItem
 };

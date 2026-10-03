@@ -183,27 +183,64 @@ async function notifyUsers(userIds, { title, message, demoId, type = 'DEMO_UPDAT
   // TODO: also send an FCM push here if you already have a push helper
 }
 
-async function listNotifications(userId, { unreadOnly = false, page = 1, limit = 20 } = {}) {
+// "DEMO_SUBMITTED,DEMO_EDITED" -> ['DEMO_SUBMITTED','DEMO_EDITED'] (only A-Z and _ allowed)
+function parseTypes(raw) {
+  if (!raw) return [];
+  return String(raw)
+    .split(',')
+    .map((s) => s.trim().toUpperCase())
+    .filter((s) => /^[A-Z_]+$/.test(s));
+}
+
+async function listNotifications(userId, { unreadOnly = false, types = [], pendingOnly = false, page = 1, limit = 20 } = {}) {
   const lim = Math.min(Number(limit) || 20, 100);
   const off = (Math.max(Number(page), 1) - 1) * lim;
+
+  const where = ['n.user_id = ?'];
+  const vals = [userId];
+  if (unreadOnly) where.push('n.is_read = 0');
+  if (types.length) { where.push('n.type IN (?)'); vals.push(types); }
+  if (pendingOnly) where.push("d.status = 'PENDING_APPROVAL'");
+
   const [rows] = await db.query(
-    `SELECT n.*, d.demo_no, d.status AS demo_status
+    `SELECT n.*, d.demo_no, d.status AS demo_status,
+            d.created_by, cu.name AS created_by_name
        FROM demo_notifications n
        LEFT JOIN demo_requests d ON d.id = n.demo_id
-      WHERE n.user_id = ? ${unreadOnly ? 'AND n.is_read = 0' : ''}
+       LEFT JOIN users cu ON cu.id = d.created_by
+      WHERE ${where.join(' AND ')}
       ORDER BY n.id DESC
       LIMIT ? OFFSET ?`,
-    [userId, lim, off]
+    [...vals, lim, off]
   );
   return rows;
 }
 
-async function unreadCount(userId) {
+async function unreadCount(userId, { types = [], pendingOnly = false } = {}) {
+  const where = ['n.user_id = ?', 'n.is_read = 0'];
+  const vals = [userId];
+  if (types.length) { where.push('n.type IN (?)'); vals.push(types); }
+  if (pendingOnly) where.push("d.status = 'PENDING_APPROVAL'");
+
   const [[row]] = await db.query(
-    'SELECT COUNT(*) AS cnt FROM demo_notifications WHERE user_id = ? AND is_read = 0',
-    [userId]
+    `SELECT COUNT(*) AS cnt
+       FROM demo_notifications n
+       LEFT JOIN demo_requests d ON d.id = n.demo_id
+      WHERE ${where.join(' AND ')}`,
+    vals
   );
   return row.cnt;
+}
+
+async function markAllRead(userId, { types = [] } = {}) {
+  const vals = [userId];
+  let typeSql = '';
+  if (types.length) { typeSql = 'AND type IN (?)'; vals.push(types); }
+  await db.query(
+    `UPDATE demo_notifications SET is_read = 1, read_at = NOW()
+      WHERE user_id = ? AND is_read = 0 ${typeSql}`,
+    vals
+  );
 }
 
 async function markRead(userId, notificationId) {
@@ -214,12 +251,7 @@ async function markRead(userId, notificationId) {
   return r.affectedRows;
 }
 
-async function markAllRead(userId) {
-  await db.query(
-    'UPDATE demo_notifications SET is_read = 1, read_at = NOW() WHERE user_id = ? AND is_read = 0',
-    [userId]
-  );
-}
+
 
 // -------------------------------------------------------------------- items
 function calcItems(items) {
@@ -292,14 +324,20 @@ function calcSingleItem(product) {
 async function insertDemo(conn, b, userId) {
   const { clean, total } = calcSingleItem(b.product);
 
+  const [[stock]] = await conn.query(
+    'SELECT crop_id FROM stock_items WHERE id = ?',
+    [clean.stock_item_id]
+  );
+  if (!stock) throw new HttpError(404, 'Selected stock item was not found');
+
   const [r] = await conn.query(
     `INSERT INTO demo_requests
       (demo_type, is_distributor_sponsored,
        distributor_ledger_id, distributor_name, distributor_contact, sponsorship_share_pct,
        village, district, land_area, land_unit, soil_type, irrigation_type, sowing_date,
        expected_result_date, followup_reminder_date, field_officer_id, narration,
-       total_value, status, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'PENDING_APPROVAL', ?)`,
+       crop_id, total_value, status, created_by)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'PENDING_APPROVAL', ?)`,
     [
       b.demo_type, toBool(b.is_distributor_sponsored),
       nz(b.distributor_ledger_id), nz(b.distributor_name),
@@ -307,7 +345,8 @@ async function insertDemo(conn, b, userId) {
       nz(b.village), nz(b.district), nz(b.land_area), nz(b.land_unit),
       nz(b.soil_type), nz(b.irrigation_type), nz(b.sowing_date),
       nz(b.expected_result_date), nz(b.followup_reminder_date),
-      nz(b.field_officer_id), nz(b.narration), total, userId,
+      nz(b.field_officer_id), nz(b.narration),
+      stock.crop_id || null, total, userId,
     ]
   );
   const demoId = r.insertId;
@@ -321,9 +360,27 @@ async function insertDemo(conn, b, userId) {
 // the product itself.
 async function replaceSingleItem(conn, demoId, product) {
   const { clean, total } = calcSingleItem(product);
+
+  const [[stock]] = await conn.query(
+    'SELECT crop_id FROM stock_items WHERE id = ?', [clean.stock_item_id]
+  );
+  if (!stock) throw new HttpError(404, 'Selected stock item was not found');
+
+  const [[demo]] = await conn.query('SELECT crop_id FROM demo_requests WHERE id = ?', [demoId]);
+  const [[{ cnt }]] = await conn.query(
+    'SELECT COUNT(*) AS cnt FROM demo_results WHERE demo_id = ?', [demoId]
+  );
+  const newCrop = stock.crop_id || null;
+  if (cnt > 0 && demo.crop_id && newCrop !== demo.crop_id) {
+    throw new HttpError(400, 'Results are already recorded for another crop, so the product cannot be changed to a different crop');
+  }
+
   await conn.query('DELETE FROM demo_request_items WHERE demo_id = ?', [demoId]);
   await insertItems(conn, demoId, [clean]);
-  await conn.query('UPDATE demo_requests SET total_value = ? WHERE id = ?', [total, demoId]);
+  await conn.query(
+    'UPDATE demo_requests SET total_value = ?, crop_id = COALESCE(?, crop_id) WHERE id = ?',
+    [total, newCrop, demoId]
+  );
   return { total, qty: clean.qty };
 }
 
@@ -427,12 +484,14 @@ async function log(conn, demoId, userId, action, remarks = null) {
 
 async function getDemoFull(conn, id) {
   const [rows] = await conn.query(
-  `SELECT d.*, p.${PARTY_NAME_COL} AS party_name,
+    `SELECT d.*, p.${PARTY_NAME_COL} AS party_name,
+            cr.crop_name AS crop_name,
             cu.name AS created_by_name, fo.name AS field_officer_name,
             fm.name AS field_officer_manager_name,
             au.name AS approved_by_name
        FROM demo_requests d
        LEFT JOIN ${PARTY_TABLE} p ON p.id = d.party_id
+       LEFT JOIN crops cr ON cr.id = d.crop_id
        LEFT JOIN users cu ON cu.id = d.created_by
        LEFT JOIN users fo ON fo.id = d.field_officer_id
        LEFT JOIN users fm ON fm.id = fo.reporting_under
@@ -442,24 +501,68 @@ async function getDemoFull(conn, id) {
   );
   if (!rows.length) return null;
   const demo = rows[0];
-  const [items] = await conn.query('SELECT * FROM demo_request_items WHERE demo_id = ?', [id]);
+
+  // items now carry the crop of their stock item
+  const [items] = await conn.query(
+    `SELECT i.*, c.crop_name
+       FROM demo_request_items i
+       LEFT JOIN stock_items s ON s.id = i.stock_item_id
+       LEFT JOIN crops c ON c.id = s.crop_id
+      WHERE i.demo_id = ?
+      ORDER BY i.id`,
+    [id]
+  );
+
+  // mapped customers (active ones for the allocation table, removed ones only to name old results)
+  const allCustomers = await getDemoCustomers(id, { includeRemoved: true });
+  const nameById = new Map(allCustomers.map((c) => [c.id, c.party_name]));
+  const customers = allCustomers
+    .filter((c) => !c.is_removed)
+    .map((c) => ({ ...c, parent_name: c.parent_customer_id ? nameById.get(c.parent_customer_id) || null : null }));
+
   const [proofRows] = await conn.query('SELECT * FROM demo_proofs WHERE demo_id = ?', [id]);
 
-   const [resultRows] = await conn.query(
+  const [resultRows] = await conn.query(
     `SELECT r.*, u.name AS submitted_by_name
        FROM demo_results r
        LEFT JOIN users u ON u.id = r.created_by
       WHERE r.demo_id = ?
-      ORDER BY r.result_no`,
+      ORDER BY r.demo_request_customer_id, r.result_no`,
     [id]
   );
+
+  // dynamic crop-growth values (result 2 and 3)
+  const growthByResult = {};
+  if (resultRows.length) {
+    const [gv] = await conn.query(
+      `SELECT v.demo_result_id, v.field_value, f.field_name, f.input_type,
+              COALESCE(fm.unit_override, f.default_unit) AS unit
+         FROM demo_result_growth_values v
+         JOIN crop_growth_field_mapping fm ON fm.id = v.crop_growth_field_mapping_id
+         JOIN crop_growth_fields f ON f.id = fm.field_id
+        WHERE v.demo_result_id IN (?)
+        ORDER BY fm.display_order ASC, fm.id ASC`,
+      [resultRows.map((r) => r.id)]
+    );
+    for (const g of gv) {
+      if (!growthByResult[g.demo_result_id]) growthByResult[g.demo_result_id] = [];
+      growthByResult[g.demo_result_id].push(g);
+    }
+  }
+
   const proofs = await Promise.all(
     proofRows.map(async (pr) => ({ ...pr, file_url: await signPath(pr.file_path) }))
   );
   const results = await Promise.all(
     resultRows.map(async (r) => {
       const photos = parsePhotos(r.photos);
-      return { ...r, photos, photo_urls: await Promise.all(photos.map(signPath)) };
+      return {
+        ...r,
+        photos,
+        photo_urls: await Promise.all(photos.map(signPath)),
+        customer_name: nameById.get(r.demo_request_customer_id) || null,
+        growth_values: growthByResult[r.id] || [],
+      };
     })
   );
   const [activity] = await conn.query(
@@ -468,8 +571,54 @@ async function getDemoFull(conn, id) {
       WHERE l.demo_id = ? ORDER BY l.id`,
     [id]
   );
-  return { ...demo, items, proofs, results, activity, max_results: MAX_RESULTS };
+  return { ...demo, items, customers, proofs, results, activity, max_results: MAX_RESULTS };
 }
+
+// async function getDemoFull(conn, id) {
+//   const [rows] = await conn.query(
+//   `SELECT d.*, p.${PARTY_NAME_COL} AS party_name,
+//             cu.name AS created_by_name, fo.name AS field_officer_name,
+//             fm.name AS field_officer_manager_name,
+//             au.name AS approved_by_name
+//        FROM demo_requests d
+//        LEFT JOIN ${PARTY_TABLE} p ON p.id = d.party_id
+//        LEFT JOIN users cu ON cu.id = d.created_by
+//        LEFT JOIN users fo ON fo.id = d.field_officer_id
+//        LEFT JOIN users fm ON fm.id = fo.reporting_under
+//        LEFT JOIN users au ON au.id = d.approved_by
+//       WHERE d.id = ?`,
+//     [id]
+//   );
+//   if (!rows.length) return null;
+//   const demo = rows[0];
+//   const [items] = await conn.query('SELECT * FROM demo_request_items WHERE demo_id = ?', [id]);
+//   const [proofRows] = await conn.query('SELECT * FROM demo_proofs WHERE demo_id = ?', [id]);
+
+//    const [resultRows] = await conn.query(
+//     `SELECT r.*, u.name AS submitted_by_name
+//        FROM demo_results r
+//        LEFT JOIN users u ON u.id = r.created_by
+//       WHERE r.demo_id = ?
+//       ORDER BY r.result_no`,
+//     [id]
+//   );
+//   const proofs = await Promise.all(
+//     proofRows.map(async (pr) => ({ ...pr, file_url: await signPath(pr.file_path) }))
+//   );
+//   const results = await Promise.all(
+//     resultRows.map(async (r) => {
+//       const photos = parsePhotos(r.photos);
+//       return { ...r, photos, photo_urls: await Promise.all(photos.map(signPath)) };
+//     })
+//   );
+//   const [activity] = await conn.query(
+//     `SELECT l.*, u.name AS acted_by_name
+//        FROM demo_activity_log l LEFT JOIN users u ON u.id = l.acted_by
+//       WHERE l.demo_id = ? ORDER BY l.id`,
+//     [id]
+//   );
+//   return { ...demo, items, proofs, results, activity, max_results: MAX_RESULTS };
+// }
 
 async function getFieldOfficers(conn) {
   const [rows] = await conn.query(
@@ -552,7 +701,7 @@ function buildResultFilters({ demoId, partyId, employeeId, outcome, from, to, se
   const where = [];
   const vals = [];
   if (demoId)     { where.push('r.demo_id = ?');      vals.push(demoId); }
-  if (partyId)    { where.push('d.party_id = ?');     vals.push(partyId); }
+  if (partyId)    { where.push('COALESCE(dc.party_id, d.party_id) = ?'); vals.push(partyId); }
   if (employeeId) { where.push('r.created_by = ?');   vals.push(employeeId); }
   if (outcome)    { where.push('r.outcome = ?');      vals.push(outcome); }
   if (from)       { where.push('r.result_date >= ?'); vals.push(from); }
@@ -573,14 +722,18 @@ async function listAllResults(conn, filters, { page = 1, limit = 20 } = {}) {
   const fromJoin = `
       FROM demo_results r
       JOIN demo_requests d ON d.id = r.demo_id
-      LEFT JOIN ${PARTY_TABLE} p ON p.id = d.party_id`;
+      LEFT JOIN demo_request_customers dc ON dc.id = r.demo_request_customer_id
+      LEFT JOIN ${PARTY_TABLE} p ON p.id = COALESCE(dc.party_id, d.party_id)`;
 
   const [rows] = await conn.query(
     `SELECT r.*, d.demo_no, d.demo_type, d.status AS demo_status, d.results_count,
-            d.party_id, p.${PARTY_NAME_COL} AS party_name,
+            COALESCE(dc.party_id, d.party_id) AS party_id, dc.party_type,
+            p.${PARTY_NAME_COL} AS party_name,
+            d.crop_id, cr.crop_name,
             d.field_officer_id, fo.name AS field_officer_name,
             u.name AS submitted_by_name
        ${fromJoin}
+       LEFT JOIN crops cr ON cr.id = d.crop_id
        LEFT JOIN users u  ON u.id  = r.created_by
        LEFT JOIN users fo ON fo.id = d.field_officer_id
        ${w}
@@ -838,20 +991,168 @@ async function insertDemoCustomers(conn, demoId, rows, employeeId) {
   return insertedIds;
 }
 
-module.exports.signPathSafe = signPath;
+// ============================================================
+// ADMIN EDIT-MERGE (safe add/remove without destroying results)
+// ============================================================
+
+// All rows for a demo, active by default.
+async function getDemoCustomers(demoId, { includeRemoved = false } = {}) {
+  const [rows] = await db.query(
+    `SELECT dc.*, c.name AS party_name, c.firm_name AS party_firm_name, c.contact_number AS party_contact
+       FROM demo_request_customers dc
+       JOIN customers c ON c.id = dc.party_id
+      WHERE dc.demo_id = ? ${includeRemoved ? '' : 'AND dc.is_removed = 0'}
+      ORDER BY dc.is_primary DESC, dc.parent_customer_id IS NULL DESC, dc.id ASC`,
+    [demoId]
+  );
+  return rows;
+}
+
+// Merge newly-resolved selections into the demo's existing customer rows.
+// Never deletes a row — only flips is_removed — so any demo_results tied to
+// a row survive untouched.
+async function mergeDemoCustomers(conn, demoId, resolvedRows, employeeId) {
+  const [existing] = await conn.query(
+    'SELECT * FROM demo_request_customers WHERE demo_id = ? FOR UPDATE',
+    [demoId]
+  );
+  const byKey = new Map(existing.map((r) => [`${r.party_type}:${r.party_id}`, r]));
+  const keptKeys = new Set();
+  const insertedIds = new Array(resolvedRows.length).fill(null);
+
+  let added = 0, reactivated = 0, updated = 0;
+
+  // pass 1: primaries
+  for (let i = 0; i < resolvedRows.length; i++) {
+    const r = resolvedRows[i];
+    if (r.parent_index !== null) continue;
+    const key = `${r.party_type}:${r.party_id}`;
+    keptKeys.add(key);
+    const existingRow = byKey.get(key);
+
+    if (existingRow) {
+      await conn.query(
+        `UPDATE demo_request_customers
+            SET is_primary = 1, parent_customer_id = NULL, allocated_qty = ?, is_removed = 0
+          WHERE id = ?`,
+        [r.allocated_qty, existingRow.id]
+      );
+      insertedIds[i] = existingRow.id;
+      if (existingRow.is_removed) reactivated++; else updated++;
+    } else {
+      const [res] = await conn.query(
+        `INSERT INTO demo_request_customers
+          (demo_id, party_type, party_id, is_primary, parent_customer_id, allocated_qty, created_by)
+         VALUES (?,?,?,1,NULL,?,?)`,
+        [demoId, r.party_type, r.party_id, r.allocated_qty, employeeId]
+      );
+      insertedIds[i] = res.insertId;
+      added++;
+    }
+  }
+
+  // pass 2: sub-customers
+  for (let i = 0; i < resolvedRows.length; i++) {
+    const r = resolvedRows[i];
+    if (r.parent_index === null) continue;
+    const key = `${r.party_type}:${r.party_id}`;
+    keptKeys.add(key);
+    const parentId = insertedIds[r.parent_index];
+    const existingRow = byKey.get(key);
+
+    if (existingRow) {
+      await conn.query(
+        `UPDATE demo_request_customers
+            SET is_primary = 0, parent_customer_id = ?, allocated_qty = ?, is_removed = 0
+          WHERE id = ?`,
+        [parentId, r.allocated_qty, existingRow.id]
+      );
+      insertedIds[i] = existingRow.id;
+      if (existingRow.is_removed) reactivated++; else updated++;
+    } else {
+      const [res] = await conn.query(
+        `INSERT INTO demo_request_customers
+          (demo_id, party_type, party_id, is_primary, parent_customer_id, allocated_qty, created_by)
+         VALUES (?,?,?,0,?,?,?)`,
+        [demoId, r.party_type, r.party_id, parentId, r.allocated_qty, employeeId]
+      );
+      insertedIds[i] = res.insertId;
+      added++;
+    }
+  }
+
+  // pass 3: soft-remove anything active that wasn't in the new set
+  let removed = 0;
+  for (const row of existing) {
+    const key = `${row.party_type}:${row.party_id}`;
+    if (!row.is_removed && !keptKeys.has(key)) {
+      await conn.query('UPDATE demo_request_customers SET is_removed = 1 WHERE id = ?', [row.id]);
+      removed++;
+    }
+  }
+
+  const [finalRows] = await conn.query(
+    'SELECT * FROM demo_request_customers WHERE demo_id = ? AND is_removed = 0',
+    [demoId]
+  );
+
+  return { added, reactivated, updated, removed, rows: finalRows };
+}
+
+// Quantity edits for customers already on the demo. Runs inside the caller's transaction.
+async function applyAllocationEdits(conn, demoId, allocations, productQty) {
+  if (!Array.isArray(allocations)) throw new HttpError(400, 'allocations must be an array');
+
+  const [rows] = await conn.query(
+    'SELECT id, allocated_qty FROM demo_request_customers WHERE demo_id = ? AND is_removed = 0 FOR UPDATE',
+    [demoId]
+  );
+  const next = new Map(rows.map((r) => [Number(r.id), r.allocated_qty == null ? null : Number(r.allocated_qty)]));
+  const changed = [];
+
+  for (const a of allocations) {
+    const cid = Number(a.id);
+    if (!next.has(cid)) throw new HttpError(400, `Customer row ${a.id} is not part of this demo`);
+    const q = toQty(a.allocated_qty); // '' / null -> null, invalid -> 400
+    if ((next.get(cid) ?? null) !== q) changed.push([q, cid]);
+    next.set(cid, q);
+  }
+
+  const total = [...next.values()].reduce((s, v) => s + (v || 0), 0);
+  if (total > productQty + 1e-9) {
+    throw new HttpError(400, `Total allocated quantity (${+total.toFixed(2)}) exceeds the requested quantity (${productQty})`);
+  }
+
+  for (const [q, cid] of changed) {
+    await conn.query('UPDATE demo_request_customers SET allocated_qty = ? WHERE id = ? AND demo_id = ?', [q, cid, demoId]);
+  }
+
+  return {
+    requested_qty: productQty,
+    allocated_qty: +total.toFixed(2),
+    remaining_qty: +(productQty - total).toFixed(2),
+    changed_count: changed.length,
+  };
+}
+
 module.exports = {
   db, HttpError, MAX_RESULTS, MAX_RESULT_PHOTOS, RESULT_ELIGIBLE_STATUSES, PARTY_TABLE, PARTY_NAME_COL,
-  getApproverIds, canApprove, notifyUsers,
+  getApproverIds, canApprove, canApproveDemo, hasDirectReports, getManagerIds, notifyUsers,
   listNotifications, unreadCount, markRead, markAllRead,
   insertDemo, updateFields, replaceItems, saveProofs, uploadProofs, uploadResultPhotos, log, getDemoFull,
   getFieldOfficers, getPartyDropdown,
-  getMyApprovedDemos, getResultsForDemo, listAllResults, 
-    getApproverIds, canApprove, canApproveDemo, hasDirectReports, getManagerIds, notifyUsers,pendingApprovalCount,clearSubmittedNotifications,
+  getMyApprovedDemos, getResultsForDemo, listAllResults,
+  pendingApprovalCount, clearSubmittedNotifications,
+  replaceSingleItem, getSingleItemQty,
+  signPathSafe: signPath,
 
+  // customer-mapping bridge
   getEligibleUnderDistributor,
   getEligibleUnderRetailer,
   getEligibleForFarmer,
   resolveSelections,
   validateAllocationTotal,
-  insertDemoCustomers, replaceSingleItem, getSingleItemQty
+  insertDemoCustomers,
+  getDemoCustomers,
+  mergeDemoCustomers, applyAllocationEdits, parseTypes
 };

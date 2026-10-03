@@ -1,6 +1,18 @@
 const db = require("../config/db");
 const stockItemModel = require("../models/stockItem.model");
 
+async function resolveCropId(connection, crop_id) {
+  if (crop_id === undefined || crop_id === null || crop_id === "") {
+    return { ok: true, value: null };
+  }
+  const [rows] = await connection.query(
+    "SELECT id FROM crops WHERE id = ? AND is_active = 1 LIMIT 1",
+    [crop_id]
+  );
+  if (!rows.length) return { ok: false };
+  return { ok: true, value: Number(crop_id) };
+}
+
 // CREATE STOCK ITEM COMPLETE
 exports.createStockItem = async (req, res) => {
   const connection = await db.getConnection();
@@ -8,7 +20,7 @@ exports.createStockItem = async (req, res) => {
     await connection.beginTransaction();
 
     const {
-      item_name,
+      item_name, crop_id,
       stock_group_id,
       stock_category_id,
       unit_id,
@@ -62,21 +74,22 @@ exports.createStockItem = async (req, res) => {
 
     const trimmedItemName = item_name.trim();
 
-const [existingItem] = await connection.query(
-  `SELECT id FROM stock_items WHERE item_name = ? LIMIT 1`,
-  [trimmedItemName]
-);
+    const [existingItem] = await connection.query(
+      `SELECT id FROM stock_items WHERE item_name = ? LIMIT 1`,
+      [trimmedItemName]
+    );
 
-if (existingItem.length > 0) {
-  await connection.rollback();
-  return res.status(409).json({
-    success: false,
-    message: "An item with this name already exists",
-  });
-}
+    if (existingItem.length > 0) {
+      await connection.rollback();
+      return res.status(409).json({
+        success: false,
+        message: "An item with this name already exists",
+      });
+    }
 
     if (is_returnable == 1) {
       if (returnable_percentage == null || returnable_percentage === "") {
+        await connection.rollback();
         return res.status(400).json({
           success: false,
           message: "Returnable percentage is required",
@@ -87,11 +100,18 @@ if (existingItem.length > 0) {
         Number(returnable_percentage) < 0 ||
         Number(returnable_percentage) > 100
       ) {
+        await connection.rollback();
         return res.status(400).json({
           success: false,
           message: "Returnable percentage must be between 0 and 100",
         });
       }
+    }
+
+    const cropCheck = await resolveCropId(connection, crop_id);
+    if (!cropCheck.ok) {
+      await connection.rollback();
+      return res.status(400).json({ success: false, message: "Invalid or inactive crop" });
     }
 
     // CREATE STOCK ITEM
@@ -102,7 +122,7 @@ if (existingItem.length > 0) {
 
         item_name,
         stock_group_id,
-        stock_category_id,
+        stock_category_id,crop_id,
         unit_id,
 
         alternative_unit_id,
@@ -132,12 +152,13 @@ if (existingItem.length > 0) {
         created_by
 
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
       [
         item_name,
         stock_group_id,
         stock_category_id || null,
+        cropCheck.value,
         unit_id,
 
         alternative_unit_id || null,
@@ -214,15 +235,13 @@ if (existingItem.length > 0) {
       // ==========================================
       // INSERT OPENING STOCK
       // ==========================================
-if (
-    maintain_in_batches == 1 &&
-    !opening_stock.batch_no
-) {
-    return res.status(400).json({
-        success: false,
-        message: "Batch number is required when batch tracking is enabled"
-    });
-}
+      if (maintain_in_batches == 1 && !opening_stock.batch_no) {
+        await connection.rollback();
+        return res.status(400).json({
+          success: false,
+          message: "Batch number is required when batch tracking is enabled"
+        });
+      }
 
       const [openingStockResult] = await connection.query(
         `
@@ -274,85 +293,52 @@ if (
       // ==========================================
       // INSERT STOCK TRANSACTION
       // ==========================================
-      
+
 
       await connection.query(
-        `
-        INSERT INTO stock_transactions (
-
-    transaction_type,
-    reference_type,
-    reference_id,
-
-    stock_item_id,
-    godown_id,
-    batch_no,
-    unit_id,
-
-    qty_in,
-    qty_out,
-
-    rate,
-    amount,
-
+        ` INSERT INTO stock_transactions (
+    transaction_type, reference_type, reference_id,
+    stock_item_id, godown_id, batch_no, unit_id,
+    qty_in, qty_out,
+    rate, amount,
     transaction_date
 )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) `,
         [
-    'OPENING',
-
-    'stock_item_opening_stock',
-    openingStockId,
-    stock_item_id,
-    opening_stock.godown_id,
-    opening_stock.batch_no || null,
-    opening_stock.per_unit_id || unit_id,
-    opening_stock.quantity || 0,
-    0,
-    opening_stock.rate || 0,
-    calculatedAmount,
-    opening_stock.transaction_date || new Date()
-],
+          'OPENING',
+          'stock_item_opening_stock',
+          openingStockId,
+          stock_item_id,
+          opening_stock.godown_id,
+          opening_stock.batch_no || null,
+          opening_stock.per_unit_id || unit_id,
+          opening_stock.quantity || 0,
+          0,
+          opening_stock.rate || 0,
+          calculatedAmount,
+          opening_stock.transaction_date || new Date()
+        ],
       );
 
       // ==========================================
       // INSERT INTO STOCK BATCHES
       // ==========================================
-      
 
       if (maintain_in_batches == 1 && opening_stock.batch_no) {
         await connection.query(
-          `
-            INSERT INTO stock_batches (
-
+          ` INSERT INTO stock_batches (
                 stock_item_id,
-                godown_id,
-
-                batch_no,
-
-                mfg_date,
-                expiry_date,
-
-                qty,
-                rate
-
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            `,
+                godown_id, batch_no,
+                mfg_date, expiry_date,
+                qty, rate )
+            VALUES (?, ?, ?, ?, ?, ?, ?) `,
           [
             stock_item_id,
-
             opening_stock.godown_id,
-
             opening_stock.batch_no,
-
             track_mfg_date == 1 ? opening_stock.mfg_date || null : null,
-
             use_expiry_dates == 1 ? opening_stock.expiry_date || null : null,
-
             opening_stock.quantity || 0,
-
             opening_stock.rate || 0,
           ],
         );
@@ -364,25 +350,25 @@ if (
       message: "Stock item created successfully",
       stock_item_id,
     });
-  }  catch (error) {
-  await connection.rollback();
-  console.log("CREATE STOCK ITEM ERROR:", error);
+  } catch (error) {
+    await connection.rollback();
+    console.log("CREATE STOCK ITEM ERROR:", error);
 
-  if (error.code === "ER_DUP_ENTRY") {
-    return res.status(409).json({
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        success: false,
+        message: "An item with this name already exists",
+      });
+    }
+
+    return res.status(500).json({
       success: false,
-      message: "An item with this name already exists",
+      message: "Internal server error",
+      error: error.message,
     });
+  } finally {
+    connection.release();
   }
-
-  return res.status(500).json({
-    success: false,
-    message: "Internal server error",
-    error: error.message,
-  });
-} finally {
-  connection.release();
-}
 };
 
 exports.getStockItems = async (req, res) => {
@@ -444,7 +430,7 @@ exports.updateStockItem = async (req, res) => {
     await connection.beginTransaction();
     const { id } = req.params;
     const {
-      item_name,
+      item_name, crop_id,
       stock_group_id,
       stock_category_id,
       unit_id,
@@ -480,28 +466,58 @@ exports.updateStockItem = async (req, res) => {
     } = req.body;
 
     if (!item_name || !item_name.trim()) {
-  await connection.rollback();
-  return res.status(400).json({
-    success: false,
-    message: "Item name is required",
-  });
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Item name is required",
+      });
+    }
+    const trimmedItemName = item_name.trim();
+
+    // --- Duplicate item_name check, excluding this item itself ---
+    const [existingItem] = await connection.query(
+      `SELECT id FROM stock_items WHERE item_name = ? AND id != ? LIMIT 1`,
+      [trimmedItemName, id]
+    );
+
+    if (existingItem.length > 0) {
+      await connection.rollback();
+      return res.status(409).json({
+        success: false,
+        message: "An item with this name already exists",
+      });
+    }
+
+    if (is_returnable == 1) {
+  if (returnable_percentage == null || returnable_percentage === "" ||
+      Number(returnable_percentage) < 0 || Number(returnable_percentage) > 100) {
+    await connection.rollback();
+    return res.status(400).json({
+      success: false,
+      message: "Returnable percentage must be between 0 and 100",
+    });
+  }
 }
-const trimmedItemName = item_name.trim();
 
-// --- Duplicate item_name check, excluding this item itself ---
-const [existingItem] = await connection.query(
-  `SELECT id FROM stock_items WHERE item_name = ? AND id != ? LIMIT 1`,
-  [trimmedItemName, id]
-);
+    // in updateStockItem, replace the cropCheck block
+    let cropCheck;
+    const [[current]] = await connection.query(
+      "SELECT crop_id FROM stock_items WHERE id = ?", [id]
+    );
+    if (!current) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: "Stock item not found" });
+    }
 
-if (existingItem.length > 0) {
-  await connection.rollback();
-  return res.status(409).json({
-    success: false,
-    message: "An item with this name already exists",
-  });
-}
-
+    if (crop_id != null && crop_id !== "" && Number(crop_id) === current.crop_id) {
+      cropCheck = { ok: true, value: current.crop_id };   // unchanged, allow even if inactive
+    } else {
+      cropCheck = await resolveCropId(connection, crop_id);
+    }
+    if (!cropCheck.ok) {
+      await connection.rollback();
+      return res.status(400).json({ success: false, message: "Invalid or inactive crop" });
+    }
 
     // UPDATE STOCK ITEM
 
@@ -512,7 +528,7 @@ if (existingItem.length > 0) {
 
                 item_name = ?,
                 stock_group_id = ?,
-                stock_category_id = ?,
+                stock_category_id = ?,  crop_id = ?,
                 unit_id = ?,
 
                 alternative_unit_id = ?,
@@ -549,6 +565,7 @@ if (existingItem.length > 0) {
         item_name,
         stock_group_id,
         stock_category_id || null,
+        cropCheck.value,
         unit_id,
 
         alternative_unit_id || null,
@@ -584,10 +601,7 @@ if (existingItem.length > 0) {
     // DELETE OLD GST DETAILS
 
     await connection.query(
-      `
-            DELETE FROM stock_item_gst_details
-            WHERE stock_item_id = ?
-        `,
+      ` DELETE FROM stock_item_gst_details WHERE stock_item_id = ? `,
       [id],
     );
 
@@ -595,8 +609,7 @@ if (existingItem.length > 0) {
 
     if (set_gst_details && gst_details) {
       await connection.query(
-        `
-                INSERT INTO stock_item_gst_details (
+        ` INSERT INTO stock_item_gst_details (
 
                     stock_item_id,
                     description,
@@ -664,16 +677,9 @@ if (existingItem.length > 0) {
           id,
 
           opening_stock.godown_id,
-
           opening_stock.batch_no || null,
-
-          maintain_in_batches == 1 && track_mfg_date == 1
-            ? opening_stock.mfg_date || null
-            : null,
-
-          maintain_in_batches == 1 && use_expiry_dates == 1
-            ? opening_stock.expiry_date || null
-            : null,
+          maintain_in_batches == 1 && track_mfg_date == 1 ? opening_stock.mfg_date || null : null,
+          maintain_in_batches == 1 && use_expiry_dates == 1 ? opening_stock.expiry_date || null : null,
           opening_stock.quantity || 0,
           opening_stock.rate || 0,
           opening_stock.supercash_price || 0,
@@ -690,24 +696,24 @@ if (existingItem.length > 0) {
       message: "Stock item updated successfully",
     });
   } catch (error) {
-  await connection.rollback();
-  console.log("UPDATE STOCK ITEM ERROR:", error);
+    await connection.rollback();
+    console.log("UPDATE STOCK ITEM ERROR:", error);
 
-  if (error.code === "ER_DUP_ENTRY") {
-    return res.status(409).json({
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        success: false,
+        message: "An item with this name already exists",
+      });
+    }
+
+    return res.status(500).json({
       success: false,
-      message: "An item with this name already exists",
+      message: "Internal server error",
+      error: error.message,
     });
+  } finally {
+    connection.release();
   }
-
-  return res.status(500).json({
-    success: false,
-    message: "Internal server error",
-    error: error.message,
-  });
-} finally {
-  connection.release();
-}
 };
 
 exports.deleteStockItem = async (req, res) => {

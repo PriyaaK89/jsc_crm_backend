@@ -192,11 +192,7 @@ const createOpeningStock = async (stock_item_id, data) => {
 };
 
 
-const getStockItems = async (
-    search = "",
-    page = 1,
-    limit = 10
-) => {
+const getStockItems = async ( search = "", page = 1, limit = 10 ) => {
 
     const offset = (page - 1) * limit;
 
@@ -212,36 +208,23 @@ const getStockItems = async (
     const totalRecords = countRows[0].total;
 
     const [rows] = await db.query(
-        `
+        ` SELECT
+            si.id, si.item_name,
+             si.crop_id,
+            cr.crop_name,
+            si.type_of_supply, si.rate_of_duty,
+            si.gst_applicable, si.set_gst_details,
 
-        SELECT
+            si.maintain_in_batches, si.track_mfg_date, si.use_expiry_dates,
+            si.set_standard_rates, si.enable_cost_tracking,
 
-            si.id,
-            si.item_name,
-
-            si.type_of_supply,
-            si.rate_of_duty,
-
-            si.gst_applicable,
-            si.set_gst_details,
-
-            si.maintain_in_batches,
-            si.track_mfg_date,
-            si.use_expiry_dates,
-
-            si.set_standard_rates,
-            si.enable_cost_tracking,
-
-            si.is_returnable,
-            si.returnable_percentage,
+            si.is_returnable, si.returnable_percentage,
 
             si.description,
             si.created_at,
 
             sg.name AS stock_group_name,
-
             sc.name AS stock_category_name,
-
             u.symbol AS base_unit_name,
 
             au.symbol AS alternative_unit_name,
@@ -258,35 +241,18 @@ const getStockItems = async (
             os.amount,
 
             gu.symbol AS opening_stock_unit,
-
             g.godown_name
 
         FROM stock_items si
-
-        LEFT JOIN stock_groups sg
-            ON si.stock_group_id = sg.id
-
-        LEFT JOIN stock_categories sc
-            ON si.stock_category_id = sc.id
-
-        LEFT JOIN units u
-            ON si.unit_id = u.id
-
-        LEFT JOIN units au
-            ON si.alternative_unit_id = au.id
-
-        LEFT JOIN units bu
-            ON si.bulk_unit_id = bu.id
-
-        LEFT JOIN stock_item_opening_stock os
-            ON si.id = os.stock_item_id
-
-        LEFT JOIN units gu
-            ON os.per_unit_id = gu.id
-
-        LEFT JOIN godowns g
-            ON os.godown_id = g.id
-
+        LEFT JOIN stock_groups sg ON si.stock_group_id = sg.id
+        LEFT JOIN stock_categories sc ON si.stock_category_id = sc.id
+        LEFT JOIN crops cr ON si.crop_id = cr.id
+        LEFT JOIN units u ON si.unit_id = u.id
+        LEFT JOIN units au ON si.alternative_unit_id = au.id
+        LEFT JOIN units bu ON si.bulk_unit_id = bu.id
+        LEFT JOIN stock_item_opening_stock os ON si.id = os.stock_item_id
+        LEFT JOIN units gu ON os.per_unit_id = gu.id
+        LEFT JOIN godowns g ON os.godown_id = g.id
         WHERE si.item_name LIKE ?
 
         ORDER BY si.id DESC
@@ -318,6 +284,7 @@ const getStockItemById = async (id) => {
             si.*,
             sg.name AS stock_group_name,
             sc.name AS stock_category_name,
+             cr.crop_name,
             u.symbol AS base_unit_name,
             au.symbol AS alternative_unit_name,
             bu.symbol AS bulk_unit_name,
@@ -330,15 +297,11 @@ const getStockItemById = async (id) => {
         FROM stock_items si
 
         LEFT JOIN stock_groups sg ON si.stock_group_id = sg.id
-
         LEFT JOIN stock_categories sc ON si.stock_category_id = sc.id
-
+        LEFT JOIN crops cr ON si.crop_id = cr.id
         LEFT JOIN units u ON si.unit_id = u.id
-
         LEFT JOIN units au ON si.alternative_unit_id = au.id
-
-        LEFT JOIN units bu
-            ON si.bulk_unit_id = bu.id
+        LEFT JOIN units bu ON si.bulk_unit_id = bu.id
 
         WHERE si.id = ?
     `, [id]);
@@ -496,9 +459,5 @@ const deleteStockItem = async (id) => {
     }
 };
 
-module.exports = {
-    createStockItem, createGSTDetails,
-    createOpeningStock, getStockItems,
-    getStockItemById, getGSTDetails,
-    getOpeningStock, deleteStockItem
-};
+module.exports = { createStockItem, createGSTDetails, createOpeningStock, getStockItems,
+    getStockItemById, getGSTDetails, getOpeningStock, deleteStockItem };

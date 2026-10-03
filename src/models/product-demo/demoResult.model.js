@@ -10,6 +10,13 @@ const cropModel = require('./crop.model');       // getCropGrowthForm
 const MAX_RESULTS = 3;
 const MAX_RESULT_PHOTOS = m.MAX_RESULT_PHOTOS;
 const OUTCOMES = ['POSITIVE', 'NEUTRAL', 'NEGATIVE'];
+const SOWING_METHODS = ['DRILLING', 'BROADCASTING', 'TRANSPLANTING', 'DIBBLING', 'OTHER'];
+const IRRIGATION_TYPES = ['IRRIGATED', 'RAINFED'];
+const SOIL_TYPES = ['LOAMY', 'SANDY', 'CLAY', 'BLACK_COTTON'];
+const VIGOR_LEVELS = ['POOR', 'AVERAGE', 'GOOD', 'EXCELLENT'];
+const DISEASE_LEVELS = ['NONE', 'MILD', 'MODERATE', 'SEVERE'];
+const str = (v, max) => (v === undefined || v === null ? '' : String(v)).trim().slice(0, max) || null;
+const FIELD_SET_FOR_STAGE = { 2: 2, 3: 2 };
 
 function optionalNumber(v, name, { min, max } = {}) {
   if (v === undefined || v === null || v === '') return null;
@@ -80,6 +87,17 @@ async function setDemoCrop(demoId, cropId, user) {
     const [[crop]] = await conn.query('SELECT id FROM crops WHERE id = ? AND is_active = 1', [cropId]);
     if (!crop) throw new HttpError(400, 'Invalid or inactive crop');
 
+    const [[{ cnt }]] = await conn.query(
+      `SELECT COUNT(*) AS cnt
+     FROM demo_result_growth_values v
+     JOIN demo_results r ON r.id = v.demo_result_id
+    WHERE r.demo_id = ?`,
+      [demoId]
+    );
+    if (demo.crop_id && Number(demo.crop_id) !== Number(cropId) && cnt > 0) {
+      throw new HttpError(400, 'Growth values are already recorded for the current crop, so it cannot be changed');
+    }
+
     await conn.query('UPDATE demo_requests SET crop_id = ? WHERE id = ?', [cropId, demoId]);
     await m.log(conn, demoId, user.id, 'CROP_SET', `Crop set to #${cropId}`);
     await conn.commit();
@@ -93,6 +111,15 @@ async function setDemoCrop(demoId, cropId, user) {
 
 // -------- Result-2 form (Part 22 GET) --------
 
+async function getFieldsForStage(cropId, stage) {
+  let fields = await cropModel.getCropGrowthForm(cropId, { resultStage: stage });
+  if (!fields.length && stage === 3) {
+    fields = await cropModel.getCropGrowthForm(cropId, { resultStage: 2 });
+  }
+  return fields;
+}
+
+// const fields = await getFieldsForStage(demo.crop_id, stage);
 async function getStageForm(demoId, customerId, user, stage) {
   const { demo, cust } = await loadDemoAndCustomer(db, demoId, customerId);
   await checkResultAccess(db, user, demo);
@@ -102,6 +129,7 @@ async function getStageForm(demoId, customerId, user, stage) {
   }
   const [[crop]] = await db.query('SELECT id, crop_name FROM crops WHERE id = ?', [demo.crop_id]);
   const fields = await cropModel.getCropGrowthForm(demo.crop_id, { resultStage: stage });
+  // const fields = await getFieldsForStage(demo.crop_id, stage);
 
   const [[existingResult]] = await db.query(
     'SELECT id FROM demo_results WHERE demo_request_customer_id = ? AND result_no = ?',
@@ -124,12 +152,14 @@ async function getGrowthFieldsForm(demoId, customerId, user) {
 
 async function getFinalEvaluationForm(demoId, customerId, user) {
   return getStageForm(demoId, customerId, user, 3);
+  
 }
 
 // -------- validate + save dynamic growth values --------
 
 async function validateAndPrepareGrowthValues(conn, cropId, growthValues, stage) {
   const fields = await cropModel.getCropGrowthForm(cropId, { resultStage: stage });
+  // const fields = await getFieldsForStage(cropId, stage);
   const byMappingId = new Map(fields.map((f) => [f.mapping_id, f]));
 
   const submitted = Array.isArray(growthValues) ? growthValues : [];
@@ -200,7 +230,7 @@ async function addResultForCustomer({ demoId, customerId, resultNo, body, files,
   const resultDate = optionalDate(b.result_date);
   const germination = optionalNumber(b.germination_pct, 'germination_pct', { min: 0, max: 100 });
   const yieldValue = optionalNumber(b.yield_value, 'yield_value', { min: 0 });
-  const yieldUnit = (b.yield_unit || '').trim() || null;
+  const yieldUnit = str(b.yield_unit, 20);
   const remarks = (b.remarks || '').trim() || null;
 
   const conn = await db.getConnection();
@@ -218,10 +248,8 @@ async function addResultForCustomer({ demoId, customerId, resultNo, body, files,
       throw new HttpError(400, `Results must be submitted in order — next expected result is ${cust.results_count + 1}`);
     }
 
-    // Result 2: dynamic crop-growth fields
+    // ---- dynamic crop fields (Result 2 and 3) ----
     let growthPrepared = [];
-    let extraCols = {};
-
     if (resultNo === 2 || resultNo === 3) {
       let cropIdForResult = demo.crop_id;
       if (!cropIdForResult) {
@@ -235,50 +263,82 @@ async function addResultForCustomer({ demoId, customerId, resultNo, body, files,
       growthPrepared = await validateAndPrepareGrowthValues(conn, cropIdForResult, growthValues, resultNo);
     }
 
-     if (resultNo === 3) {
-      extraCols = {
+    // ---- stage-specific columns ----
+    let stageCols = {};
+    if (resultNo === 1) {
+      const sowingDate = optionalDate(b.sowing_date);
+      if (!sowingDate) throw new HttpError(400, 'Sowing date is required');
+      stageCols = {
+        sowing_date: sowingDate,
+        qty_used: optionalNumber(b.qty_used, 'qty_used', { min: 0 }),
+        qty_used_unit: str(b.qty_used_unit, 20),
+        sowing_method: optionalEnum(b.sowing_method, 'sowing_method', SOWING_METHODS),
+        seed_treatment: str(b.seed_treatment, 100),
+        field_area: optionalNumber(b.field_area, 'field_area', { min: 0 }),
+        field_area_unit: str(b.field_area_unit, 20),
+        irrigation_type: optionalEnum(b.irrigation_type, 'irrigation_type', IRRIGATION_TYPES),
+        soil_type: optionalEnum(b.soil_type, 'soil_type', SOIL_TYPES),
+        germination_pct: germination,
+        plant_population: optionalNumber(b.plant_population, 'plant_population', { min: 0 }),
+        plant_population_unit: str(b.plant_population_unit, 30),
+        early_vigor: optionalEnum(b.early_vigor, 'early_vigor', VIGOR_LEVELS),
+        disease_pest_level: optionalEnum(b.disease_pest_level, 'disease_pest_level', DISEASE_LEVELS),
+        disease_pest_notes: str(b.disease_pest_notes, 255),
+      };
+    } else if (resultNo === 2) {
+      // days after sowing: Result 1's sowing date, else the demo's planned sowing date
+      const [[d]] = await conn.query(
+        `SELECT DATEDIFF(COALESCE(?, CURDATE()),
+                COALESCE((SELECT sowing_date FROM demo_results
+                           WHERE demo_request_customer_id = ? AND result_no = 1),
+                         (SELECT sowing_date FROM demo_requests WHERE id = ?))) AS das`,
+        [resultDate, customerId, demoId]
+      );
+      if (d.das !== null && d.das < 0) {
+        throw new HttpError(400, 'Observation date cannot be before the sowing date');
+      }
+      stageCols = {
+        days_after_sowing: d.das,
+        crop_stage: str(b.crop_stage, 50),
+        crop_condition: optionalEnum(b.crop_condition, 'crop_condition', VIGOR_LEVELS),
+      };
+    } else {
+      stageCols = {
         harvest_date: optionalDate(b.harvest_date),
-        crop_stage: (b.crop_stage || '').trim().slice(0, 50) || null,
-        final_crop_condition: (b.final_crop_condition || '').trim().slice(0, 50) || null,
+        yield_value: yieldValue,
+        yield_unit: yieldUnit,
+        final_crop_condition: str(b.final_crop_condition, 50),
         harvested_area: optionalNumber(b.harvested_area, 'harvested_area', { min: 0 }),
-        harvested_area_unit: (b.harvested_area_unit || '').trim().slice(0, 20) || null,
+        harvested_area_unit: str(b.harvested_area_unit, 20),
         total_production: optionalNumber(b.total_production, 'total_production', { min: 0 }),
-        production_unit: (b.production_unit || '').trim().slice(0, 20) || null,
+        production_unit: str(b.production_unit, 20),
         satisfaction_rating: optionalNumber(b.satisfaction_rating, 'satisfaction_rating', { min: 1, max: 5 }),
         would_use_again: optionalEnum(b.would_use_again, 'would_use_again', YES_NO_MAYBE),
         would_recommend: optionalEnum(b.would_recommend, 'would_recommend', YES_NO_MAYBE),
         purchase_intention: optionalEnum(b.purchase_intention, 'purchase_intention', YES_NO_MAYBE),
         expected_next_qty: optionalNumber(b.expected_next_qty, 'expected_next_qty', { min: 0 }),
-        expected_next_unit: (b.expected_next_unit || '').trim().slice(0, 20) || null,
+        expected_next_unit: str(b.expected_next_unit, 20),
         customer_feedback: (b.customer_feedback || '').trim() || null,
       };
     }
 
-
-   
-
     const photos = await m.uploadResultPhotos(files);
-    const ec = extraCols;
 
+    const cols = {
+      demo_id: demoId,
+      demo_request_customer_id: customerId,
+      result_no: resultNo,
+      outcome: b.outcome,
+      remarks,
+      photos: JSON.stringify(photos),
+      created_by: user.id,
+      ...stageCols,
+    };
+    const names = Object.keys(cols); // fixed names from this file, never from user input
     const [ins] = await conn.query(
-      `INSERT INTO demo_results
-        (demo_id, demo_request_customer_id, result_no, result_date, outcome,
-         germination_pct, yield_value, yield_unit, remarks, photos,
-         harvest_date, crop_stage, final_crop_condition, harvested_area, harvested_area_unit,
-         total_production, production_unit, satisfaction_rating, would_use_again, would_recommend,
-         purchase_intention, expected_next_qty, expected_next_unit, customer_feedback,
-         created_by)
-       VALUES (?,?,?,COALESCE(?, CURDATE()),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [
-        demoId, customerId, resultNo, resultDate, b.outcome, germination, yieldValue, yieldUnit, remarks, JSON.stringify(photos),
-        ec.harvest_date ?? null, ec.crop_stage ?? null, ec.final_crop_condition ?? null,
-        ec.harvested_area ?? null, ec.harvested_area_unit ?? null,
-        ec.total_production ?? null, ec.production_unit ?? null,
-        ec.satisfaction_rating ?? null, ec.would_use_again ?? null, ec.would_recommend ?? null,
-        ec.purchase_intention ?? null, ec.expected_next_qty ?? null, ec.expected_next_unit ?? null,
-        ec.customer_feedback ?? null,
-        user.id,
-      ]
+      `INSERT INTO demo_results (result_date, ${names.join(', ')})
+       VALUES (COALESCE(?, CURDATE()), ${names.map(() => '?').join(', ')})`,
+      [resultDate, ...names.map((k) => cols[k])]
     );
     const resultId = ins.insertId;
 
@@ -296,18 +356,14 @@ async function addResultForCustomer({ demoId, customerId, resultNo, body, files,
       [resultNo, newCustomerStatus, customerId]
     );
 
-    // demo-level status progression
     const [[{ total, done }]] = await conn.query(
       `SELECT COUNT(*) AS total, SUM(result_status = 'COMPLETED') AS done
          FROM demo_request_customers WHERE demo_id = ? AND is_removed = 0`,
       [demoId]
     );
     let newDemoStatus = demo.status;
-    if (Number(done) > 0 && Number(done) === Number(total)) {
-      newDemoStatus = 'COMPLETED';
-    } else if (demo.status === 'APPROVED') {
-      newDemoStatus = 'IN_PROGRESS';
-    }
+    if (Number(done) > 0 && Number(done) === Number(total)) newDemoStatus = 'COMPLETED';
+    else if (demo.status === 'APPROVED') newDemoStatus = 'IN_PROGRESS';
     if (newDemoStatus !== demo.status) {
       await conn.query('UPDATE demo_requests SET status = ? WHERE id = ?', [newDemoStatus, demoId]);
     }
@@ -343,6 +399,204 @@ async function addResultForCustomer({ demoId, customerId, resultNo, body, files,
   }
 }
 
+// -------- context for the result forms --------
+async function getResultContext(demoId, customerId, user) {
+  const { demo, cust } = await loadDemoAndCustomer(db, demoId, customerId);
+  await checkResultAccess(db, user, demo);
+
+  const [[item]] = await db.query(
+    'SELECT item_name, qty, unit FROM demo_request_items WHERE demo_id = ? ORDER BY id LIMIT 1',
+    [demoId]
+  );
+  const [[party]] = await db.query('SELECT name, firm_name FROM customers WHERE id = ?', [cust.party_id]);
+  const [[d]] = await db.query(
+    `SELECT DATE_FORMAT(sowing_date, '%Y-%m-%d') AS sowing_date,
+            land_area, land_unit, soil_type, irrigation_type
+       FROM demo_requests WHERE id = ?`,
+    [demoId]
+  );
+  const [[r1]] = await db.query(
+    `SELECT DATE_FORMAT(sowing_date, '%Y-%m-%d') AS sowing_date
+       FROM demo_results WHERE demo_request_customer_id = ? AND result_no = 1`,
+    [customerId]
+  );
+  let crop = null;
+  if (demo.crop_id) {
+    const [[c]] = await db.query('SELECT id, crop_name FROM crops WHERE id = ?', [demo.crop_id]);
+    crop = c || null;
+  }
+
+  return {
+    demo_no: demo.demo_no,
+    customer_name: party ? party.name : null,
+    party_type: cust.party_type,
+    product: item || null,
+    allocated_qty: cust.allocated_qty,
+    sowing_date: (r1 && r1.sowing_date) || d.sowing_date || null,
+    defaults: d,
+    crop,
+    crop_required: !demo.crop_id,
+    results_count: cust.results_count,
+  };
+}
+
+// async function addResultForCustomer({ demoId, customerId, resultNo, body, files, user }) {
+//   resultNo = Number(resultNo);
+//   if (![1, 2, 3].includes(resultNo)) throw new HttpError(400, 'result number must be 1, 2 or 3');
+
+//   const b = body || {};
+//   files = files || [];
+
+//   if (!OUTCOMES.includes(b.outcome)) throw new HttpError(400, `outcome must be one of ${OUTCOMES.join(', ')}`);
+//   if (files.length > MAX_RESULT_PHOTOS) throw new HttpError(400, `Maximum ${MAX_RESULT_PHOTOS} photos allowed per result`);
+//   if (files.some((f) => !(f.mimetype || '').startsWith('image/'))) throw new HttpError(400, 'Only image files are allowed as result photos');
+
+//   const resultDate = optionalDate(b.result_date);
+//   const germination = optionalNumber(b.germination_pct, 'germination_pct', { min: 0, max: 100 });
+//   const yieldValue = optionalNumber(b.yield_value, 'yield_value', { min: 0 });
+//   const yieldUnit = (b.yield_unit || '').trim() || null;
+//   const remarks = (b.remarks || '').trim() || null;
+
+//   const conn = await db.getConnection();
+//   try {
+//     await conn.beginTransaction();
+
+//     const { demo, cust } = await loadDemoAndCustomer(conn, demoId, customerId, { forUpdate: true });
+//     await checkResultAccess(conn, user, demo);
+
+//     if (!['APPROVED', 'IN_PROGRESS'].includes(demo.status)) {
+//       throw new HttpError(400, `Results can be added only after approval (current status: ${demo.status})`);
+//     }
+//     if (cust.results_count >= MAX_RESULTS) throw new HttpError(400, `This customer already has all ${MAX_RESULTS} results`);
+//     if (resultNo !== cust.results_count + 1) {
+//       throw new HttpError(400, `Results must be submitted in order — next expected result is ${cust.results_count + 1}`);
+//     }
+
+//     // Result 2: dynamic crop-growth fields
+//     let growthPrepared = [];
+//     let extraCols = {};
+
+//     if (resultNo === 2 || resultNo === 3) {
+//       let cropIdForResult = demo.crop_id;
+//       if (!cropIdForResult) {
+//         if (!b.crop_id) throw new HttpError(400, `Set a crop for this demo before submitting Result ${resultNo}`);
+//         const [[crop]] = await conn.query('SELECT id FROM crops WHERE id = ? AND is_active = 1', [b.crop_id]);
+//         if (!crop) throw new HttpError(400, 'Invalid or inactive crop');
+//         await conn.query('UPDATE demo_requests SET crop_id = ? WHERE id = ?', [b.crop_id, demoId]);
+//         cropIdForResult = Number(b.crop_id);
+//       }
+//       const growthValues = typeof b.growth_values === 'string' ? JSON.parse(b.growth_values) : b.growth_values;
+//       growthPrepared = await validateAndPrepareGrowthValues(conn, cropIdForResult, growthValues, resultNo);
+//     }
+
+//     if (resultNo === 3) {
+//       extraCols = {
+//         harvest_date: optionalDate(b.harvest_date),
+//         crop_stage: (b.crop_stage || '').trim().slice(0, 50) || null,
+//         final_crop_condition: (b.final_crop_condition || '').trim().slice(0, 50) || null,
+//         harvested_area: optionalNumber(b.harvested_area, 'harvested_area', { min: 0 }),
+//         harvested_area_unit: (b.harvested_area_unit || '').trim().slice(0, 20) || null,
+//         total_production: optionalNumber(b.total_production, 'total_production', { min: 0 }),
+//         production_unit: (b.production_unit || '').trim().slice(0, 20) || null,
+//         satisfaction_rating: optionalNumber(b.satisfaction_rating, 'satisfaction_rating', { min: 1, max: 5 }),
+//         would_use_again: optionalEnum(b.would_use_again, 'would_use_again', YES_NO_MAYBE),
+//         would_recommend: optionalEnum(b.would_recommend, 'would_recommend', YES_NO_MAYBE),
+//         purchase_intention: optionalEnum(b.purchase_intention, 'purchase_intention', YES_NO_MAYBE),
+//         expected_next_qty: optionalNumber(b.expected_next_qty, 'expected_next_qty', { min: 0 }),
+//         expected_next_unit: (b.expected_next_unit || '').trim().slice(0, 20) || null,
+//         customer_feedback: (b.customer_feedback || '').trim() || null,
+//       };
+//     }
+
+
+
+
+//     const photos = await m.uploadResultPhotos(files);
+//     const ec = extraCols;
+
+//     const [ins] = await conn.query(
+//       `INSERT INTO demo_results
+//         (demo_id, demo_request_customer_id, result_no, result_date, outcome,
+//          germination_pct, yield_value, yield_unit, remarks, photos,
+//          harvest_date, crop_stage, final_crop_condition, harvested_area, harvested_area_unit,
+//          total_production, production_unit, satisfaction_rating, would_use_again, would_recommend,
+//          purchase_intention, expected_next_qty, expected_next_unit, customer_feedback,
+//          created_by)
+//        VALUES (?,?,?,COALESCE(?, CURDATE()),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+//       [
+//         demoId, customerId, resultNo, resultDate, b.outcome, germination, yieldValue, yieldUnit, remarks, JSON.stringify(photos),
+//         ec.harvest_date ?? null, ec.crop_stage ?? null, ec.final_crop_condition ?? null,
+//         ec.harvested_area ?? null, ec.harvested_area_unit ?? null,
+//         ec.total_production ?? null, ec.production_unit ?? null,
+//         ec.satisfaction_rating ?? null, ec.would_use_again ?? null, ec.would_recommend ?? null,
+//         ec.purchase_intention ?? null, ec.expected_next_qty ?? null, ec.expected_next_unit ?? null,
+//         ec.customer_feedback ?? null,
+//         user.id,
+//       ]
+//     );
+//     const resultId = ins.insertId;
+
+//     if ((resultNo === 2 || resultNo === 3) && growthPrepared.length) {
+//       const values = growthPrepared.map((g) => [resultId, g.mapping_id, g.field_value]);
+//       await conn.query(
+//         'INSERT INTO demo_result_growth_values (demo_result_id, crop_growth_field_mapping_id, field_value) VALUES ?',
+//         [values]
+//       );
+//     }
+
+//     const newCustomerStatus = resultNo >= MAX_RESULTS ? 'COMPLETED' : 'IN_PROGRESS';
+//     await conn.query(
+//       'UPDATE demo_request_customers SET results_count = ?, result_status = ? WHERE id = ?',
+//       [resultNo, newCustomerStatus, customerId]
+//     );
+
+//     // demo-level status progression
+//     const [[{ total, done }]] = await conn.query(
+//       `SELECT COUNT(*) AS total, SUM(result_status = 'COMPLETED') AS done
+//          FROM demo_request_customers WHERE demo_id = ? AND is_removed = 0`,
+//       [demoId]
+//     );
+//     let newDemoStatus = demo.status;
+//     if (Number(done) > 0 && Number(done) === Number(total)) {
+//       newDemoStatus = 'COMPLETED';
+//     } else if (demo.status === 'APPROVED') {
+//       newDemoStatus = 'IN_PROGRESS';
+//     }
+//     if (newDemoStatus !== demo.status) {
+//       await conn.query('UPDATE demo_requests SET status = ? WHERE id = ?', [newDemoStatus, demoId]);
+//     }
+
+//     await m.log(
+//       conn, demoId, user.id, 'RESULT_ADDED',
+//       `Customer #${customerId}: result ${resultNo} of ${MAX_RESULTS} (${b.outcome})`
+//     );
+
+//     const approverIds = await m.getApproverIds(conn, user.id);
+//     await conn.commit();
+
+//     const notifyIds = [...approverIds, demo.created_by, demo.field_officer_id].filter((id) => id && id !== user.id);
+//     m.notifyUsers(notifyIds, {
+//       demoId,
+//       type: 'DEMO_RESULT',
+//       title: `Demo result ${resultNo} of ${MAX_RESULTS}`,
+//       message: `${demo.demo_no}: customer #${customerId} — ${b.outcome}${newDemoStatus === 'COMPLETED' ? ' (demo closed)' : ''}`,
+//     }).catch((e) => console.error('[demo notify]', e));
+
+//     return {
+//       result_id: resultId,
+//       result_no: resultNo,
+//       customer_status: newCustomerStatus,
+//       demo_status: newDemoStatus,
+//       photo_count: photos.length,
+//     };
+//   } catch (e) {
+//     await conn.rollback();
+//     throw e;
+//   } finally {
+//     conn.release();
+//   }
+// }
+
 // -------- read results for one customer --------
 
 const parsePhotos = (v) => {
@@ -355,7 +609,8 @@ async function attachExtras(row) {
   const photos = parsePhotos(row.photos);
   const photo_urls = await Promise.all(photos.map((p) => m.signPathSafe ? m.signPathSafe(p) : null));
   let growth_values = [];
-  if (row.result_no === 2) {
+  // if (row.result_no === 2) {
+  if ([2, 3].includes(row.result_no)) {
     const [vals] = await db.query(
       `SELECT v.field_value, fm.field_id, f.field_code, f.field_name, f.input_type, fm.unit_override, f.default_unit
          FROM demo_result_growth_values v
@@ -386,7 +641,11 @@ async function getResultsForCustomer(demoId, customerId, user) {
 
 // All active customers of a demo with their result progress (for the
 // admin/employee "who still needs a result" view).
-async function listDemoCustomersWithProgress(demoId) {
+async function listDemoCustomersWithProgress(demoId, user) {
+  const [[demo]] = await db.query('SELECT * FROM demo_requests WHERE id = ?', [demoId]);
+  if (!demo) throw new HttpError(404, 'Demo request not found');
+  await checkResultAccess(db, user, demo);
+
   const [rows] = await db.query(
     `SELECT dc.id, dc.party_type, dc.party_id, dc.is_primary, dc.parent_customer_id,
             dc.allocated_qty, dc.results_count, dc.result_status,
@@ -399,7 +658,6 @@ async function listDemoCustomersWithProgress(demoId) {
   );
   return rows;
 }
-
 // Employee-facing: every (demo, customer) pair still awaiting a result,
 // across all of this employee's approved/in-progress demos.
 async function getMyPendingResultCustomers(userId, { search = '', page = 1, limit = 50 } = {}) {
@@ -434,5 +692,5 @@ async function getMyPendingResultCustomers(userId, { search = '', page = 1, limi
 module.exports = {
   HttpError, MAX_RESULTS, MAX_RESULT_PHOTOS,
   setDemoCrop, getGrowthFieldsForm, addResultForCustomer,
-  getResultsForCustomer, listDemoCustomersWithProgress, getMyPendingResultCustomers, getFinalEvaluationForm
+  getResultsForCustomer, listDemoCustomersWithProgress, getMyPendingResultCustomers, getFinalEvaluationForm, getResultContext
 };

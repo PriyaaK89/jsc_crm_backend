@@ -61,4 +61,6 @@ router.get('/:id/customers/:customerId/results/2/growth-fields', auth, dr.getGro
 router.post('/:id/customers/:customerId/results/:resultNo', auth, resultUpload, dr.addResult);
 router.get('/:id/customers/:customerId/results/3/final-form', auth, dr.getFinalEvaluationForm);
 
+router.get('/:id/customers/:customerId/results/context', auth, dr.getResultContext);
+
 module.exports = router;

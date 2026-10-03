@@ -20,10 +20,10 @@ exports.findOrCreateDistributorCustomer = async (ledgerId, employeeId) => {
   );
   if (existing[0]) return existing[0].id;
 
-  const [ledgerRows] = await db.query(
-    `SELECT ledger_name, location, state, district, pincode, gst_no FROM ledgers WHERE id = ?`,
-    [ledgerId]
-  );
+const [ledgerRows] = await db.query(
+  `SELECT ledger_name, location, state, pincode, gst_no FROM ledgers WHERE id = ?`,
+  [ledgerId]
+);
   const ledger = ledgerRows[0];
   if (!ledger) throw new Error("Ledger not found");
 

@@ -84,6 +84,12 @@ exports.createDemo = async (req, res) => {
     b.product = typeof req.body.product === 'string' ? JSON.parse(req.body.product) : req.body.product;
     b.selections = typeof req.body.selections === 'string' ? JSON.parse(req.body.selections) : req.body.selections;
 
+        let allocationsEdit = req.body.allocations;
+    if (typeof allocationsEdit === 'string') {
+      try { allocationsEdit = JSON.parse(allocationsEdit); }
+      catch { throw new HttpError(400, 'allocations must be valid JSON'); }
+    }
+
     if (!b.demo_type || !DEMO_TYPES.includes(b.demo_type)) {
       throw new HttpError(400, `demo_type must be one of ${DEMO_TYPES.join(', ')}`);
     }
@@ -112,9 +118,9 @@ exports.createDemo = async (req, res) => {
 
     const { demoId, demoNo, total, productQty } = await m.insertDemo(conn, b, req.user.id);
 
-    const rows = await dc.resolveSelections(b.selections, req.user.id, isAdminRole);
-    const allocation = dc.validateAllocationTotal(rows, productQty);
-    await dc.insertDemoCustomers(conn, demoId, rows, req.user.id);
+    const rows = await m.resolveSelections(b.selections, req.user.id, isAdminRole);
+    const allocation = m.validateAllocationTotal(rows, productQty);
+    await m.insertDemoCustomers(conn, demoId, rows, req.user.id);
 
     await m.saveProofs(conn, demoId, uploaded, req.user.id);
     await m.log(
@@ -147,7 +153,7 @@ exports.createDemo = async (req, res) => {
 // Approvers see everything; others see demos they created or are assigned to.
 exports.listDemos = async (req, res) => {
   await run(res, null, async () => {
-    const { status, party_id, page = 1, limit = 20 } = req.query;
+    const { status, party_id, crop_id, search, page = 1, limit = 20 } = req.query;
 
     const approver = await m.canApprove(db, req.user);
     const isManager = await m.hasDirectReports(db, req.user.id);
@@ -160,27 +166,66 @@ exports.listDemos = async (req, res) => {
         OR d.field_officer_id IN (SELECT id FROM users WHERE reporting_under = ?))`);
       vals.push(req.user.id, req.user.id, req.user.id, req.user.id);
     }
-    if (!approver) { where.push('(d.created_by = ? OR d.field_officer_id = ?)'); vals.push(req.user.id, req.user.id); }
-    if (status) { where.push('d.status = ?'); vals.push(status); }
-    if (party_id) { where.push('d.party_id = ?'); vals.push(party_id); }
+    // if (status) { where.push('d.status = ?'); vals.push(status); }
+       if (status) {
+      const list = String(status).split(',').map((s) => s.trim()).filter(Boolean);
+      if (list.length) { where.push('d.status IN (?)'); vals.push(list); }
+    }
+    if (crop_id) { where.push('d.crop_id = ?'); vals.push(crop_id); }
+    if (party_id) {
+      where.push(`(d.party_id = ? OR EXISTS (
+        SELECT 1 FROM demo_request_customers dc
+         WHERE dc.demo_id = d.id AND dc.is_removed = 0 AND dc.party_id = ?))`);
+      vals.push(party_id, party_id);
+    }
+    if (search && String(search).trim()) {
+      const like = `%${String(search).trim()}%`;
+      where.push(`(d.demo_no LIKE ? OR EXISTS (
+        SELECT 1 FROM demo_request_customers dc
+          JOIN ${PARTY_TABLE} c ON c.id = dc.party_id
+         WHERE dc.demo_id = d.id AND dc.is_removed = 0 AND c.${PARTY_NAME_COL} LIKE ?))`);
+      vals.push(like, like);
+    }
+
     const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const lim = Math.min(Number(limit) || 20, 100);
-    const off = (Math.max(Number(page), 1) - 1) * lim;
+    const pg = Math.max(Number(page) || 1, 1);
+    const off = (pg - 1) * lim;
 
     const [rows] = await db.query(
-      `SELECT d.id, d.demo_no, d.party_id, p.${PARTY_NAME_COL} AS party_name, d.demo_type,
-              d.total_value, d.status, d.results_count, d.created_by, cu.name AS created_by_name,
-              d.followup_reminder_date, d.created_at
+      `SELECT d.id, d.demo_no, d.party_id, d.demo_type, d.total_value, d.status, d.results_count,
+              d.created_by, cu.name AS created_by_name,
+              d.followup_reminder_date, d.created_at,
+              d.crop_id, cr.crop_name,
+              COALESCE(p.${PARTY_NAME_COL},
+                (SELECT c.${PARTY_NAME_COL}
+                   FROM demo_request_customers dc
+                   JOIN ${PARTY_TABLE} c ON c.id = dc.party_id
+                  WHERE dc.demo_id = d.id AND dc.is_removed = 0
+                  ORDER BY dc.is_primary DESC, dc.id ASC LIMIT 1)) AS party_name,
+              (SELECT COUNT(*) FROM demo_request_customers dc
+                WHERE dc.demo_id = d.id AND dc.is_removed = 0) AS customer_count,
+              (SELECT COUNT(*) FROM demo_request_customers dc
+                WHERE dc.demo_id = d.id AND dc.is_removed = 0
+                  AND dc.result_status = 'COMPLETED') AS completed_customer_count,
+              (SELECT i.item_name FROM demo_request_items i
+                WHERE i.demo_id = d.id ORDER BY i.id LIMIT 1) AS product_name
          FROM demo_requests d
          LEFT JOIN ${PARTY_TABLE} p ON p.id = d.party_id
          LEFT JOIN users cu ON cu.id = d.created_by
+         LEFT JOIN crops cr ON cr.id = d.crop_id
          ${w}
         ORDER BY d.id DESC
         LIMIT ? OFFSET ?`,
       [...vals, lim, off]
     );
-    // res.json({ success: true, data: rows, can_approve: approver });
-        res.json({ success: true, data: rows, can_approve: approver || isManager });
+
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM demo_requests d ${w}`,
+      vals
+    );
+
+    res.json({ success: true, data: rows, total, page: pg, limit: lim, can_approve: approver || isManager });
   });
 };
 
@@ -188,21 +233,22 @@ exports.getDemo = async (req, res) => {
   await run(res, null, async () => {
     const demo = await m.getDemoFull(db, req.params.id);
     if (!demo) throw new HttpError(404, 'Demo request not found');
-    // const approver = await m.canApprove(db, req.user);
-        const approver = await m.canApproveDemo(db, req.user, demo);
+    const approver = await m.canApproveDemo(db, req.user, demo);
     const involved = demo.created_by === req.user.id || demo.field_officer_id === req.user.id;
     if (!approver && !involved) throw new HttpError(403, 'Not allowed to view this demo');
 
+        const pendingCustomers = (demo.customers || []).filter((c) => c.result_status !== 'COMPLETED').length;
     const canAddResult =
       (approver || involved) &&
       RESULT_ELIGIBLE_STATUSES.includes(demo.status) &&
-      demo.results_count < MAX_RESULTS;
+      pendingCustomers > 0;
 
     res.json({
       success: true,
       data: {
         ...demo,
         can_add_result: canAddResult,
+        pending_customer_count: pendingCustomers,
         next_result_no: demo.results_count + 1,
         max_result_photos: MAX_RESULT_PHOTOS,
       },
@@ -224,6 +270,12 @@ exports.updateDemo = async (req, res) => {
     b.selections = req.body.selections !== undefined
       ? (typeof req.body.selections === 'string' ? JSON.parse(req.body.selections) : req.body.selections)
       : undefined;
+
+       let allocationsEdit = req.body.allocations;
+    if (typeof allocationsEdit === 'string') {
+      try { allocationsEdit = JSON.parse(allocationsEdit); }
+      catch { throw new HttpError(400, 'allocations must be valid JSON'); }
+    }
 
     validateBody(b, { partial: true });
     if (typeof b.distributor_name === 'string') b.distributor_name = b.distributor_name.trim();
@@ -252,16 +304,33 @@ exports.updateDemo = async (req, res) => {
     }
 
     // ---- customer selections (add/remove is always soft) ----
+    // let allocation = null;
+    // if (b.selections !== undefined) {
+    //   const rows = await m.resolveSelections(b.selections, req.user.id, isAdminRole);
+    //   const mergeResult = await m.mergeDemoCustomers(conn, demo.id, rows, req.user.id);
+    //   allocation = m.validateAllocationTotal(mergeResult.rows, productQty);
+    //   changes.push(`customers: +${mergeResult.added} reactivated:${mergeResult.reactivated} updated:${mergeResult.updated} removed:${mergeResult.removed}`);
+    // } else if (b.product !== undefined) {
+    //   // product qty changed but selections didn't — still re-validate the total
+    //   const activeRows = await m.getDemoCustomers(demo.id);
+    //   allocation = m.validateAllocationTotal(activeRows, productQty);
+    // }
+
+        // ---- customer selections (add/remove is always soft) ----
     let allocation = null;
     if (b.selections !== undefined) {
-      const rows = await dc.resolveSelections(b.selections, req.user.id, isAdminRole);
-      const mergeResult = await dc.mergeDemoCustomers(conn, demo.id, rows, req.user.id);
-      allocation = dc.validateAllocationTotal(mergeResult.rows, productQty);
+      const rows = await m.resolveSelections(b.selections, req.user.id, isAdminRole);
+      const mergeResult = await m.mergeDemoCustomers(conn, demo.id, rows, req.user.id);
+      allocation = m.validateAllocationTotal(mergeResult.rows, productQty);
       changes.push(`customers: +${mergeResult.added} reactivated:${mergeResult.reactivated} updated:${mergeResult.updated} removed:${mergeResult.removed}`);
+    } else if (allocationsEdit !== undefined) {
+      // admin edits quantities of the existing customers
+      allocation = await m.applyAllocationEdits(conn, demo.id, allocationsEdit, productQty);
+      if (allocation.changed_count) changes.push(`customer quantities edited (${allocation.changed_count})`);
     } else if (b.product !== undefined) {
       // product qty changed but selections didn't — still re-validate the total
-      const activeRows = await dc.getDemoCustomers(demo.id);
-      allocation = dc.validateAllocationTotal(activeRows, productQty);
+      const activeRows = await m.getDemoCustomers(demo.id);
+      allocation = m.validateAllocationTotal(activeRows, productQty);
     }
 
     // ---- ordinary fields ----
@@ -294,7 +363,6 @@ exports.updateDemo = async (req, res) => {
 async function decide(req, res, action) {
   const conn = await db.getConnection();
   await run(res, conn, async () => {
-    // const remarks = (req.body.remarks || '').trim();
     const remarks = ((req.body && req.body.remarks) || '').trim();
 
     if (action === 'REJECTED' && !remarks) throw new HttpError(400, 'Rejection reason is required');
@@ -302,8 +370,7 @@ async function decide(req, res, action) {
     await conn.beginTransaction();
     const [[demo]] = await conn.query('SELECT * FROM demo_requests WHERE id = ? FOR UPDATE', [req.params.id]);
     if (!demo) throw new HttpError(404, 'Demo request not found');
-    // if (!(await m.canApprove(conn, req.user))) throw new HttpError(403, 'You do not have approval access');
-        if (!(await m.canApproveDemo(conn, req.user, demo))) throw new HttpError(403, 'You do not have approval access');
+    if (!(await m.canApproveDemo(conn, req.user, demo))) throw new HttpError(403, 'You do not have approval access');
     if (demo.status !== 'PENDING_APPROVAL') throw new HttpError(400, `Demo is already ${demo.status}`);
 
     if (action === 'APPROVED') {
@@ -319,9 +386,9 @@ async function decide(req, res, action) {
     }
     await m.log(conn, demo.id, req.user.id, action, remarks || null);
     await conn.commit();
-        m.clearSubmittedNotifications(demo.id).catch((e) => console.error('[demo notify clear]', e));
+    m.clearSubmittedNotifications(demo.id).catch((e) => console.error('[demo notify clear]', e));
 
-     m.notifyUsers([demo.created_by, demo.field_officer_id].filter((id) => id !== req.user.id), {
+    m.notifyUsers([demo.created_by, demo.field_officer_id].filter((id) => id !== req.user.id), {
       demoId: demo.id,
       type: action === 'APPROVED' ? 'DEMO_APPROVED' : 'DEMO_REJECTED',
       title: action === 'APPROVED' ? 'Demo request approved' : 'Demo request rejected',
@@ -337,16 +404,15 @@ exports.approveDemo = (req, res) => decide(req, res, 'APPROVED');
 exports.rejectDemo = (req, res) => decide(req, res, 'REJECTED');
 
 // -------------------------------------------------------------- ADD RESULT
-// Up to 3 results per demo, any date the employee chooses. Auto-closes after #3.
-// -------------------------------------------------------------- ADD RESULT
-// Up to 3 results per demo, up to 3 photos per result. Auto-closes after #3.
+// NOTE: this legacy demo-level result endpoint is superseded by the
+// per-customer result flow (demoResult.controller.js). Kept only if
+// something still calls POST /add-result/:id/results directly.
 exports.addResult = async (req, res) => {
   const conn = await db.getConnection();
   await run(res, conn, async () => {
     const b = req.body || {};
     const files = req.files || [];
 
-    // cheap validation first, before touching the DB or MinIO
     if (!OUTCOMES.includes(b.outcome)) throw new HttpError(400, `outcome must be one of ${OUTCOMES.join(', ')}`);
     if (files.length > MAX_RESULT_PHOTOS) {
       throw new HttpError(400, `Maximum ${MAX_RESULT_PHOTOS} photos allowed per result`);
@@ -354,19 +420,17 @@ exports.addResult = async (req, res) => {
     if (files.some((f) => !(f.mimetype || '').startsWith('image/'))) {
       throw new HttpError(400, 'Only image files are allowed as result photos');
     }
-    const resultDate = optionalDate(b.result_date); // null -> CURDATE() in SQL
+    const resultDate = optionalDate(b.result_date);
     const germination = optionalNumber(b.germination_pct, 'germination_pct', { min: 0, max: 100 });
     const yieldValue = optionalNumber(b.yield_value, 'yield_value', { min: 0 });
     const yieldUnit = (b.yield_unit || '').trim() || null;
     const remarks = (b.remarks || '').trim() || null;
 
     await conn.beginTransaction();
-    // row lock: two simultaneous submissions cannot both take the same slot
     const [[demo]] = await conn.query('SELECT * FROM demo_requests WHERE id = ? FOR UPDATE', [req.params.id]);
     if (!demo) throw new HttpError(404, 'Demo request not found');
 
-    // const approver = await m.canApprove(conn, req.user);
-     const approver = await m.canApproveDemo(conn, req.user, demo);
+    const approver = await m.canApproveDemo(conn, req.user, demo);
     const involved = demo.created_by === req.user.id || demo.field_officer_id === req.user.id;
     if (!approver && !involved) throw new HttpError(403, 'Not allowed to add a result to this demo');
     if (!RESULT_ELIGIBLE_STATUSES.includes(demo.status)) {
@@ -377,7 +441,7 @@ exports.addResult = async (req, res) => {
     }
 
     const resultNo = demo.results_count + 1;
-    const photos = await m.uploadResultPhotos(files); // array of MinIO object paths
+    const photos = await m.uploadResultPhotos(files);
 
     await conn.query(
       `INSERT INTO demo_results
@@ -397,7 +461,7 @@ exports.addResult = async (req, res) => {
     await conn.commit();
 
     const notifyIds = [...approverIds, demo.created_by, demo.field_officer_id]
-      .filter((id) => id && id !== req.user.id); // don't notify the person who just submitted
+      .filter((id) => id && id !== req.user.id);
     m.notifyUsers(notifyIds, {
       demoId: demo.id,
       type: 'DEMO_RESULT',
@@ -419,7 +483,6 @@ exports.addResult = async (req, res) => {
 };
 
 // --------------------------------------------------- "FROM VISIT FOLLOW-UP"
-// Approved demos that still have result slots left, for the toggle in the app.
 exports.followupEligible = async (req, res) => {
   await run(res, null, async () => {
     const approver = await m.canApprove(db, req.user);
@@ -441,20 +504,13 @@ exports.followupEligible = async (req, res) => {
   });
 };
 
-// Lets the apps show/hide Approve & Edit buttons
-// exports.myAccess = async (req, res) => {
-//   await run(res, null, async () => {
-//     res.json({ success: true, can_approve: await m.canApprove(db, req.user) });
-//   });
-// };
-
 exports.myAccess = async (req, res) => {
   await run(res, null, async () => {
     const globalApprover = await m.canApprove(db, req.user);
     const manager = await m.hasDirectReports(db, req.user.id);
     res.json({
       success: true,
-      can_approve: globalApprover || manager,   // existing app code keeps working
+      can_approve: globalApprover || manager,
       is_global_approver: globalApprover,
       is_reporting_manager: manager,
     });
@@ -464,19 +520,34 @@ exports.myAccess = async (req, res) => {
 // ----------------------------------------------------------- NOTIFICATIONS
 exports.myNotifications = async (req, res) => {
   await run(res, null, async () => {
+    const types = m.parseTypes(req.query.types);
+    const pendingOnly = req.query.pending_only === '1';
     const data = await m.listNotifications(req.user.id, {
       unreadOnly: req.query.unread === '1',
+      types,
+      pendingOnly,
       page: req.query.page,
       limit: req.query.limit,
     });
-    const unread = await m.unreadCount(req.user.id);
+    const unread = await m.unreadCount(req.user.id, { types, pendingOnly });
     res.json({ success: true, data, unread_count: unread });
   });
 };
 
 exports.unreadCount = async (req, res) => {
   await run(res, null, async () => {
-    res.json({ success: true, unread_count: await m.unreadCount(req.user.id) });
+    const unread = await m.unreadCount(req.user.id, {
+      types: m.parseTypes(req.query.types),
+      pendingOnly: req.query.pending_only === '1',
+    });
+    res.json({ success: true, unread_count: unread });
+  });
+};
+
+exports.markAllNotificationsRead = async (req, res) => {
+  await run(res, null, async () => {
+    await m.markAllRead(req.user.id, { types: m.parseTypes(req.query.types) });
+    res.json({ success: true });
   });
 };
 
@@ -488,12 +559,7 @@ exports.markNotificationRead = async (req, res) => {
   });
 };
 
-exports.markAllNotificationsRead = async (req, res) => {
-  await run(res, null, async () => {
-    await m.markAllRead(req.user.id);
-    res.json({ success: true });
-  });
-};
+
 
 exports.fieldOfficers = async (req, res) => {
   await run(res, null, async () => {
@@ -509,8 +575,6 @@ exports.partyDropdown = async (req, res) => {
 };
 
 // ------------------------------------------- EMPLOYEE: MY APPROVED DEMOS
-// "From Visit Follow-up" list: approved demos of the logged-in employee that
-// still need a result. Admins/approvers may pass ?employee_id= to see another user's.
 exports.myApprovedDemos = async (req, res) => {
   await run(res, null, async () => {
     let targetId = req.user.id;
@@ -533,7 +597,6 @@ exports.myApprovedDemos = async (req, res) => {
 };
 
 // ----------------------------------------------- RESULTS OF ONE DEMO
-// Employee involved in the demo, or any approver.
 exports.getDemoResults = async (req, res) => {
   await run(res, null, async () => {
     const [[demo]] = await db.query(
@@ -542,8 +605,7 @@ exports.getDemoResults = async (req, res) => {
     );
     if (!demo) throw new HttpError(404, 'Demo request not found');
 
-    // const approver = await m.canApprove(db, req.user);
-    const approver = await m.canApproveDemo(db, req.user, demo); 
+    const approver = await m.canApproveDemo(db, req.user, demo);
     const involved = demo.created_by === req.user.id || demo.field_officer_id === req.user.id;
     if (!approver && !involved) throw new HttpError(403, 'Not allowed to view results of this demo');
 
@@ -563,7 +625,6 @@ exports.getDemoResults = async (req, res) => {
 };
 
 // ------------------------------------------------- ADMIN: ALL RESULTS
-// Approvers only. Filters: outcome, party_id, employee_id, demo_id, from, to, search, page, limit
 exports.listAllResults = async (req, res) => {
   await run(res, null, async () => {
     if (!(await m.canApprove(db, req.user))) {
@@ -610,17 +671,17 @@ exports.eligibleCustomers = async (req, res) => {
     if (type === 'DISTRIBUTOR') {
       const ledgerId = Number(req.query.ledger_id);
       if (!ledgerId) throw new HttpError(400, 'ledger_id is required');
-      return res.json({ success: true, data: await dc.getEligibleUnderDistributor(ledgerId, req.user.id, isAdminRole) });
+      return res.json({ success: true, data: await m.getEligibleUnderDistributor(ledgerId, req.user.id, isAdminRole) });
     }
     if (type === 'RETAILER') {
       const partyId = Number(req.query.party_id);
       if (!partyId) throw new HttpError(400, 'party_id is required');
-      return res.json({ success: true, data: await dc.getEligibleUnderRetailer(partyId, req.user.id, isAdminRole) });
+      return res.json({ success: true, data: await m.getEligibleUnderRetailer(partyId, req.user.id, isAdminRole) });
     }
     if (type === 'FARMER') {
       const partyId = Number(req.query.party_id);
       if (!partyId) throw new HttpError(400, 'party_id is required');
-      return res.json({ success: true, data: await dc.getEligibleForFarmer(partyId, req.user.id, isAdminRole) });
+      return res.json({ success: true, data: await m.getEligibleForFarmer(partyId, req.user.id, isAdminRole) });
     }
     throw new HttpError(400, 'type must be DISTRIBUTOR, RETAILER or FARMER');
   });
@@ -638,11 +699,12 @@ exports.getDemoCustomers = async (req, res) => {
     if (!approver && !involved) throw new HttpError(403, 'Not allowed to view this demo');
 
     const includeRemoved = req.query.include_removed === '1' && approver;
-    const rows = await dc.getDemoCustomers(demoId, { includeRemoved });
+    const rows = await m.getDemoCustomers(demoId, { includeRemoved });
     const productQty = await m.getSingleItemQty(demoId);
-    const allocation = dc.validateAllocationTotal
-      ? (() => { try { return dc.validateAllocationTotal(rows.filter((r) => !r.is_removed), productQty); } catch { return null; } })()
-      : null;
+    const allocation = (() => {
+      try { return m.validateAllocationTotal(rows.filter((r) => !r.is_removed), productQty); }
+      catch { return null; }
+    })();
 
     res.json({ success: true, data: rows, allocation });
   });

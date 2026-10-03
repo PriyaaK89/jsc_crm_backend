@@ -2,13 +2,7 @@ const StockGroup = require("../models/stockGroup.model");
 
 exports.createStockGroup = async (req, res) => {
   try {
-    const {
-      name,
-      parent_id,
-      add_quantity,
-      gst_enabled,
-      overdue_limit
-    } = req.body;
+    const { name, parent_id, add_quantity, gst_enabled, overdue_limit } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: "Name is required" });
@@ -56,7 +50,6 @@ exports.getStockGroupsDropdown = async (req, res) => {
 exports.getStockGroupById = async (req, res) => {
   try {
     const { id } = req.params;
-
     const data = await StockGroup.getStockGroupById(id);
 
     if (!data) {

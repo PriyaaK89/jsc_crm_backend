@@ -49,11 +49,7 @@ exports.getStockCategoryById = async (id) => {
   return rows[0];
 };
 
-exports.updateStockCategory = async ({
-  id,
-  name,
-  stock_group_id
-}) => {
+exports.updateStockCategory = async ({ id, name, stock_group_id }) => {
   const [result] = await db.query(
     `UPDATE stock_categories 
      SET name = ?, stock_group_id = ?

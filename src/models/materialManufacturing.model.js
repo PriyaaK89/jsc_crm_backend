@@ -13,33 +13,21 @@ const db = require("../config/db");
 // GET STOCK ITEMS FOR DROPDOWN (id, name, rate, base/bulk unit info)
 // =============================
 const getStockItemsDropdown = async () => {
-    const [rows] = await db.query(`
+  const [rows] = await db.query(`
         SELECT
             si.id,
             si.item_name,
-
-            si.unit_id,
-            u.symbol AS base_unit_name,
-            si.base_unit_value,
-
-            si.bulk_unit_id,
-            bu.symbol AS bulk_unit_name,
-            si.bulk_unit_value,
-
+            si.crop_id, cr.crop_name,
+            si.unit_id, u.symbol AS base_unit_name, si.base_unit_value,
+            si.bulk_unit_id, bu.symbol AS bulk_unit_name, si.bulk_unit_value,
             sg.name AS stock_group_name,
-
             os.rate
 
         FROM stock_items si
-
-        LEFT JOIN units u
-            ON si.unit_id = u.id
-
-        LEFT JOIN units bu
-            ON si.bulk_unit_id = bu.id
-
-        LEFT JOIN stock_groups sg
-            ON si.stock_group_id = sg.id
+        LEFT JOIN crops cr ON cr.id = si.crop_id 
+        LEFT JOIN units u ON si.unit_id = u.id
+        LEFT JOIN units bu ON si.bulk_unit_id = bu.id
+        LEFT JOIN stock_groups sg ON si.stock_group_id = sg.id
 
         LEFT JOIN (
             SELECT t1.stock_item_id, t1.rate
@@ -57,7 +45,7 @@ const getStockItemsDropdown = async () => {
         ORDER BY si.item_name ASC
     `);
 
-    return rows;
+  return rows;
 };
 
 const getStockItemBatches = async (itemId, godownId) => {

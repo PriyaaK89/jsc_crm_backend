@@ -1,12 +1,6 @@
 const db = require("../config/db");
 
-exports.create = async ({
-  name,
-  parent_id,
-  add_quantity,
-  gst_enabled,
-  overdue_limit
-}) => {
+exports.create = async ({ name, parent_id, add_quantity, gst_enabled, overdue_limit}) => {
   //  Insert data
   const [result] = await db.query(
     `INSERT INTO stock_groups 
@@ -19,13 +13,7 @@ exports.create = async ({
 
   //  Fetch full inserted record
   const [rows] = await db.query(
-    `SELECT 
-        id, 
-        name, 
-        parent_id, 
-        add_quantity, 
-        gst_enabled, 
-        overdue_limit 
+    `SELECT id, name, parent_id, add_quantity, gst_enabled, overdue_limit 
      FROM stock_groups 
      WHERE id = ?`,
     [insertId]
@@ -49,20 +37,12 @@ exports.getAllStockGroups = async () => {
 };
 
 exports.getStockGroupById = async (id)=>{
-    const [rows] = await db.query(
-        `SELECT * FROM stock_groups WHERE id = ? `,[id] 
-    );
+    const [rows] = await db.query( `SELECT * FROM stock_groups WHERE id = ? `,[id]  );
     return rows[0];
 };
 
-exports.updateStockGroup = async ({
-  id,
-  name,
-  parent_id,
-  add_quantity,
-  gst_enabled,
-  overdue_limit
-}) => {
+exports.updateStockGroup = async ({ id, name,
+  parent_id, add_quantity, gst_enabled, overdue_limit }) => {
   const [result] = await db.query(
     `UPDATE stock_groups 
      SET name = ?, parent_id = ?, add_quantity = ?, gst_enabled = ?, overdue_limit = ?
@@ -75,10 +55,7 @@ exports.updateStockGroup = async ({
 
 // Delete
 exports.deleteStockGroup = async (id) => {
-  const [result] = await db.query(
-    `DELETE FROM stock_groups WHERE id = ?`,
-    [id]
-  );
+  const [result] = await db.query( `DELETE FROM stock_groups WHERE id = ?`, [id] );
 
   return result;
 };

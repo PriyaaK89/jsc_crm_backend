@@ -107,3 +107,25 @@ exports.listUnmappedFieldsForCrop = (req, res) => run(res, async () => {
   const stage = Number(req.query.stage) === 3 ? 3 : 2;
   res.json({ success: true, data: await crop.listUnmappedFieldsForCrop(req.params.id, { resultStage: stage }) });
 });
+
+exports.getGrowthFormByStockItem = (req, res) => run(res, async () => {
+  const item = await crop.getCropIdByStockItem(req.params.stockItemId);
+  if (!item) throw new HttpError(404, 'Stock item not found');
+
+  if (!item.crop_id) {
+    return res.json({
+      success: true,
+      message: 'No crop is linked to this stock item',
+      data: { crop: null, fields: [] },
+    });
+  }
+
+  const c = await crop.getCrop(item.crop_id);
+  if (!c || !c.is_active) {
+    return res.json({ success: true, message: 'Linked crop is inactive', data: { crop: null, fields: [] } });
+  }
+
+  const stage = Number(req.query.stage) === 3 ? 3 : 2;
+  const fields = await crop.getCropGrowthForm(item.crop_id, { resultStage: stage, activeOnly: true });
+  res.json({ success: true, data: { crop: c, fields } });
+});

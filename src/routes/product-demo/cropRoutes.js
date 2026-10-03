@@ -18,6 +18,8 @@ router.post('/create-crop-growth-fields', auth, c.createGrowthField);
 router.put('/update-crop-growth-fields/:id', auth, c.updateGrowthField);
 router.patch('/set-crop-growth-fields-active/:id/active', auth, c.setGrowthFieldActive);
 
+
+
 // dropdown options
 router.get('/crop-growth-fields/:fieldId/options', auth, c.listFieldOptions);
 router.post('/crop-growth-fields/:fieldId/options', auth, c.addFieldOption);
@@ -26,5 +28,6 @@ router.patch('/crop-growth-field-options/:optionId/active', auth, c.setFieldOpti
 // crop <-> field mapping
 router.post('/crops/:id/fields', auth, c.mapFieldToCrop);          // body: { field_id, display_order, is_required, unit_override, help_text }
 router.patch('/crop-field-mappings/:mappingId/unmap', auth, c.unmapFieldFromCrop);
+router.get('/get-growth-form-by-stock-item/:stockItemId', auth, c.getGrowthFormByStockItem);
 
 module.exports = router;

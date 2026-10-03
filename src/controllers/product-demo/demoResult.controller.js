@@ -41,8 +41,9 @@ exports.getResultsForCustomer = (req, res) => run(res, async () => {
   res.json({ success: true, data, max_results: dr.MAX_RESULTS });
 });
 
+
 exports.listDemoCustomersWithProgress = (req, res) => run(res, async () => {
-  const data = await dr.listDemoCustomersWithProgress(req.params.id);
+  const data = await dr.listDemoCustomersWithProgress(req.params.id, req.user);
   res.json({ success: true, data });
 });
 
@@ -57,5 +58,10 @@ exports.myPendingResultCustomers = (req, res) => run(res, async () => {
 
 exports.getFinalEvaluationForm = (req, res) => run(res, async () => {
   const data = await dr.getFinalEvaluationForm(req.params.id, req.params.customerId, req.user);
+  res.json({ success: true, data });
+});
+
+exports.getResultContext = (req, res) => run(res, async () => {
+  const data = await dr.getResultContext(req.params.id, req.params.customerId, req.user);
   res.json({ success: true, data });
 });

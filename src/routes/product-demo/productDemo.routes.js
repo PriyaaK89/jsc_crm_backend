@@ -6,6 +6,7 @@ const c = require('../../controllers/product-demo/productDemo.controller');
 const upload = require("../../middleware/upload.middleware");
 const { MAX_RESULT_PHOTOS } = require('../../models/product-demo/productDemo.model');
 const dr = require('../../controllers/product-demo/demoResult.controller');
+const tr = require('../../controllers/product-demo/demoTracking.controller');
 
 const proofUpload = upload.fields([
   { name: 'farm_image', maxCount: 1 },
@@ -62,5 +63,13 @@ router.post('/:id/customers/:customerId/results/:resultNo', auth, resultUpload, 
 router.get('/:id/customers/:customerId/results/3/final-form', auth, dr.getFinalEvaluationForm);
 
 router.get('/:id/customers/:customerId/results/context', auth, dr.getResultContext);
+
+// ---- field tracking ----
+router.get('/tracking/active', auth, tr.myActiveTrack);
+router.get('/tracking/:trackId', auth, tr.getTrack);
+router.post('/tracking/:trackId/points', auth, tr.addPoints);
+router.post('/tracking/:trackId/end', auth, tr.endTracking);
+router.post('/:id/customers/:customerId/results/:resultNo/tracking/start', auth, tr.startTracking);
+router.get('/:id/tracks', auth, tr.listDemoTracks);
 
 module.exports = router;

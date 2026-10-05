@@ -6,6 +6,7 @@ const db = require('../../config/db');
 const { HttpError } = require('./httpError');
 const m = require('./productDemo.model');       // canApproveDemo, log, notifyUsers, uploadResultPhotos
 const cropModel = require('./crop.model');       // getCropGrowthForm
+const tracking = require('./demoTracking.model');
 
 const MAX_RESULTS = 3;
 const MAX_RESULT_PHOTOS = m.MAX_RESULT_PHOTOS;
@@ -322,7 +323,12 @@ async function addResultForCustomer({ demoId, customerId, resultNo, body, files,
       };
     }
 
+     const trackToLink = await tracking.resolveTrackForResult(conn, {
+      demoId, customerId, resultNo, user, trackId: b.track_id,
+    });
+
     const photos = await m.uploadResultPhotos(files);
+
 
     const cols = {
       demo_id: demoId,
@@ -349,6 +355,7 @@ async function addResultForCustomer({ demoId, customerId, resultNo, body, files,
         [values]
       );
     }
+        if (trackToLink) await tracking.attachTrackToResult(conn, trackToLink, resultId);
 
     const newCustomerStatus = resultNo >= MAX_RESULTS ? 'COMPLETED' : 'IN_PROGRESS';
     await conn.query(

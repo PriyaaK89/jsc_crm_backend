@@ -930,7 +930,7 @@ exports.getMyProfile = async (req, res) => {
     const userId = req.user.id;
 
     // fetch user basic data
-  const [rows] = await db.query( ` SELECT  u.id, u.name, u.email, u.profile_image, d.name AS department_name, jr.name AS job_role_name
+  const [rows] = await db.query( ` SELECT  u.id, u.name, u.email, u.profile_image, u.headquarter, d.name AS department_name, jr.name AS job_role_name
   FROM users u
   LEFT JOIN department d ON d.id = u.department_id
   LEFT JOIN job_roles jr ON jr.id = u.job_role_id
@@ -962,6 +962,7 @@ exports.getMyProfile = async (req, res) => {
     email: user.email,
     department_name: user.department_name,
     job_role_name: user.job_role_name,
+    headquarter: user.headquarter,
     profile_image_url: profileImageUrl,
       },
     });

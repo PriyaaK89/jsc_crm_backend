@@ -92,6 +92,7 @@ const whatsappRoutes = require("../src/routes/whatsapp.routes");
 const companyHolidayRoutes  =require("../src/routes/companyHoliday.routes");
 const demoRoute  = require("../src/routes/product-demo/productDemo.routes");
 const cropRoute = require('../src/routes/product-demo/cropRoutes');
+const todayPriorityRoute = require('../src/routes/employee-performance/todayPriority.routes');
 
 // Health check
 app.get('/', (req, res) => {
@@ -165,6 +166,7 @@ app.use("/api/whatsapp", whatsappRoutes);
 app.use(companyHolidayRoutes);
 app.use(demoRoute);
 app.use(cropRoute);
+app.use(todayPriorityRoute);
 
 // 404 handler
 app.use((req, res) => {

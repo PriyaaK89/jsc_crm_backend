@@ -1,8 +1,7 @@
 const db = require("../config/db");
 
 exports.createTarget = async (values) => {
-  const query = `
-        INSERT INTO visit_targets
+  const query = ` INSERT INTO visit_targets
         ( assigned_by, assigned_to, category_id, visit_type, target_type, target_value, start_date, end_date )
         VALUES ? `;
 

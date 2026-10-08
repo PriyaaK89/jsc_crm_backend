@@ -93,6 +93,8 @@ const companyHolidayRoutes  =require("../src/routes/companyHoliday.routes");
 const demoRoute  = require("../src/routes/product-demo/productDemo.routes");
 const cropRoute = require('../src/routes/product-demo/cropRoutes');
 const todayPriorityRoute = require('../src/routes/employee-performance/todayPriority.routes');
+const EmpPerformanceTrackerRoute = require("../src/routes/employee-performance/performance.routes");
+const assignTaskRoute = require("../src/routes/employee-performance/task.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -167,6 +169,9 @@ app.use(companyHolidayRoutes);
 app.use(demoRoute);
 app.use(cropRoute);
 app.use(todayPriorityRoute);
+app.use(EmpPerformanceTrackerRoute);
+app.use(assignTaskRoute);
+
 
 // 404 handler
 app.use((req, res) => {

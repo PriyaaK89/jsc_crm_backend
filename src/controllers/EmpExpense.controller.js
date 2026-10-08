@@ -2,6 +2,45 @@ const db = require("../config/db");
 const expenseModel = require("../models/EmpExpense.model");
 const { uploadFileToMinio } = require("../utils/fileUpload");
 const { getPresignedUrl } = require("../utils/fileUpload");
+const { validateExpensePayload } = require("../utils/expenseValidator");
+
+const buildDetails = (e) => {
+  switch (e.expense_type) {
+    case "HOTEL":
+      return {
+        hotel_name: e.hotel_name, city: e.city,
+        check_in_date: e.check_in_date, check_out_date: e.check_out_date,
+        payment_mode: e.payment_mode
+      };
+    case "BUS_TRAIN_TOLL":
+      return {
+        travel_mode: e.travel_mode,
+        from_location: e.from_location, to_location: e.to_location
+      };
+    case "PETROL_DIESEL":
+      return {
+        vehicle_type: e.vehicle_type, fuel_type: e.fuel_type,
+        odometer_km: e.odometer_km, fuel_liters: e.fuel_liters
+      };
+    case "OTHER":
+      return { category: e.other_category };
+    default:
+      return {};
+  }
+};
+
+const formatEntry = async (e) => ({
+  id: e.id,
+  expense_type: e.expense_type,
+  expense_date: e.expense_date,
+  amount: e.amount,
+  remarks: e.remarks,
+  status: e.status,
+  hold_status: e.hold_status,
+  hold_reason: e.hold_reason,
+  bill_url: e.bill_object_path ? await getPresignedUrl(e.bill_object_path) : null,
+  details: buildDetails(e)
+});
 
 exports.setExpenseAllocation = async (req, res) => {
   try {
@@ -118,82 +157,53 @@ exports.getMyExpenseSummary = async (req, res) => {
 exports.uploadMyExpense = async (req, res) => {
   try {
     const userId = req.user?.id || req.body.user_id;
-    const {
-      expense_type,
-      expense_date,
-      amount,
-      remarks
-    } = req.body;
+    const expense_type = String(req.body.expense_type || "").toUpperCase();
 
-    if (!userId || !expense_type || !expense_date || !amount) {
-      return res.status(400).json({
-        message: "user_id, expense_type, expense_date and amount are required"
-      });
+    if (!userId || !expense_type) {
+      return res.status(400).json({ message: "user_id and expense_type are required" });
     }
-
     if (!EXPENSE_TYPES.includes(expense_type)) {
-      return res.status(400).json({
-        message: "Invalid expense type"
-      });
+      return res.status(400).json({ message: "Invalid expense type" });
     }
-     if (!req.file) {
-      return res.status(400).json({
-        message: "Please upload bill image"
-      });
+    if (!req.file) {
+      return res.status(400).json({ message: "Please upload bill image" });
     }
 
-
-    const parsedAmount = parseFloat(amount);
-
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      return res.status(400).json({
-        message: "Amount must be greater than 0"
-      });
+    // per-type validation
+    const parsed = validateExpensePayload(expense_type, req.body);
+    if (parsed.error) {
+      return res.status(400).json({ message: parsed.error });
     }
+    const { expense_date, amount: parsedAmount, remarks, details } = parsed;
 
     const allocation = await expenseModel.getAllocationByUserId(userId);
-
     if (!allocation) {
+      return res.status(400).json({ message: "No expense allocation found for this employee" });
+    }
+
+    // per-day cap check (unchanged logic)
+    const allocatedAmount = getAllocatedAmountByType(allocation, expense_type);
+    const usedAmount = parseFloat(
+      await expenseModel.getTotalUploadedForDate(allocation.id, expense_type, expense_date)
+    );
+    const remainingAmount = allocatedAmount - usedAmount;
+
+    if (parsedAmount > remainingAmount) {
       return res.status(400).json({
-        message: "No expense allocation found for this employee"
+        message: "Uploaded amount exceeds remaining allocation for this date",
+        data: {
+          expense_type,
+          expense_date,
+          allocated_amount: allocatedAmount,
+          used_amount: usedAmount,
+          remaining_amount: remainingAmount < 0 ? 0 : remainingAmount
+        }
       });
     }
 
-const allocatedAmount = getAllocatedAmountByType(allocation, expense_type);
+    const billUpload = await uploadFileToMinio(req.file, "bills");
 
-// CHANGED: was getTotalUploaded(allocation.id, expense_type), which
-// summed EVERY entry ever uploaded — that's why the cap never reset.
-// Now scoped to this specific expense_date, so each day gets its
-// own fresh allocation.
-const usedAmount = parseFloat(
-  await expenseModel.getTotalUploadedForDate(allocation.id, expense_type, dateOnly(expense_date))
-);
-
-const remainingAmount = allocatedAmount - usedAmount;
-
-if (parsedAmount > remainingAmount) {
-  return res.status(400).json({
-    message: "Uploaded amount exceeds remaining allocation for this date",
-    data: {
-      expense_type,
-      expense_date,
-      allocated_amount: allocatedAmount,
-      used_amount: usedAmount,
-      remaining_amount: remainingAmount < 0 ? 0 : remainingAmount
-    }
-  });
-}
-
-    let billUpload = {
-      object_path: null,
-      file_url: null
-    };
-
-    if (req.file) {
-      billUpload = await uploadFileToMinio(req.file, "bills");
-    }
-
-    const createdExpense = await expenseModel.createExpenseEntry({
+    const created = await expenseModel.createExpenseEntry({
       allocation_id: allocation.id,
       user_id: userId,
       expense_type,
@@ -201,30 +211,25 @@ if (parsedAmount > remainingAmount) {
       amount: parsedAmount,
       bill_object_path: billUpload.object_path,
       bill_url: billUpload.file_url,
-      remarks: remarks || null
+      remarks,
+      details
     });
 
     return res.status(201).json({
       message: "Expense uploaded successfully",
-      data: createdExpense
+      data: created
     });
   } catch (error) {
-    if (error.code === "ER_DUP_ENTRY") {
-      return res.status(400).json({
-        message: "Same expense type already uploaded for this date"
-      });
-    }
-
-    return res.status(500).json({
-      error: error.message
-    });
+    return res.status(500).json({ error: error.message });
   }
 };
 
 exports.getMyUploadedExpenses = async (req, res) => {
   try {
     const userId = req.user?.id || req.params.userId || req.query.user_id;
-    const { expense_type } = req.query;
+    const expense_type = req.query.expense_type
+      ? String(req.query.expense_type).toUpperCase()
+      : null;
 
     if (!userId) {
       return res.status(400).json({
@@ -246,10 +251,13 @@ exports.getMyUploadedExpenses = async (req, res) => {
       expenses = await expenseModel.getUserExpenseEntries(userId);
     }
 
+    // adds type-specific `details` and a presigned bill_url to each entry
+    const data = await Promise.all(expenses.map(formatEntry));
+
     return res.status(200).json({
       message: "Uploaded expenses fetched successfully",
-      count: expenses.length,
-      data: expenses
+      count: data.length,
+      data
     });
   } catch (error) {
     return res.status(500).json({
@@ -336,25 +344,7 @@ exports.getAdminExpenseSummary = async (req, res) => {
         }
 
         const rawEntries = entriesByUser[row.user_id] || [];
-        const entries = await Promise.all(
-          rawEntries.map(async (entry) => {
-            let bill_url = null;
-            if (entry.bill_object_path) {
-              bill_url = await getPresignedUrl(entry.bill_object_path);
-            }
-            return {
-              id: entry.id,
-              expense_type: entry.expense_type,
-              expense_date: entry.expense_date,
-              amount: entry.amount,
-              remarks: entry.remarks,
-              status: entry.status,
-              hold_status: entry.hold_status,
-              hold_reason: entry.hold_reason,
-              bill_url
-            };
-          })
-        );
+        const entries = await Promise.all(rawEntries.map(formatEntry));
 
         return {
           user_id: row.user_id,
@@ -459,26 +449,7 @@ exports.getEmployeeExpenseByDate = async (req, res) => {
       offset
     });
 
-    const entries = await Promise.all(
-      rawEntries.map(async (entry) => {
-        let bill_url = null;
-        if (entry.bill_object_path) {
-          bill_url = await getPresignedUrl(entry.bill_object_path);
-        }
-
-        return {
-          id: entry.id,
-          expense_type: entry.expense_type,
-          expense_date: entry.expense_date,
-          amount: entry.amount,
-          remarks: entry.remarks,
-          status: entry.status,
-          hold_status: entry.hold_status,
-          hold_reason: entry.hold_reason,
-          bill_url
-        };
-      })
-    );
+   const entries = await Promise.all(rawEntries.map(formatEntry));
 
     return res.status(200).json({
       message: "Employee expense fetched successfully",

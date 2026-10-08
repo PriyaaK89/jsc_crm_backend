@@ -548,6 +548,12 @@ const getEmployeeLoginTime = async (employeeId) => {
   return row ? row.login_time : null;
 };
 
+module.exports = { createUser, findUserByEmail, getAllUsers, getUserById,
+  updateUserById, updatePasswordByAdmin, updateUserStatus, softDeleteUser,
+  getDeletedUsers, getUserDropdown, updateProfileImage, getSubordinateIds,
+  getUsersUnderManager, getPermissionsByUser, saveUserPermissions, getVisitUptoByUserId, getUserContactById,
+  getEmployeeLoginTime};
+
 // const softDeleteUser = async (userId) => {
 //   const conn = await db.getConnection();
 
@@ -578,9 +584,3 @@ const getEmployeeLoginTime = async (employeeId) => {
 //     conn.release();
 //   }
 // };
-
-
-module.exports = { createUser, findUserByEmail, getAllUsers, getUserById,
-  updateUserById, updatePasswordByAdmin, updateUserStatus, softDeleteUser,
-  getDeletedUsers, getUserDropdown, updateProfileImage, getSubordinateIds,
-  getUsersUnderManager, getPermissionsByUser, saveUserPermissions, getVisitUptoByUserId, getUserContactById ,getEmployeeLoginTime};

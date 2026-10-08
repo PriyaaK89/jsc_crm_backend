@@ -11,22 +11,16 @@ exports.createTarget = async (req,res)=>{
             return res.status(400).json({ message:"Please select employees" });
         }
 
-        if(!targets){
-            return res.status(400).json({ message:"Targets required" });
-        }
+        if(!targets){ return res.status(400).json({ message:"Targets required" });}
+
         const values=[];
 
         assigned_to_ids.forEach(userId=>{
             Object.entries(targets).forEach(([visitType,targetValue])=>{
                 values.push([
-                    loggedInUser.id,
-                    userId,
-                    category_id,
-                    visitType,
-                    target_type,
-                    targetValue,
-                    start_date,
-                    end_date
+                    loggedInUser.id, userId,
+                    category_id, visitType, target_type,
+                    targetValue, start_date, end_date
                 ]);
             });
         });
@@ -56,8 +50,6 @@ exports.getMyTargets = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
-
 
 exports.getVisitStats = async (req, res) => {
   try {

@@ -1,5 +1,13 @@
 const db = require("../config/db");
 
+const DETAIL_COLUMNS = [
+  "other_category", "travel_mode", "from_location", "to_location",
+  "vehicle_type", "fuel_type", "odometer_km", "fuel_liters",
+  "hotel_name", "city", "check_in_date", "check_out_date", "payment_mode"
+];
+const DETAIL_SELECT = DETAIL_COLUMNS.join(", ");
+exports.DETAIL_COLUMNS = DETAIL_COLUMNS;
+
 exports.createAllocation = async ({ user_id, hotel_amount, bus_train_toll_amount, petrol_diesel_amount, other_amount}) => {
   const [result] = await db.execute(
     `INSERT INTO employee_expense_allocations
@@ -153,35 +161,53 @@ exports.getUsedAmountByTypeForDate = async (userId, expenseType, date) => {
   return rows[0].total;
 };
 
-exports.createExpenseEntry = async ({ allocation_id, user_id, expense_type, expense_date, amount, bill_object_path, bill_url, remarks
+// exports.createExpenseEntry = async ({ allocation_id, user_id, expense_type, expense_date, amount, bill_object_path, bill_url, remarks
+// }) => {
+//   const [result] = await db.execute(
+//     `INSERT INTO employee_expense_entries
+//     (
+//       allocation_id, user_id, expense_type, expense_date,
+//       amount, bill_object_path, bill_url, remarks
+//     )
+//     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+//     [ allocation_id, user_id, expense_type, expense_date, amount, bill_object_path, bill_url, remarks]
+//   );
+
+//   return {
+//     id: result.insertId,
+//     allocation_id, user_id, expense_type, expense_date,
+//     amount, bill_object_path, bill_url, remarks
+//   };
+// };
+
+exports.createExpenseEntry = async ({
+  allocation_id, user_id, expense_type, expense_date, amount,
+  bill_object_path, bill_url, remarks, details = {}
 }) => {
+  const cols = [
+    "allocation_id", "user_id", "expense_type", "expense_date",
+    "amount", "bill_object_path", "bill_url", "remarks"
+  ];
+  const vals = [
+    allocation_id, user_id, expense_type, expense_date,
+    amount, bill_object_path, bill_url, remarks
+  ];
+
+  // column names come from the whitelist, never from user input
+  for (const col of DETAIL_COLUMNS) {
+    if (details[col] !== undefined && details[col] !== null) {
+      cols.push(col);
+      vals.push(details[col]);
+    }
+  }
+
   const [result] = await db.execute(
-    `INSERT INTO employee_expense_entries
-    (
-      allocation_id,
-      user_id,
-      expense_type,
-      expense_date,
-      amount,
-      bill_object_path,
-      bill_url,
-      remarks
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [ allocation_id, user_id, expense_type, expense_date, amount, bill_object_path, bill_url, remarks]
+    `INSERT INTO employee_expense_entries (${cols.join(", ")})
+     VALUES (${cols.map(() => "?").join(", ")})`,
+    vals
   );
 
-  return {
-    id: result.insertId,
-    allocation_id,
-    user_id,
-    expense_type,
-    expense_date,
-    amount,
-    bill_object_path,
-    bill_url,
-    remarks
-  };
+  return { id: result.insertId, ...Object.fromEntries(cols.map((c, i) => [c, vals[i]])) };
 };
 
 exports.getUserExpenseEntries = async (userId) => {
@@ -198,7 +224,8 @@ exports.getUserExpenseEntries = async (userId) => {
         remarks,
         status,
         created_at,
-        updated_at
+        updated_at,
+         ${DETAIL_SELECT}
      FROM employee_expense_entries
      WHERE user_id = ?
      ORDER BY expense_date DESC, id DESC`,
@@ -222,7 +249,8 @@ exports.getUserExpenseEntriesByType = async (userId, expenseType) => {
         remarks,
         status,
         created_at,
-        updated_at
+        updated_at,
+        ${DETAIL_SELECT}
      FROM employee_expense_entries
      WHERE user_id = ? AND expense_type = ?
      ORDER BY expense_date DESC, id DESC`,
@@ -250,7 +278,8 @@ exports.getUserExpenseEntriesForDate = async (userId, date) => {
         status,
         hold_status,
         hold_reason,
-        created_at
+        created_at,
+        ${DETAIL_SELECT}
      FROM employee_expense_entries
      WHERE user_id = ? AND DATE(expense_date) = ?
      ORDER BY expense_type ASC`,
@@ -349,7 +378,8 @@ exports.getEntriesForUsersInRange = async (userIds, startDate, endDate) => {
       remarks,
       status,
       hold_status,
-      hold_reason
+      hold_reason,
+      ${DETAIL_SELECT}
     FROM employee_expense_entries
     WHERE user_id IN (${placeholders})
       AND DATE(expense_date) BETWEEN ? AND ?
@@ -549,7 +579,8 @@ exports.getUserExpenseEntriesFiltered = async (userId, {
       e.status,
       e.hold_status,
       e.hold_reason,
-      e.created_at
+      e.created_at,
+      ${DETAIL_SELECT}
     FROM employee_expense_entries e
     WHERE ${whereClause}
     ORDER BY e.expense_date DESC, e.id DESC
@@ -588,7 +619,8 @@ exports.getExpenseEntriesForAdmin = async (userId, filters = {}) => {
       e.amount,
       e.bill_object_path,
       e.remarks,
-      e.status
+      e.status,
+      ${DETAIL_SELECT}
     FROM employee_expense_entries e
     WHERE ${where.join(" AND ")}
     ORDER BY e.expense_date DESC

@@ -25,17 +25,6 @@ const getSubordinates = async (userId) => {
   return allSubordinates;
 };
 
-// exports.getSubordinates = async (userId) => {
-//   let allSubordinates = [];
-//   const directSubs = await getDirectSubordinates(userId);
-
-//   for (const sub of directSubs) {
-//     allSubordinates.push(sub);
-//     const nestedSubs = await getSubordinates(sub.id);
-//     allSubordinates.push(...nestedSubs);
-//   }
-//   return allSubordinates;
-// };
 exports.getManagers = getManagers;
 exports.getSubordinates = getSubordinates;
 // ======================================
@@ -76,3 +65,16 @@ exports.getHierarchyIds = async (userId) => {
     ...subs.map(x => x.id)
   ];
 };
+
+
+// exports.getSubordinates = async (userId) => {
+//   let allSubordinates = [];
+//   const directSubs = await getDirectSubordinates(userId);
+
+//   for (const sub of directSubs) {
+//     allSubordinates.push(sub);
+//     const nestedSubs = await getSubordinates(sub.id);
+//     allSubordinates.push(...nestedSubs);
+//   }
+//   return allSubordinates;
+// };

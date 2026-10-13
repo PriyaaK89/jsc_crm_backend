@@ -242,8 +242,7 @@ const updateEmployeeTarget = async (connection, id, data) => {
   const { user_id, role, target_type, duration_type, start_date, end_date, target_amount } = data;
 
   const [result] = await connection.query(
-    `
-    UPDATE employee_targets
+    ` UPDATE employee_targets
     SET
       user_id = ?,
       role = ?,
@@ -357,13 +356,6 @@ const getTargetsByFilters = async ({
   return Promise.all(rows.map(attachAchievement));
 };
 
-module.exports = {
-  createEmployeeTarget,
-  insertTargetCategories,
-  getEmployeeTargets,
-  getEmployeeTargetById,
-  updateEmployeeTarget,
-  deleteTargetCategories,
-  deleteEmployeeTarget,
-  calculateAchievement, getTargetsByFilters
-};
+module.exports = { createEmployeeTarget, insertTargetCategories, getEmployeeTargets, 
+  getEmployeeTargetById, updateEmployeeTarget, deleteTargetCategories, deleteEmployeeTarget,
+  calculateAchievement, getTargetsByFilters };

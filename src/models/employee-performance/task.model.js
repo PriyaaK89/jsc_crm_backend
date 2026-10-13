@@ -223,7 +223,34 @@ const countProofs = async (taskId) => {
     return row.c;
 };
 
+// All subordinates (every level below) without WITH RECURSIVE, so it works on
+// MySQL 5.7 / old MariaDB. One query per hierarchy level. Excludes the user.
+const getDownlineIds = async (userId) => {
+  const visited = new Set([Number(userId)]); // also protects against loops
+  let frontier = [Number(userId)];
+  const result = [];
+
+  while (frontier.length > 0) {
+    const [rows] = await db.query(
+      `SELECT id FROM users WHERE reporting_under IN (?)`,
+      [frontier]
+    );
+
+    frontier = [];
+    for (const r of rows) {
+      if (!visited.has(r.id)) {
+        visited.add(r.id);
+        result.push(r.id);
+        frontier.push(r.id);
+      }
+    }
+  }
+
+  return result;
+};
+
 module.exports = {
+    hasPermission,
     getAssignerContext,
     getAssignableRoles,
     getAssignableUsers,
@@ -237,4 +264,5 @@ module.exports = {
     addProofs,
     getProofsByTaskIds,
     countProofs,
+     getDownlineIds,
 };

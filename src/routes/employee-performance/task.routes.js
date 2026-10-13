@@ -18,17 +18,17 @@ const upload = multer({
 // Assigner (CRM)
 router.get("/get-assignable-roles", authMiddleware, c.getAssignableRoles);
 router.get("/get-assignable-users", authMiddleware, c.getAssignableUsers);
-router.post("/", authMiddleware, c.createTask);
-router.get("/assigned-by-me", authMiddleware, c.getAssignedByMe);
+router.post("/assign-task", authMiddleware, c.createTask);
+router.get("/get-task-assigned-by-me", authMiddleware, c.getAssignedByMe);
 
 // Assignee (Flutter)
-router.get("/my", authMiddleware, c.getMyTasks);
+router.get("/get-my-tasks", authMiddleware, c.getMyTasks);
 
 // Single task + actions
-router.get("/:id", authMiddleware, c.getTask);
-router.patch("/:id/start", authMiddleware, c.startTask);
-router.post("/:id/proof", authMiddleware, upload.array("files", 5), c.uploadProof);
-router.patch("/:id/comment", authMiddleware, c.addComment);
-router.patch("/:id/complete", authMiddleware, c.completeTask);
+router.get("/get-task-by-id/:id", authMiddleware, c.getTask);
+router.patch("/start-task/:id", authMiddleware, c.startTask);
+router.post("/upload-proof/:id", authMiddleware, upload.array("files", 3), c.uploadProof);
+router.patch("/add-comment/:id", authMiddleware, c.addComment);
+router.patch("/complete-task/:id", authMiddleware, c.completeTask);
 
 module.exports = router;

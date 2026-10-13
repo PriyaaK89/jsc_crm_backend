@@ -1,15 +1,24 @@
 const taskModel = require("../../models/employee-performance/task.model");
-const { getSubordinateIds } = require("../../models/user.model");
 const { uploadFileToMinio, getPresignedUrl } = require("../../utils/fileUpload"); 
 
 const ASSIGN_ALL_PERMISSION_CODE = "TASK_ASSIGN_ANY";
-const ASSIGNER_JOB_ROLES = ["ZSM", "RSM", "ASM", "TSM"];
+const ASSIGNER_JOB_ROLES = ["ZSM", "RSM", "ASM", "TSM", "SO"];
 const ADMIN_ROLES = ["admin", "superadmin"];
 const PRIORITIES = ["HIGH", "MEDIUM", "LOW"];
 const STATUSES = ["PENDING", "IN_PROGRESS", "COMPLETED"];
 const VALID_ACTIONS = ["START_TASK", "UPLOAD_PROOF", "COMMENT", "COMPLETE"];
+const MAX_ASSIGNER_LEVEL = 5;
 
 const normalize = (s) => (s || "").toString().toLowerCase().replace(/[\s_-]/g, "");
+
+// If START_TASK was enabled, the other buttons unlock only after the task is started
+const ensureStarted = (task, res) => {
+  if (actionsOf(task).includes("START_TASK") && task.status === "PENDING") {
+    res.status(409).json({ message: "Please start the task first" });
+    return false;
+  }
+  return true;
+};
 
 // Works out what the logged-in user may do
 const getScope = async (userId) => {
@@ -22,16 +31,14 @@ const getScope = async (userId) => {
   const hasAllAccess =
     isAdmin || (await taskModel.hasPermission(userId, ASSIGN_ALL_PERMISSION_CODE));
 
-  const isManager = ASSIGNER_JOB_ROLES.includes(
-    (ctx.job_role || "").toUpperCase().trim()
-  );
+  // const isManager = ASSIGNER_JOB_ROLES.includes((ctx.job_role || "").toUpperCase().trim() );
+  const isManager = ctx.level !== null && ctx.level !== undefined && ctx.level <= MAX_ASSIGNER_LEVEL;
   const canAssign = hasAllAccess || isManager;
 
-  // null = unrestricted. Otherwise downline ids, excluding self.
+   // null = unrestricted. Otherwise downline ids (self is never included).
   let teamIds = null;
   if (!hasAllAccess && isManager) {
-    const ids = await getSubordinateIds(userId);
-    teamIds = ids.filter((id) => id !== userId);
+    teamIds = await taskModel.getDownlineIds(userId);
   }
 
   return { ctx, isAdmin, hasAllAccess, canAssign, teamIds };
@@ -168,6 +175,11 @@ exports.createTask = async (req, res) => {
         message: `allowed_actions must be a non-empty array of: ${VALID_ACTIONS.join(", ")}`,
       });
     }
+    if (!allowed_actions.includes("COMPLETE")) {
+  return res.status(400).json({
+    message: "The Complete button is required so the employee can finish the task",
+  });
+}
     const wantsProof = proof_required === true || proof_required === "true" || proof_required === 1;
     if (wantsProof && !allowed_actions.includes("UPLOAD_PROOF")) {
       return res.status(400).json({
@@ -293,6 +305,7 @@ exports.uploadProof = async (req, res) => {
 
     if (!actionsOf(task).includes("UPLOAD_PROOF"))
       return res.status(403).json({ message: "Proof upload is not enabled for this task" });
+    if (!ensureStarted(task, res)) return;
     if (task.status === "COMPLETED")
       return res.status(409).json({ message: "Task is already completed" });
     if (!req.files || req.files.length === 0)
@@ -321,6 +334,8 @@ exports.addComment = async (req, res) => {
     if (!actionsOf(task).includes("COMMENT"))
       return res.status(403).json({ message: "Comment is not enabled for this task" });
 
+    if (!ensureStarted(task, res)) return;
+
     const comment = (req.body.comment || "").trim();
     if (!comment) return res.status(400).json({ message: "Comment is required" });
 
@@ -342,6 +357,8 @@ exports.completeTask = async (req, res) => {
 
     if (!actionsOf(task).includes("COMPLETE"))
       return res.status(403).json({ message: "Complete is not enabled for this task" });
+
+    if (!ensureStarted(task, res)) return;
 
     if (task.proof_required && (await taskModel.countProofs(task.id)) === 0)
       return res.status(400).json({ message: "Please upload proof before completing" });

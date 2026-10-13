@@ -95,14 +95,8 @@ exports.createEmployeeTarget = async (req, res) => {
 // ================= GET ALL =================
 exports.getEmployeeTargets = async (req, res) => {
   try {
-    const {
-      page = 1,
-      limit = 10,
-      search = "",
-      role = "",
-      target_type = "",
-      duration_type = ""
-    } = req.query;
+    const { page = 1, limit = 10, search = "", role = "",
+      target_type = "", duration_type = "" } = req.query;
 
     const targets = await empTargetModel.getEmployeeTargets({
       page, limit, search, role, target_type, duration_type
@@ -153,13 +147,9 @@ exports.updateEmployeeTarget = async (req, res) => {
     await connection.beginTransaction();
 
     const affected = await empTargetModel.updateEmployeeTarget(connection, id, {
-      user_id,
-      role,
-      target_type,
-      duration_type,
-      start_date: String(start_date).slice(0, 10),
-      end_date,
-      target_amount
+      user_id, role, target_type,
+      duration_type, start_date: String(start_date).slice(0, 10),
+      end_date, target_amount
     });
 
     if (!affected) {

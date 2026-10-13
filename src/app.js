@@ -95,6 +95,7 @@ const cropRoute = require('../src/routes/product-demo/cropRoutes');
 const todayPriorityRoute = require('../src/routes/employee-performance/todayPriority.routes');
 const EmpPerformanceTrackerRoute = require("../src/routes/employee-performance/performance.routes");
 const assignTaskRoute = require("../src/routes/employee-performance/task.routes");
+const collectionAreaRoute = require("../src/routes/assign-area-to-emp/collectionArea.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -171,6 +172,7 @@ app.use(cropRoute);
 app.use(todayPriorityRoute);
 app.use(EmpPerformanceTrackerRoute);
 app.use(assignTaskRoute);
+app.use(collectionAreaRoute);
 
 
 // 404 handler

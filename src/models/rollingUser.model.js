@@ -43,7 +43,6 @@ const getDirectSubordinates = async (userId) => {
 };
 
 const getUsersByLevelAndHierarchy = async ( level, userIds ) => {
-
   const [rows] = await db.query(
     ` SELECT
       u.id,

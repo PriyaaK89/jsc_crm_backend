@@ -459,5 +459,98 @@ const deleteStockItem = async (id) => {
     }
 };
 
-module.exports = { createStockItem, createGSTDetails, createOpeningStock, getStockItems,
-    getStockItemById, getGSTDetails, getOpeningStock, deleteStockItem };
+// =============================
+// GET PRICE LIST (mobile app)
+// =============================
+const PRICE_LIST_FROM_SQL = `
+    FROM stock_items si
+    LEFT JOIN stock_groups sg     ON si.stock_group_id = sg.id
+    LEFT JOIN stock_categories sc ON si.stock_category_id = sc.id
+    LEFT JOIN crops cr            ON si.crop_id = cr.id
+    LEFT JOIN units u             ON si.unit_id = u.id
+    LEFT JOIN units au            ON si.alternative_unit_id = au.id
+    LEFT JOIN units bu            ON si.bulk_unit_id = bu.id
+    LEFT JOIN stock_item_opening_stock os
+        ON os.id = (
+            SELECT MAX(os2.id)
+            FROM stock_item_opening_stock os2
+            WHERE os2.stock_item_id = si.id
+        )
+`;
+
+const getPriceList = async ({ search = "", group_id = null, page = 1, limit = 20 }) => {
+    const pageNo = Math.max(Number(page) || 1, 1);
+    const pageSize = Math.min(Math.max(Number(limit) || 20, 1), 100);
+    const offset = (pageNo - 1) * pageSize;
+
+    const where = ["si.is_active = 1", "si.item_name LIKE ?", "os.rate > 0"];
+    const params = [`%${search}%`];
+
+    if (group_id) {
+        where.push("si.stock_group_id = ?");
+        params.push(Number(group_id));
+    }
+    const whereSql = where.join(" AND ");
+
+    const [countRows] = await db.query(
+        `SELECT COUNT(*) AS total ${PRICE_LIST_FROM_SQL} WHERE ${whereSql}`,
+        params
+    );
+    const totalRecords = countRows[0].total;
+
+    const [rows] = await db.query(
+        `
+        SELECT
+            si.id,
+            si.item_name,
+            si.stock_group_id,
+            sg.name AS group_name,
+            sc.name AS category_name,
+            si.crop_id,
+            cr.crop_name,
+
+            si.unit_id,
+            si.alternative_unit_id,
+            si.bulk_unit_id,
+            u.symbol  AS base_unit,
+            au.symbol AS alternative_unit,
+            bu.symbol AS bulk_unit,
+
+            si.alternative_unit_value,
+            si.base_unit_value,
+            si.bulk_unit_value,
+            si.bulk_base_value,
+
+            os.rate,
+            os.per_unit_id
+        ${PRICE_LIST_FROM_SQL}
+        WHERE ${whereSql}
+        ORDER BY si.item_name ASC
+        LIMIT ? OFFSET ?
+        `,
+        [...params, pageSize, offset]
+    );
+
+    return {
+        rows,
+        totalRecords,
+        totalPages: Math.ceil(totalRecords / pageSize),
+        currentPage: pageNo,
+        limit: pageSize,
+    };
+};
+
+// filter chips (All / Seeds / Fertilizer / Pesticide)
+const getPriceListGroups = async () => {
+    const [rows] = await db.query(
+        `SELECT id, name FROM stock_groups ORDER BY name ASC`
+    );
+    return rows;
+};
+
+
+module.exports = {
+    createStockItem, createGSTDetails, createOpeningStock, getStockItems,
+    getStockItemById, getGSTDetails, getOpeningStock, deleteStockItem,
+    getPriceList, getPriceListGroups,
+};

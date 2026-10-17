@@ -4,7 +4,9 @@ const createLedger = async (ledgerData) => {
   const {
     ledger_name, group_id, employee_under,
     opening_balance, balance_type, opening_date,
-    mailing_name, location, country, state, pincode, pan_no, gst_no,
+    mailing_name, location, country, state, pincode,
+    state_id, district_id, tehsil_id, village_id,
+    pan_no, gst_no,
     maintain_bill_by_bill,
     default_credit_period,
     check_credit_days,
@@ -19,6 +21,7 @@ const createLedger = async (ledgerData) => {
       ledger_name, group_id, employee_under,
       opening_balance, balance_type, opening_date,
       mailing_name, location, country, state, pincode,
+      state_id, district_id, tehsil_id, village_id,
       pan_no, gst_no,
       maintain_bill_by_bill, default_credit_period, check_credit_days, credit_limit,
       inventory_values_affected, use_for_payroll,
@@ -26,11 +29,12 @@ const createLedger = async (ledgerData) => {
       od_limit,
       created_by
     )
-    VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ) `,
+    VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ) `,
     [
       ledger_name, group_id, employee_under || null,
       opening_balance || 0, balance_type || "Dr", opening_date || null,
       mailing_name || null, location || null, country || null, state || null, pincode || null,
+      state_id ?? null, district_id ?? null, tehsil_id ?? null, village_id ?? null,
       pan_no || null, gst_no || null,
       maintain_bill_by_bill || 0, default_credit_period || 0, check_credit_days || 0, credit_limit || 0,
       inventory_values_affected || 0, use_for_payroll || 0,
@@ -41,6 +45,48 @@ const createLedger = async (ledgerData) => {
 
   return result.insertId;
 };
+
+// const createLedger = async (ledgerData) => {
+//   const {
+//     ledger_name, group_id, employee_under,
+//     opening_balance, balance_type, opening_date,
+//     mailing_name, location, country, state, pincode, pan_no, gst_no,
+//     maintain_bill_by_bill,
+//     default_credit_period,
+//     check_credit_days,
+//     credit_limit,
+//     inventory_values_affected, use_for_payroll,
+//     activate_interest_calculation,
+//     od_limit, created_by,
+//   } = ledgerData;
+
+//   const [result] = await db.query(
+//     ` INSERT INTO ledgers (
+//       ledger_name, group_id, employee_under,
+//       opening_balance, balance_type, opening_date,
+//       mailing_name, location, country, state, pincode,
+//       pan_no, gst_no,
+//       maintain_bill_by_bill, default_credit_period, check_credit_days, credit_limit,
+//       inventory_values_affected, use_for_payroll,
+//       activate_interest_calculation,
+//       od_limit,
+//       created_by
+//     )
+//     VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ) `,
+//     [
+//       ledger_name, group_id, employee_under || null,
+//       opening_balance || 0, balance_type || "Dr", opening_date || null,
+//       mailing_name || null, location || null, country || null, state || null, pincode || null,
+//       pan_no || null, gst_no || null,
+//       maintain_bill_by_bill || 0, default_credit_period || 0, check_credit_days || 0, credit_limit || 0,
+//       inventory_values_affected || 0, use_for_payroll || 0,
+//       activate_interest_calculation || 0,
+//       od_limit || 0, created_by || null,
+//     ]
+//   );
+
+//   return result.insertId;
+// };
 
 const createLedgerBankDetails = async ( ledger_id, bankData ) => {
 
@@ -292,7 +338,7 @@ const getLedgersModel = async (filters, limit, offset) => {
       l.location,
       l.country,
       l.state,
-      l.pincode,
+      l.pincode, l.state_id, l.district_id, l.tehsil_id, l.village_id,
 
       l.pan_no,
       l.gst_no,
@@ -486,6 +532,14 @@ const getLedgerByIdModel = async (connection,id) => {
       l.country,
       l.state,
       l.pincode,
+       l.state_id,
+      l.district_id,
+      l.tehsil_id,
+      l.village_id,
+      gs.state_name AS geo_state_name,
+      gd.district_name_english AS geo_district_name,
+      gt.tehsil_name AS geo_tehsil_name,
+      gv.village_name AS geo_village_name,
       l.pan_no,
       l.gst_no,
       l.maintain_bill_by_bill,
@@ -548,17 +602,15 @@ const getLedgerByIdModel = async (connection,id) => {
 
     FROM ledgers l
 
-    LEFT JOIN account_groups ag
-    ON ag.id = l.group_id
+    LEFT JOIN account_groups ag ON ag.id = l.group_id
+    LEFT JOIN users u ON u.id = l.employee_under
+    LEFT JOIN geo_states gs ON gs.id = l.state_id
+    LEFT JOIN geo_districts gd ON gd.id = l.district_id
+    LEFT JOIN geo_tehsils gt ON gt.id = l.tehsil_id
+    LEFT JOIN geo_villages gv ON gv.id = l.village_id
 
-    LEFT JOIN users u
-    ON u.id = l.employee_under
-
-    LEFT JOIN ledger_bank_details lbd
-    ON lbd.ledger_id = l.id
-
-    LEFT JOIN ledger_other_details lod
-    ON lod.ledger_id = l.id
+    LEFT JOIN ledger_bank_details lbd ON lbd.ledger_id = l.id
+    LEFT JOIN ledger_other_details lod ON lod.ledger_id = l.id
 
     WHERE l.id = ?
     `,
@@ -1245,7 +1297,64 @@ const getCurrentLedgerBalanceforMessage = async (connection, ledgerId) => {
   return balance;
 };
 
+// ===============================
+// GEOGRAPHY (area mapping for collection targets)
+// ===============================
+
+const GEO_RESOLVE_SQL = {
+  village: `SELECT v.id AS village_id, v.tehsil_id, t.district_id, d.state_id
+            FROM geo_villages v
+            INNER JOIN geo_tehsils t ON t.id = v.tehsil_id
+            INNER JOIN geo_districts d ON d.id = t.district_id
+            WHERE v.id = ?`,
+  tehsil: `SELECT t.id AS tehsil_id, t.district_id, d.state_id
+           FROM geo_tehsils t
+           INNER JOIN geo_districts d ON d.id = t.district_id
+           WHERE t.id = ?`,
+  district: `SELECT d.id AS district_id, d.state_id
+             FROM geo_districts d WHERE d.id = ?`,
+  state: `SELECT s.id AS state_id FROM geo_states s WHERE s.id = ?`,
+};
+
+// Takes { state_id, district_id, tehsil_id, village_id } from the frontend, uses ONLY the
+// most specific level that was sent, and derives all parents from the database.
+// Returns { geo } or { error }. A missing/empty geo returns all-null IDs.
+const resolveLedgerGeo = async (conn, geo) => {
+  const empty = { state_id: null, district_id: null, tehsil_id: null, village_id: null };
+  if (!geo || typeof geo !== "object") return { geo: empty };
+
+  const toId = (v) => (v === undefined || v === null || v === "" ? null : Number(v));
+  const given = {
+    village: toId(geo.village_id),
+    tehsil: toId(geo.tehsil_id),
+    district: toId(geo.district_id),
+    state: toId(geo.state_id),
+  };
+
+  if (Object.values(given).some((v) => v !== null && (!Number.isInteger(v) || v <= 0))) {
+    return { error: "Invalid area id" };
+  }
+
+  const level = ["village", "tehsil", "district", "state"].find((l) => given[l] !== null);
+  if (!level) return { geo: empty };
+
+  const [rows] = await conn.query(GEO_RESOLVE_SQL[level], [given[level]]);
+  if (!rows[0]) return { error: `Selected ${level} not found` };
+
+  return { geo: { ...empty, ...rows[0] } };
+};
+
+const updateLedgerGeoModel = async (connection, ledger_id, geo) => {
+  await connection.query(
+    `UPDATE ledgers
+     SET state_id = ?, district_id = ?, tehsil_id = ?, village_id = ?
+     WHERE id = ?`,
+    [geo.state_id, geo.district_id, geo.tehsil_id, geo.village_id, ledger_id]
+  );
+};
+
 module.exports = { createLedger, createLedgerBankDetails, createLedgerInterestConfigs, createLedgerOtherDetails,
   findLedgerByName, getLedgersModel, getLedgerCountModel, getLedgerByIdModel, updateLedgerModel,
   updateLedgerBankDetailsModel, replaceLedgerInterestConfigsModel, updateLedgerOtherDetailsModel,
-  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel, getLedgerWhatsappData ,getLedgerContactById, getCurrentLedgerBalanceforMessage };
+  deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel, getLedgerWhatsappData ,getLedgerContactById,
+  getCurrentLedgerBalanceforMessage, resolveLedgerGeo, updateLedgerGeoModel };

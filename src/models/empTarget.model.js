@@ -15,6 +15,93 @@ const TARGET_SELECT = `
   GROUP_CONCAT(etc.category_id) AS category_ids
 `;
 
+// ================= COLLECTION (area-aware) =================
+// l = the customer ledger of a receipt entry. Every area row stores its full path,
+// so the most specific filled column decides the level it is matched at.
+// ================= COLLECTION (target's own areas) =================
+// l = the customer ledger of a receipt entry. Every stored area keeps its full path,
+// so the most specific filled column decides the level it is matched at.
+const AREA_MATCH = `
+  EXISTS (
+    SELECT 1
+    FROM employee_target_areas a
+    WHERE a.employee_target_id = ?
+      AND (
+           (a.village_id  IS NOT NULL AND a.village_id  = l.village_id)
+        OR (a.village_id  IS NULL AND a.tehsil_id   IS NOT NULL AND a.tehsil_id   = l.tehsil_id)
+        OR (a.tehsil_id   IS NULL AND a.district_id IS NOT NULL AND a.district_id = l.district_id)
+        OR (a.district_id IS NULL AND a.state_id    IS NOT NULL AND a.state_id    = l.state_id)
+      )
+  )
+`;
+
+// Returns { achieved, scope, unmapped, areaCount }
+//  scope "ALL"   -> the target has no areas: every receipt of the employee (original behaviour)
+//  scope "AREAS" -> only receipt entries from customers inside the target's areas
+//  unmapped      -> amount from customers that could not be matched because they have no
+//                   geography at the level the target's areas are set at
+const getCollectionAchievement = async ({ id, user_id, start_date, end_date }) => {
+  const [[areas]] = await db.query(
+    `
+    SELECT
+      COUNT(*) AS area_count,
+      COALESCE(SUM(village_id IS NOT NULL), 0) AS villages,
+      COALESCE(SUM(village_id IS NULL AND tehsil_id IS NOT NULL), 0) AS tehsils,
+      COALESCE(SUM(tehsil_id IS NULL AND district_id IS NOT NULL), 0) AS districts
+    FROM employee_target_areas
+    WHERE employee_target_id = ?
+    `,
+    [id || 0]
+  );
+
+  // ---------- no areas on this target: all of the employee's receipts ----------
+  if (!Number(areas.area_count)) {
+    const [rows] = await db.query(
+      `
+      SELECT COALESCE(SUM(r.total_amount), 0) AS achieved
+      FROM receipts r
+      WHERE r.employee_under_id = ?
+        AND r.receipt_date >= ?
+        AND r.receipt_date < DATE_ADD(?, INTERVAL 1 DAY)
+      `,
+      [user_id, start_date, end_date]
+    );
+
+    return { achieved: Number(rows[0].achieved), scope: "ALL", unmapped: 0, areaCount: 0 };
+  }
+
+  // ---------- areas on this target: only customers inside them ----------
+  // level the customers must be mapped at (fixed list, never user input)
+  const unitColumn =
+    Number(areas.villages) > 0 ? "village_id"
+    : Number(areas.tehsils) > 0 ? "tehsil_id"
+    : Number(areas.districts) > 0 ? "district_id"
+    : "state_id";
+
+  const [rows] = await db.query(
+    `
+    SELECT
+      COALESCE(SUM(CASE WHEN ${AREA_MATCH} THEN re.amount ELSE 0 END), 0) AS achieved,
+      COALESCE(SUM(CASE WHEN NOT (${AREA_MATCH}) AND l.${unitColumn} IS NULL
+                        THEN re.amount ELSE 0 END), 0) AS unmapped
+    FROM receipts r
+    INNER JOIN receipt_entries re ON re.receipt_id = r.id
+    INNER JOIN ledgers l ON l.id = re.ledger_id
+    WHERE r.employee_under_id = ?
+      AND r.receipt_date >= ?
+      AND r.receipt_date < DATE_ADD(?, INTERVAL 1 DAY)
+    `,
+    [id, id, user_id, start_date, end_date]
+  );
+
+  return {
+    achieved: Number(rows[0].achieved),
+    scope: "AREAS",
+    unmapped: Number(rows[0].unmapped),
+    areaCount: Number(areas.area_count)
+  };
+};
+
 // ================= ACHIEVEMENT CALCULATION =================
 const calculateAchievement = async (target) => {
   const { user_id, target_type, start_date, end_date } = target;
@@ -58,19 +145,9 @@ const calculateAchievement = async (target) => {
   }
 
   // ---------- COLLECTION: receipts total ----------
-  if (target_type === "COLLECTION") {
-    const [rows] = await db.query(
-      `
-      SELECT COALESCE(SUM(r.total_amount), 0) AS achieved
-      FROM receipts r
-      WHERE r.employee_under_id = ?
-        AND r.receipt_date >= ?
-        AND r.receipt_date < DATE_ADD(?, INTERVAL 1 DAY)
-      `,
-      [user_id, start_date, end_date]
-    );
-
-    return Number(rows[0].achieved);
+ if (target_type === "COLLECTION") {
+    const detail = await getCollectionAchievement(target);
+    return detail.achieved;
   }
 
   // ---------- NEW_DISTRIBUTOR: new Sundry Debtors ledgers ----------
@@ -95,11 +172,26 @@ const calculateAchievement = async (target) => {
 };
 
 const attachAchievement = async (row) => {
-  const achieved = await calculateAchievement(row);
+  let achieved;
+  let extra = {};
+
+  if (row.target_type === "COLLECTION") {
+    const detail = await getCollectionAchievement(row);
+    achieved = detail.achieved;
+    extra = {
+      collection_scope: detail.scope,
+      collection_area_count: detail.areaCount,
+      unmapped_amount: detail.unmapped
+    };
+  } else {
+    achieved = await calculateAchievement(row);
+  }
+
   const targetAmount = Number(row.target_amount);
 
   return {
     ...row,
+    ...extra,
     achieved_amount: achieved,
     pending_amount: Math.max(targetAmount - achieved, 0),
     achievement_percent:
@@ -231,9 +323,16 @@ const getEmployeeTargetById = async (id) => {
     [id]
   );
 
-  if (!rows[0]) return null;
+   if (!rows[0]) return null;
 
-  return attachAchievement(rows[0]);
+  const target = await attachAchievement(rows[0]);
+
+  // the chosen areas, with names, so the edit screen can pre-fill
+  if (target.target_type === "COLLECTION") {
+    target.collection_areas = await getTargetAreasWithLabels(target.id);
+  }
+
+  return target;
 };
 
 // ================= UPDATE =================
@@ -356,6 +455,81 @@ const getTargetsByFilters = async ({
   return Promise.all(rows.map(attachAchievement));
 };
 
+// ================= TARGET AREAS (collection targets) =================
+const countActiveAreas = async (connection, employeeId) => {
+  const [rows] = await connection.query(
+    `SELECT COUNT(*) AS total
+     FROM employee_collection_areas
+     WHERE employee_id = ? AND is_active = 1`,
+    [employeeId]
+  );
+  return Number(rows[0].total);
+};
+
+// only returns rows that belong to this employee AND are currently active
+const getActiveAreasByIds = async (connection, employeeId, areaIds) => {
+  const [rows] = await connection.query(
+    `SELECT id, state_id, district_id, tehsil_id, village_id
+     FROM employee_collection_areas
+     WHERE employee_id = ? AND is_active = 1 AND id IN (?)`,
+    [employeeId, areaIds]
+  );
+  return rows;
+};
+
+const insertTargetAreas = async (connection, employee_target_id, areaRows) => {
+  if (!Array.isArray(areaRows) || areaRows.length === 0) return;
+
+  const values = areaRows.map((a) => [
+    employee_target_id, a.state_id, a.district_id, a.tehsil_id, a.village_id
+  ]);
+
+  await connection.query(
+    `INSERT INTO employee_target_areas
+       (employee_target_id, state_id, district_id, tehsil_id, village_id)
+     VALUES ?`,
+    [values]
+  );
+};
+
+const deleteTargetAreas = async (connection, employee_target_id) => {
+  await connection.query(
+    `DELETE FROM employee_target_areas WHERE employee_target_id = ?`,
+    [employee_target_id]
+  );
+};
+
+const buildAreaLabel = (r) =>
+  (r.village_id ? [r.tehsil_name, r.village_name]
+    : r.tehsil_id ? [r.district_name, r.tehsil_name]
+    : r.district_id ? [r.state_name, r.district_name]
+    : [r.state_name])
+    .filter(Boolean)
+    .join(" / ");
+
+// for the edit screen / detail view
+const getTargetAreasWithLabels = async (targetId) => {
+  const [rows] = await db.query(
+    `
+    SELECT a.id, a.state_id, a.district_id, a.tehsil_id, a.village_id,
+           s.state_name,
+           d.district_name_english AS district_name,
+           t.tehsil_name,
+           v.village_name
+    FROM employee_target_areas a
+    LEFT JOIN geo_states s ON s.id = a.state_id
+    LEFT JOIN geo_districts d ON d.id = a.district_id
+    LEFT JOIN geo_tehsils t ON t.id = a.tehsil_id
+    LEFT JOIN geo_villages v ON v.id = a.village_id
+    WHERE a.employee_target_id = ?
+    ORDER BY s.state_name, d.district_name_english, t.tehsil_name, v.village_name
+    `,
+    [targetId]
+  );
+
+  return rows.map((r) => ({ ...r, label: buildAreaLabel(r) }));
+};
+
 module.exports = { createEmployeeTarget, insertTargetCategories, getEmployeeTargets, 
   getEmployeeTargetById, updateEmployeeTarget, deleteTargetCategories, deleteEmployeeTarget,
-  calculateAchievement, getTargetsByFilters };
+  calculateAchievement, getTargetsByFilters, countActiveAreas, getActiveAreasByIds, insertTargetAreas, deleteTargetAreas };

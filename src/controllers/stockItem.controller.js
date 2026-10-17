@@ -445,7 +445,6 @@ exports.updateStockItem = async (req, res) => {
 
       is_returnable,
       returnable_percentage,
-
       maintain_in_batches,
       track_mfg_date,
       use_expiry_dates,
@@ -735,6 +734,103 @@ exports.deleteStockItem = async (req, res) => {
       });
     }
 
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+// builds labels like "10 kg Bag" / "2 kg Pack" / "1 Litre"
+const num = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+const trim2 = (n) => Number(n.toFixed(2)); // 2.00 -> 2, 0.50 -> 0.5
+
+// One row per unit, each with its own price.
+//   1 alternative unit = base_unit_value / alternative_unit_value base units
+//   1 bulk unit        = bulk_base_value / bulk_unit_value base units
+const buildUnitRows = (r) => {
+  const rate = num(r.rate);
+
+  const basePerAlt =
+    r.alternative_unit && num(r.alternative_unit_value) > 0 && num(r.base_unit_value) > 0
+      ? num(r.base_unit_value) / num(r.alternative_unit_value)
+      : 0;
+
+  const basePerBulk =
+    r.bulk_unit && num(r.bulk_unit_value) > 0 && num(r.bulk_base_value) > 0
+      ? num(r.bulk_base_value) / num(r.bulk_unit_value)
+      : 0;
+
+  // The rate is "per" opening_stock.per_unit_id. Convert it to a per-base-unit rate.
+  let ratePerBase = rate;
+  if (r.per_unit_id && r.per_unit_id === r.alternative_unit_id && basePerAlt > 0) {
+    ratePerBase = rate / basePerAlt;
+  } else if (r.per_unit_id && r.per_unit_id === r.bulk_unit_id && basePerBulk > 0) {
+    ratePerBase = rate / basePerBulk;
+  }
+
+  const rows = [
+    { unit: r.base_unit, label: `1 ${r.base_unit}`, detail: null, price: trim2(ratePerBase) },
+  ];
+
+  if (basePerAlt > 0 && r.alternative_unit !== r.base_unit) {
+    rows.push({
+      unit: r.alternative_unit,
+      label: `1 ${r.alternative_unit}`,
+      detail: `${trim2(basePerAlt)} ${r.base_unit}`,
+      price: trim2(ratePerBase * basePerAlt),
+    });
+  }
+
+  if (basePerBulk > 0 && r.bulk_unit !== r.base_unit && r.bulk_unit !== r.alternative_unit) {
+    rows.push({
+      unit: r.bulk_unit,
+      label: `1 ${r.bulk_unit}`,
+      detail: `${trim2(basePerBulk)} ${r.base_unit}`,
+      price: trim2(ratePerBase * basePerBulk),
+    });
+  }
+
+  return rows;
+};
+
+exports.getPriceList = async (req, res) => {
+  try {
+    const { search = "", group_id = null, page = 1, limit = 20 } = req.query;
+
+    const [result, groups] = await Promise.all([
+      stockItemModel.getPriceList({ search, group_id, page, limit }),
+      stockItemModel.getPriceListGroups(),
+    ]);
+
+    const data = result.rows.map((r) => ({
+      id: r.id,
+      item_name: r.item_name,
+      group_id: r.stock_group_id,
+      group_name: r.group_name,
+      category_name: r.category_name,
+      crop_id: r.crop_id,
+      crop_name: r.crop_name,
+      units: buildUnitRows(r),
+      has_scheme: false,
+      scheme_text: null,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      totalRecords: result.totalRecords,
+      totalPages: result.totalPages,
+      currentPage: result.currentPage,
+      limit: result.limit,
+      groups,
+      data,
+    });
+  } catch (error) {
+    console.log("GET PRICE LIST ERROR:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",

@@ -44,6 +44,38 @@ function validateTargetBody(body) {
 const categoriesFor = (target_type, categories) =>
   target_type === "SALE" ? categories : [];
 
+
+// Collection targets: the admin picks from the employee's ASSIGNED areas.
+// Returns { rows } (area paths to store) or { error }.
+async function resolveCollectionAreas(connection, body) {
+  const { user_id, target_type, collection_area_ids } = body;
+
+  if (target_type !== "COLLECTION") return { rows: [] };
+
+  const assigned = await empTargetModel.countActiveAreas(connection, user_id);
+
+  // employee has no areas assigned: nothing to choose, the target counts all their collection
+  if (assigned === 0) return { rows: [] };
+
+  const ids = Array.isArray(collection_area_ids)
+    ? [...new Set(collection_area_ids.map(Number))]
+    : [];
+
+  if (ids.length === 0) {
+    return { error: "Select at least one collection area for this employee" };
+  }
+  if (ids.some((id) => !Number.isInteger(id) || id <= 0)) {
+    return { error: "Invalid collection area" };
+  }
+
+  const rows = await empTargetModel.getActiveAreasByIds(connection, user_id, ids);
+
+  if (rows.length !== ids.length) {
+    return { error: "One or more selected areas are not assigned to this employee" };
+  }
+
+  return { rows };
+}
 // ================= CREATE =================
 exports.createEmployeeTarget = async (req, res) => {
   const connection = await db.getConnection();
@@ -55,6 +87,12 @@ exports.createEmployeeTarget = async (req, res) => {
     }
 
     const { user_id, role, target_type, duration_type, start_date, categories, target_amount } = req.body;
+
+    // validate the chosen areas before anything is written
+    const { rows: areaRows, error: areaError } = await resolveCollectionAreas(connection, req.body);
+    if (areaError) {
+      return res.status(400).json({ message: areaError });
+    }
 
     const created_by = req.user.id;
     const end_date = calculateEndDate(start_date, duration_type);
@@ -77,6 +115,8 @@ exports.createEmployeeTarget = async (req, res) => {
       employeeTargetId,
       categoriesFor(target_type, categories)
     );
+
+    await empTargetModel.insertTargetAreas(connection, employeeTargetId, areaRows);
 
     await connection.commit();
 
@@ -142,6 +182,11 @@ exports.updateEmployeeTarget = async (req, res) => {
     const { id } = req.params;
     const { user_id, role, target_type, duration_type, start_date, categories, target_amount } = req.body;
 
+    const { rows: areaRows, error: areaError } = await resolveCollectionAreas(connection, req.body);
+    if (areaError) {
+      return res.status(400).json({ message: areaError });
+    }
+
     const end_date = calculateEndDate(start_date, duration_type);
 
     await connection.beginTransaction();
@@ -164,6 +209,10 @@ exports.updateEmployeeTarget = async (req, res) => {
       categoriesFor(target_type, categories)
     );
 
+    // replace the stored areas (also clears them if the type is no longer COLLECTION)
+    await empTargetModel.deleteTargetAreas(connection, id);
+    await empTargetModel.insertTargetAreas(connection, id, areaRows);
+
     await connection.commit();
 
     res.status(200).json({ message: "Employee target updated successfully" });
@@ -183,8 +232,11 @@ exports.deleteEmployeeTarget = async (req, res) => {
     const { id } = req.params;
 
     await connection.beginTransaction();
-    await empTargetModel.deleteTargetCategories(connection, id);
+
+     await empTargetModel.deleteTargetCategories(connection, id);
+    await empTargetModel.deleteTargetAreas(connection, id);
     await empTargetModel.deleteEmployeeTarget(connection, id);
+
     await connection.commit();
 
     res.status(200).json({ message: "Employee target deleted successfully" });
@@ -217,6 +269,9 @@ const toTargetItem = (t) => ({
   achieved_amount: t.achieved_amount,
   pending_amount: t.pending_amount,
   achievement_percent: t.achievement_percent, // not capped; clamp to 100 for the chart if needed
+   collection_scope: t.collection_scope,   // "ALL" | "AREAS" (collection targets only)
+   collection_area_count: t.collection_area_count,
+  unmapped_amount: t.unmapped_amount,
   category_ids: t.category_ids ? String(t.category_ids).split(",").map(Number) : []
 });
 

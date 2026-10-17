@@ -1,5 +1,5 @@
 const {
-  createLedger, createLedgerBankDetails, createLedgerOtherDetails,
+  createLedger, createLedgerBankDetails, createLedgerOtherDetails, resolveLedgerGeo, updateLedgerGeoModel,
   createLedgerInterestConfigs, findLedgerByName, getLedgersModel, getLedgerCountModel, getLedgerByIdModel,
   updateLedgerModel, updateLedgerBankDetailsModel, replaceLedgerInterestConfigsModel, updateLedgerOtherDetailsModel,
   deleteLedgerModel, getLedgerDropdownModel, reassignLedgerEmployeeModel, getCurrentLedgerBalance, getMyAssignedLedgersModel, getLedgerWhatsappData
@@ -71,7 +71,7 @@ const createLedgerController = async (req, res) => {
       mailing_name, location, country, state, pincode, pan_no, gst_no,
       maintain_bill_by_bill, default_credit_period, check_credit_days, credit_limit,
       inventory_values_affected, use_for_payroll, activate_interest_calculation, od_limit,
-      bank_details, interest_configs, crm_details, } = req.body;
+      bank_details, interest_configs, crm_details, geo } = req.body;
 
     // --- Validations ---
 
@@ -165,6 +165,11 @@ const createLedgerController = async (req, res) => {
       }
     }
 
+        // --- Geography (validated before anything is created) ---
+    const { geo: geoIds, error: geoError } = await resolveLedgerGeo(db, geo);
+    if (geoError) {
+      return res.status(400).json({ success: false, message: geoError });
+    }
     // --- Create Ledger ---
     // FIX: ledgerId is now created FIRST before any sub-table inserts
 
@@ -180,6 +185,7 @@ const createLedgerController = async (req, res) => {
       country: country || null,
       state: state || null,
       pincode: pincode || null,
+      ...geoIds,
       pan_no: pan_no || null,
       gst_no: gst_no || null,
       maintain_bill_by_bill: maintain_bill_by_bill ?? 0,
@@ -325,6 +331,13 @@ const getLedgers = async (req, res) => {
       tax_details: {
         pan_no: row.pan_no,
         gst_no: row.gst_no,
+      },
+
+            geo: {
+        state_id: row.state_id,
+        district_id: row.district_id,
+        tehsil_id: row.tehsil_id,
+        village_id: row.village_id,
       },
 
       credit_details: {
@@ -490,7 +503,8 @@ const updateLedgerController = async (req, res) => {
     await connection.beginTransaction();
 
     const { id } = req.params;
-    const { ledger, bank_details, interest_configs, other_details } = req.body;
+    // const { ledger, bank_details, interest_configs, other_details } = req.body;
+        const { ledger, bank_details, interest_configs, other_details, geo } = req.body;
 
     const existingLedger = await getLedgerByIdModel(connection, id);
 
@@ -505,7 +519,15 @@ const updateLedgerController = async (req, res) => {
     if (ledger) {
       await updateLedgerModel(connection, id, ledger);
     }
-
+    // geo omitted -> unchanged | geo: null (or no ids) -> cleared | geo: {...} -> replaced
+    if (geo !== undefined) {
+      const { geo: geoIds, error: geoError } = await resolveLedgerGeo(connection, geo);
+      if (geoError) {
+        await connection.rollback();
+        return res.status(400).json({ success: false, message: geoError });
+      }
+      await updateLedgerGeoModel(connection, id, geoIds);
+    }
     if (bank_details) {
       await updateLedgerBankDetailsModel(connection, id, bank_details);
     }

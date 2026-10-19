@@ -2,9 +2,7 @@ const db = require("../config/db");
 
 const getUserWithRole = async (userId) => {
   const [rows] = await db.query(
-    `SELECT 
-        u.id,
-        u.name,
+    `SELECT  u.id, u.name,
         u.contact_no,
         u.reporting_under,
         jr.id AS job_role_id,
@@ -18,9 +16,6 @@ const getUserWithRole = async (userId) => {
   );
   return rows[0];
 };
-
-// ===============================
-// GET DIRECT SUBORDINATES
 
 const getDirectSubordinates = async (userId) => {
   const [rows] = await db.query(

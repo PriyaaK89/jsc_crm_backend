@@ -2,50 +2,18 @@ const db = require("../config/db");
 
 const createUser = async (user) => {
   const [result] = await db.query(
-    ` INSERT INTO users (
-      name,
-      email,
-      password,
-      role_id,
-      must_change_password,
-      gender,
-      contact_no,
-      date_of_birth,
-      address_line1,
-      address_line2,
-      country,
-      state,
-      city,
-      district,
-      area,
-      pincode,
-      father_name,
-      pan_number,
-      aadhar_no,
-      blood_group,
-      department_id,
-      job_role_id,
-      date_of_joining,
-      salary,
-      week_off,
-      attendance_selfie,
-      two_wheeler_allowance_per_km,
-      four_wheeler_allowance_per_km,
-      avg_travel_km_per_day,
-      city_allowance_per_km,
-      daily_allowance_with_doc,
-      daily_allowance_without_doc,
-      hotel_allowance,
-      total_leaves,
-      authentication_amount,
-      headquarter,
-      working_area,
-      approver_id,
-      login_time,
-      logout_time, visit_upto,
-      pf,
-      esi, profile_image, reporting_under
-    )
+    ` INSERT INTO users ( name, email, password, role_id,
+      must_change_password, gender, contact_no, date_of_birth,
+      address_line1, address_line2, country, state, city, district,
+      area, pincode, father_name, pan_number, aadhar_no, blood_group,
+      department_id, job_role_id, date_of_joining, salary, week_off, 
+      attendance_selfie, two_wheeler_allowance_per_km, four_wheeler_allowance_per_km,
+      avg_travel_km_per_day, city_allowance_per_km,
+      daily_allowance_with_doc, daily_allowance_without_doc,
+      hotel_allowance, total_leaves,
+      authentication_amount, headquarter, working_area,
+      approver_id, login_time, logout_time, visit_upto, pf,
+      esi, profile_image, reporting_under )
     VALUES (
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
@@ -129,12 +97,9 @@ const findUserByEmail = async (email) => {
 
 const updatePasswordByAdmin = async (userId, hashedPassword) => {
   await db.query(
-    `
-    UPDATE users
+    ` UPDATE users
     SET password = ?, must_change_password = 0
-    WHERE id = ?
-    `,
-    [hashedPassword, userId],
+    WHERE id = ? `, [hashedPassword, userId],
   );
 };
 

@@ -247,13 +247,10 @@ const getEmployeeTargets = async ({
 
   if (search) {
     whereClause += `
-      AND (
-        et.role LIKE ?
+      AND ( et.role LIKE ?
         OR et.target_type LIKE ?
         OR et.duration_type LIKE ?
-        OR u.name LIKE ?
-      )
-    `;
+        OR u.name LIKE ? ) `;
     queryParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
   }
 

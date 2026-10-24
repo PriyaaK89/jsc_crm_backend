@@ -6,6 +6,8 @@ const ADMIN_ROLES = ["SUPER_ADMIN", "ADMIN"];
 // Who may override manager-coverage rules. Change if you have a permission system.
 const OVERRIDE_ROLES = ["SUPER_ADMIN"];
 const MAX_AREAS = 2000;
+// false = any area of the role's level can be assigned, whatever the reporting manager has
+const ENFORCE_MANAGER_COVERAGE = false;
 
 // unit        = what one row represents (and what area_ids refer to)
 // levels      = what the UI displays
@@ -165,7 +167,8 @@ const findOutsideCoverage = async (connection, employee, cfg, rows) => {
   const unitKey = `${cfg.unit}_id`;
   const all = () => new Set(rows.map((r) => r[unitKey]));
 
-  if (!cfg.coverageKey) return { outside: new Set(), message: null };
+  // if (!cfg.coverageKey) return { outside: new Set(), message: null };
+    if (!ENFORCE_MANAGER_COVERAGE || !cfg.coverageKey) return { outside: new Set(), message: null };
 
   if (!employee.reporting_under) {
     return { outside: all(), message: `${employee.name} has no reporting manager, so coverage cannot be validated` };

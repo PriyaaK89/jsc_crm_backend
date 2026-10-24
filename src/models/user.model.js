@@ -3,9 +3,9 @@ const db = require("../config/db");
 const createUser = async (user) => {
   const [result] = await db.query(
     ` INSERT INTO users ( name, email, password, role_id,
-      must_change_password, gender, contact_no, date_of_birth,
+      must_change_password, gender, contact_no, alternate_contact_no, date_of_birth,
       address_line1, address_line2, country, state, city, district,
-      area, pincode, father_name, pan_number, aadhar_no, blood_group,
+      area, pincode, father_name, pan_number, bank_account_number, aadhar_no, blood_group,
       department_id, job_role_id, date_of_joining, salary, week_off, 
       attendance_selfie, two_wheeler_allowance_per_km, four_wheeler_allowance_per_km,
       avg_travel_km_per_day, city_allowance_per_km,
@@ -16,7 +16,7 @@ const createUser = async (user) => {
       esi, profile_image, reporting_under )
     VALUES (
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
     [
       user.name || null,
       user.email || null,
@@ -26,6 +26,7 @@ const createUser = async (user) => {
 
       user.gender || null,
       user.contact_no || null,
+      user.alternate_contact_no || null,
       user.date_of_birth || null,
 
       user.address_line1 || null,
@@ -39,6 +40,7 @@ const createUser = async (user) => {
 
       user.father_name || null,
       user.pan_number || null,
+      user.bank_account_number || null,
       user.aadhar_no || null,
       user.blood_group || null,
 
@@ -109,7 +111,8 @@ const getAllUsers = async ({ search = "", page = 1, limit = 10 }) => {
   let whereClause = "";
   let params = [];
 
-  if (search) { whereClause = ` WHERE u.name LIKE ? 
+  if (search) {
+    whereClause = ` WHERE u.name LIKE ? 
       OR u.email LIKE ? 
       OR u.contact_no LIKE ? `;
     params.push(`%${search}%`, `%${search}%`, `%${search}%`);
@@ -124,6 +127,7 @@ const getAllUsers = async ({ search = "", page = 1, limit = 10 }) => {
       u.gender,
       u.role_id,
       u.contact_no,
+u.alternate_contact_no,
       u.date_of_birth,
 
       u.address_line1, 
@@ -136,7 +140,8 @@ const getAllUsers = async ({ search = "", page = 1, limit = 10 }) => {
       u.pincode,
 
       u.father_name, 
-      u.pan_number, 
+u.pan_number,
+u.bank_account_number, 
       u.aadhar_no, 
       u.blood_group,
 
@@ -151,7 +156,7 @@ const getAllUsers = async ({ search = "", page = 1, limit = 10 }) => {
       u.week_off,
       u.attendance_selfie,
       u.two_wheeler_allowance_per_km,
-u.four_wheeler_allowance_per_km,
+      u.four_wheeler_allowance_per_km,
       u.avg_travel_km_per_day,
       u.city_allowance_per_km,
       u.daily_allowance_with_doc,
@@ -225,6 +230,7 @@ const getUserById = async (id) => {
       u.email,
       u.gender,
       u.contact_no,
+      u.alternate_contact_no,
       u.date_of_birth,
 
       u.address_line1,
@@ -238,6 +244,7 @@ const getUserById = async (id) => {
 
       u.father_name,
       u.pan_number,
+      u.bank_account_number,
       u.aadhar_no,
       u.blood_group,
 
@@ -343,10 +350,10 @@ const softDeleteUser = async (userId) => {
 
     const [rows] = await conn.query(
       `INSERT INTO deleted_users (
-  id, name, gender, contact_no, date_of_birth, email, password,
+  id, name, gender, contact_no, alternate_contact_no, date_of_birth, email, password,
   role_id, is_active, created_at,
   address_line1, address_line2, country, state, city, district, area, pincode,
-  father_name, pan_number, aadhar_no, blood_group,
+  father_name, pan_number, bank_account_number, aadhar_no, blood_group,
   department_id, job_role_id, date_of_joining, salary,
   approver_name, attendance_selfie,
   avg_travel_km_per_day, city_allowance_per_km,
@@ -513,11 +520,13 @@ const getEmployeeLoginTime = async (employeeId) => {
   return row ? row.login_time : null;
 };
 
-module.exports = { createUser, findUserByEmail, getAllUsers, getUserById,
+module.exports = {
+  createUser, findUserByEmail, getAllUsers, getUserById,
   updateUserById, updatePasswordByAdmin, updateUserStatus, softDeleteUser,
   getDeletedUsers, getUserDropdown, updateProfileImage, getSubordinateIds,
   getUsersUnderManager, getPermissionsByUser, saveUserPermissions, getVisitUptoByUserId, getUserContactById,
-  getEmployeeLoginTime};
+  getEmployeeLoginTime
+};
 
 // const softDeleteUser = async (userId) => {
 //   const conn = await db.getConnection();

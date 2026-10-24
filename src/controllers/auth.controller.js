@@ -39,15 +39,34 @@ exports.createUserByRole = async (req, res) => {
     const data = req.body;
 
     const roleName = data.roleName;
-    const roleId = await Role.getRoleIdByName(roleName);
     if (!roleName) {
       return res.status(400).json({ message: "Role not assigned" });
     }
+
+    const roleId = await Role.getRoleIdByName(roleName);
     if (!roleId) {
       return res.status(400).json({ message: "Role not found" });
     }
 
-    //  PROFILE IMAGE UPLOAD
+    // VALIDATION
+    const alternate_contact_no = data.alternate_contact_no?.toString().trim();
+    const bank_account_number = data.bank_account_number?.toString().trim();
+
+    if (alternate_contact_no && !/^\d{10}$/.test(alternate_contact_no)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid alternate contact number",
+      });
+    }
+
+    if (bank_account_number && !/^\d{9,18}$/.test(bank_account_number)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid bank account number",
+      });
+    }
+
+    // PROFILE IMAGE UPLOAD
     let profileImagePath = null;
 
     if (req.files && req.files.profile_image) {
@@ -60,10 +79,11 @@ exports.createUserByRole = async (req, res) => {
 
     const createdUser = await User.createUser({
       ...data,
+      alternate_contact_no: alternate_contact_no || null,
+      bank_account_number: bank_account_number || null,
       role_id: roleId,
       profile_image: profileImagePath,
       reporting_under: data.reporting_under || null,
-    
     });
 
     await UserDocument.createEmptyRow(createdUser.id, data.name);
@@ -79,6 +99,52 @@ exports.createUserByRole = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+// exports.createUserByRole = async (req, res) => {
+//   try {
+//     const data = req.body;
+
+//     const roleName = data.roleName;
+//     const roleId = await Role.getRoleIdByName(roleName);
+//     if (!roleName) {
+//       return res.status(400).json({ message: "Role not assigned" });
+//     }
+//     if (!roleId) {
+//       return res.status(400).json({ message: "Role not found" });
+//     }
+
+//     //  PROFILE IMAGE UPLOAD
+//     let profileImagePath = null;
+
+//     if (req.files && req.files.profile_image) {
+//       const uploaded = await uploadFileToMinio(
+//         req.files.profile_image[0],
+//         "profile_image"
+//       );
+//       profileImagePath = uploaded.object_path;
+//     }
+
+//     const createdUser = await User.createUser({
+//       ...data,
+//       role_id: roleId,
+//       profile_image: profileImagePath,
+//       reporting_under: data.reporting_under || null,
+    
+//     });
+
+//     await UserDocument.createEmptyRow(createdUser.id, data.name);
+//     await sendUserRegisteredMail(data.email, data.name);
+
+//     res.status(201).json({
+//       message: `${roleName} created successfully`,
+//       id: createdUser.id,
+//       email: data.email,
+//       must_change_password: 1,
+//     });
+//   } catch (err) {
+//     res.status(500).json({ error: err.message });
+//   }
+// };
 
 exports.getUserById = async (req, res) => {
   try {
@@ -286,10 +352,10 @@ exports.updateUserById = async (req, res) => {
     }
 
     const {
-      name, gender, contact_no, date_of_birth, email,
+      name, gender, contact_no, alternate_contact_no, date_of_birth, email,
       address_line1, address_line2, country, state, city, district, area, pincode,
 
-      father_name, pan_number, aadhar_no, blood_group,
+      father_name, pan_number, bank_account_number, aadhar_no, blood_group,
 
       department_id, job_role_id, date_of_joining, salary,
 
@@ -325,7 +391,7 @@ exports.updateUserById = async (req, res) => {
     const updateData = {
       name,
       gender,
-      contact_no,
+      contact_no,alternate_contact_no,
       date_of_birth,
       email,
       address_line1,
@@ -338,36 +404,26 @@ exports.updateUserById = async (req, res) => {
       pincode,
 
       father_name,
-      pan_number,
+      pan_number,bank_account_number,
       aadhar_no,
       blood_group,
 
-      department_id,
-      job_role_id,
-      date_of_joining,
-      salary,
+      department_id, job_role_id, date_of_joining, salary,
 
-      week_off,
-      attendance_selfie,
+      week_off, attendance_selfie,
        two_wheeler_allowance_per_km,
       four_wheeler_allowance_per_km,
       avg_travel_km_per_day,
       city_allowance_per_km,
       daily_allowance_with_doc,
       daily_allowance_without_doc,
-      hotel_allowance,
-      total_leaves,
+      hotel_allowance, total_leaves,
       authentication_amount,
-      headquarter,
-      working_area,
-      login_time,
-      logout_time, visit_upto,
-      pf,
-      esi,
+      headquarter, working_area,
+      login_time, logout_time, visit_upto,
+      pf, esi,
 
-      approver_id,
-      role_id,
-      reporting_under
+      approver_id, role_id, reporting_under
     };
 
     //  ONLY add image if uploaded
@@ -402,138 +458,6 @@ exports.updateUserById = async (req, res) => {
   }
 };
 
-// exports.updateUserById = async (req, res) => {
-//   try {
-//     const userId = req.params.id;
-//     let profileImagePath;
-
-// if (req.files && req.files.profile_image) {
-//   const uploaded = await uploadFileToMinio(
-//     req.files.profile_image[0],
-//     "profile_image"
-//   );
-//   profileImagePath = uploaded.object_path;
-// }
-
-//     const { name, gender, contact_no,
-//       date_of_birth, email, address_line1, address_line2, country, state, city, district, area, pincode,
-
-//       father_name,
-//       pan_number,
-//       aadhar_no,
-//       blood_group,
-
-//       department_id,
-//       job_role_id,
-//       date_of_joining,
-//       salary,
-      
-//       week_off,
-//       attendance_selfie,
-//       travelling_allowance_per_km,
-//       avg_travel_km_per_day,
-//       city_allowance_per_km,
-//       daily_allowance_with_doc,
-//       daily_allowance_without_doc,
-//       hotel_allowance,
-//       total_leaves,
-//       authentication_amount,
-//       headquarter,
-//       login_time,
-//       logout_time,
-//       pf,
-//       esi,
-
-//       approver_id,
-//       role_id,
-//       profile_image,
-// reporting_under
-//     } = req.body;
-    
-//  if (job_role_id !== undefined && job_role_id !== null) {
-//       const [jobRole] = await db.query(
-//         "SELECT id FROM job_roles WHERE id = ?",
-//         [job_role_id]
-//       );
-
-//       if (jobRole.length === 0) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "Invalid job_role_id. Job role does not exist."
-//         });
-//       }
-//     }
-//     const updated = await User.updateUserById(userId, {
-//       name,
-//       gender,
-//       contact_no,
-//       date_of_birth,
-//       email,
-//       address_line1,
-//       address_line2,
-//       country,
-//       state,
-//       city,
-//       district,
-//       area,
-//       pincode,
-
-//       father_name,
-//       pan_number,
-//       aadhar_no,
-//       blood_group,
-
-//       department_id,
-//       job_role_id,
-//       date_of_joining,
-//       salary,
-
-//       week_off,
-//       attendance_selfie,
-//       travelling_allowance_per_km,
-//       avg_travel_km_per_day,
-//       city_allowance_per_km,
-//       daily_allowance_with_doc,
-//       daily_allowance_without_doc,
-//       hotel_allowance,
-//       total_leaves,
-//       authentication_amount,
-//       headquarter,
-//       login_time,
-//       logout_time,
-//       pf,
-//       esi,
-
-//       approver_id,
-//       role_id,
-//       profile_image: profileImagePath,
-// reporting_under
-//     });
-
-//     if (!updated) {
-//       return res.status(404).json({
-//         message: "User not found or no data to update"
-//       });
-//     }
-
-//     res.status(200).json({
-//       success: true,
-//       message: "User updated successfully"
-//     });
-
-//   }catch (err) {
-//   if (err.code === "ER_NO_REFERENCED_ROW_2") {
-//     return res.status(400).json({
-//       success: false,
-//       message: "Invalid reference ID provided."
-//     });
-//   }
-
-//   res.status(500).json({
-//     error: err.message
-//   });
-// }
-// };
 
 exports.setUserPassword = async (req, res) => {
   const { password } = req.body;

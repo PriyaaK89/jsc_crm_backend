@@ -30,6 +30,9 @@ const db = require('./config/db');
 const http = require("http");
 const app = require('./app');
 app.disable("etag");
+
+const PORT = process.env.PORT || 5000;
+
 // app.use((req, res, next) => {
 //   res.setHeader(
 //     "Cache-Control",
@@ -40,7 +43,6 @@ app.disable("etag");
 
 const { Server } = require("socket.io");
 
-const PORT = process.env.PORT || 5000;
 
 //  Create HTTP server manually
 const server = http.createServer(app);

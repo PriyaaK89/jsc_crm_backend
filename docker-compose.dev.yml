@@ -1,0 +1,16 @@
+
+services:
+  backend-dev:
+    build: .
+    container_name: crm_backend_dev
+    ports:
+      - "5002:5000"
+    env_file:
+      - .env.dev
+    restart: unless-stopped
+    networks:
+      - crm_dev_network
+
+networks:
+  crm_dev_network:
+    external: true

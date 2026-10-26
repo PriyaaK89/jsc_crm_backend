@@ -111,6 +111,18 @@ const buildPlanPayload = async (plan, viewerId) => {
   );
 
   const daysPlanned = days.filter((d) => d.is_planned).length;
+
+  // the manager this plan goes to (shown before the employee submits)
+  let routeTo = null;
+  const routeId =
+    plan.approver_id ||
+    (owner && (owner.reporting_under || owner.approver_id)) ||
+    null;
+  if (routeId && routeId !== plan.user_id) {
+    const m = await model.getUserForPlan(routeId);
+    if (m) routeTo = { id: m.id, name: m.name, job_role: m.job_role };
+  }
+
   const isOwner = viewerId === plan.user_id;
   const editable = isOwner && EDITABLE.includes(plan.status);
 
@@ -128,6 +140,7 @@ const buildPlanPayload = async (plan, viewerId) => {
           job_role: plan.approver_role,
         }
       : null,
+    route_to: routeTo,
     submitted_at: plan.submitted_at,
     decided_at: plan.decided_at,
     manager_remark: plan.manager_remark,
@@ -231,53 +244,302 @@ exports.addLocation = wrap(async (req, res) => {
   );
 });
 
-// POST /beats   -> a manager creates a MASTER beat and assigns it to himself
-//                  or to anybody under him
-// body: { name, market_area, district, total_km, assigned_user_id, party_ids: [] }
-exports.createBeat = wrap(async (req, res) => {
-  const me = req.user.id;
+// ------------------------------------------------------------------
+//  MANAGE BEATS  (manager side)
+// ------------------------------------------------------------------
+const requireManager = async (me) => {
+  const reports = await userModel.getDirectSubordinates(me);
+  if (!reports.length) {
+    throw new HttpError(403, "Only managers can manage beats");
+  }
+};
 
-  const directReports = await userModel.getDirectSubordinates(me);
-  if (!directReports.length) {
-    throw new HttpError(403, "Only managers can create beats");
+const parseBeatBody = (body) => {
+  const name = clean(body.name, 150);
+  if (name.length < 2) throw new HttpError(400, "Beat name is required");
+  return {
+    name,
+    marketArea: clean(body.market_area, 150),
+    district: clean(body.district, 100),
+    totalKm: toAmount(body.total_km, "Total km"),
+  };
+};
+
+// returns null when the field is missing (= "keep existing parties")
+const parsePartyIds = (value) => {
+  if (!Array.isArray(value)) return null;
+  return [...new Set(value.map((p) => toId(p, "party id")))];
+};
+
+// parties must belong to the manager's team and may sit in only ONE active beat
+const validateParties = async (partyIds, teamIds, excludeBeatId) => {
+  if (!partyIds.length) return;
+
+  const inTeam = await model.countLedgersInTeam(partyIds, teamIds);
+  if (inTeam !== partyIds.length) {
+    throw new HttpError(400, "Some parties do not belong to your team");
   }
 
-  const name = clean(req.body.name, 150);
-  if (name.length < 2) throw new HttpError(400, "Beat name is required");
+  const conflicts = await model.findPartyConflicts(partyIds, excludeBeatId);
+  if (conflicts.length) {
+    const c = conflicts[0];
+    const more = conflicts.length > 1 ? ` (and ${conflicts.length - 1} more)` : "";
+    throw new HttpError(
+      409,
+      `${c.ledger_name} is already in beat "${c.beat_name}"${more}`,
+    );
+  }
+};
+
+const loadManagedBeat = async (me, beatId) => {
+  const beat = await model.getBeatById(beatId);
+  if (!beat || beat.source !== "MASTER") {
+    throw new HttpError(404, "Beat not found");
+  }
+  const team = await userModel.getSubordinateIds(me);
+  if (beat.created_by !== me && !team.includes(beat.assigned_user_id)) {
+    throw new HttpError(403, "This beat is not in your team");
+  }
+  return { beat, team };
+};
+
+// a beat that is used in a plan waiting for approval cannot be moved / switched off
+const guardPendingUses = async (beatId, today) => {
+  const pending = await model.countPendingFutureUses(beatId, today);
+  if (pending > 0) {
+    throw new HttpError(
+      409,
+      `${pending} submitted plan(s) are waiting for approval and use this beat. Approve or reject them first.`,
+    );
+  }
+};
+
+const partyRow = (p, beatInfo) => ({
+  id: p.id,
+  name: p.name,
+  location: p.location || "",
+  village: p.village_name || "",
+  tehsil: p.tehsil_name || "",
+  contact: p.contact || "",
+  owner_name: p.owner_name || "",
+  in_beat_id: beatInfo ? beatInfo.beat_id : null,
+  in_beat_name: beatInfo ? beatInfo.beat_name : "",
+});
+
+const mapBeat = (b, parties = null) => ({
+  id: b.id,
+  name: b.name,
+  market_area: b.market_area || "",
+  district: b.district || "",
+  total_km: Number(b.total_km) || 0,
+  parties_count: Number(b.parties_count) || 0,
+  assigned_user_id: b.assigned_user_id,
+  assigned_user_name: b.assigned_user_name || "",
+  assigned_role: b.assigned_role || "",
+  created_by_name: b.created_by_name || "",
+  is_active: !!b.is_active,
+  ...(parties ? { parties: parties.map((p) => partyRow(p, null)) } : {}),
+});
+
+const beatPayload = async (beatId) => {
+  const beat = await model.getBeatById(beatId);
+  const parties = await model.getBeatParties(beatId);
+  return mapBeat(beat, parties);
+};
+
+// GET /team   -> is the user a manager + the people he can assign beats to
+exports.getTeam = wrap(async (req, res) => {
+  const me = req.user.id;
+  const reports = await userModel.getDirectSubordinates(me);
+  if (!reports.length) return ok(res, { is_manager: false, members: [] });
+
+  const ids = await userModel.getSubordinateIds(me); // includes the manager
+  const rows = await model.getUsersByIds(ids);
+  const members = rows.map((u) => ({
+    id: u.id,
+    name: u.name,
+    job_role: u.job_role || "",
+    is_self: u.id === me,
+  }));
+  return ok(res, { is_manager: true, members });
+});
+
+// GET /beats/managed?status=active|inactive|all&assigned_user_id=&search=
+exports.listManagedBeats = wrap(async (req, res) => {
+  const me = req.user.id;
+  await requireManager(me);
+
+  const status = ["active", "inactive", "all"].includes(req.query.status)
+    ? req.query.status
+    : "active";
+  const assignedUserId = req.query.assigned_user_id
+    ? toId(req.query.assigned_user_id, "assigned_user_id")
+    : null;
+
+  const team = await userModel.getSubordinateIds(me);
+  const rows = await model.listManagedBeats({
+    teamIds: team,
+    createdBy: me,
+    status,
+    assignedUserId,
+    search: clean(req.query.search, 100),
+  });
+  return ok(res, rows.map((b) => mapBeat(b)));
+});
+
+// GET /beats/:id   -> one beat with its parties
+exports.getManagedBeat = wrap(async (req, res) => {
+  const me = req.user.id;
+  await requireManager(me);
+  const beatId = toId(req.params.id, "beat id");
+  await loadManagedBeat(me, beatId);
+  return ok(res, await beatPayload(beatId));
+});
+
+// POST /beats   body: { name, market_area, district, total_km,
+//                       assigned_user_id, party_ids: [] }
+exports.createBeat = wrap(async (req, res) => {
+  const me = req.user.id;
+  await requireManager(me);
+
+  const base = parseBeatBody(req.body);
+  const team = await userModel.getSubordinateIds(me);
 
   const assignedUserId = req.body.assigned_user_id
     ? toId(req.body.assigned_user_id, "assigned_user_id")
     : me;
-
-  if (assignedUserId !== me) {
-    const team = await userModel.getSubordinateIds(me);
-    if (!team.includes(assignedUserId)) {
-      throw new HttpError(403, "You can assign beats only to your own team");
-    }
+  if (!team.includes(assignedUserId)) {
+    throw new HttpError(403, "You can assign beats only to your own team");
   }
 
-  const partyIds = Array.isArray(req.body.party_ids)
-    ? [...new Set(req.body.party_ids.map((p) => toId(p, "party id")))]
-    : [];
-  if (partyIds.length) {
-    const found = await model.countExistingLedgers(partyIds);
-    if (found !== partyIds.length) {
-      throw new HttpError(400, "One or more parties do not exist");
-    }
-  }
+  const partyIds = parsePartyIds(req.body.party_ids) || [];
+  if (!partyIds.length) throw new HttpError(400, "Select at least one party");
+  await validateParties(partyIds, team, null);
 
   const id = await model.createBeat({
-    name,
-    marketArea: clean(req.body.market_area, 150),
-    district: clean(req.body.district, 100),
-    totalKm: toAmount(req.body.total_km, "total_km"),
+    ...base,
     assignedUserId,
     source: "MASTER",
     createdBy: me,
     partyIds,
   });
 
-  return ok(res, { id }, "Beat created", 201);
+  return ok(res, await beatPayload(id), "Beat created", 201);
+});
+
+// PUT /beats/:id   same body as create. Also used to REASSIGN (change assigned_user_id)
+exports.updateBeat = wrap(async (req, res) => {
+  const me = req.user.id;
+  await requireManager(me);
+  const beatId = toId(req.params.id, "beat id");
+  const { beat, team } = await loadManagedBeat(me, beatId);
+
+  const base = parseBeatBody(req.body);
+
+  const assignedUserId = req.body.assigned_user_id
+    ? toId(req.body.assigned_user_id, "assigned_user_id")
+    : beat.assigned_user_id;
+  if (!team.includes(assignedUserId)) {
+    throw new HttpError(403, "You can assign beats only to your own team");
+  }
+
+  const partyIds = parsePartyIds(req.body.party_ids);
+  if (partyIds) {
+    if (!partyIds.length) throw new HttpError(400, "Select at least one party");
+    await validateParties(partyIds, team, beatId);
+  }
+
+  const today = D.todayIST();
+  const reassigned = assignedUserId !== beat.assigned_user_id;
+  if (reassigned) await guardPendingUses(beatId, today);
+
+  await model.updateBeat(beatId, { ...base, assignedUserId, partyIds });
+
+  let message = "Beat updated";
+  if (reassigned) {
+    const cleared = await model.clearFutureDraftDays(beatId, today);
+    message = cleared
+      ? `Beat reassigned. ${cleared} upcoming day(s) in the previous employee's draft plans were cleared.`
+      : "Beat reassigned";
+  }
+
+  return ok(res, await beatPayload(beatId), message);
+});
+
+// POST /beats/:id/status   body: { is_active: true | false }
+exports.setBeatStatus = wrap(async (req, res) => {
+  const me = req.user.id;
+  await requireManager(me);
+  const beatId = toId(req.params.id, "beat id");
+  const { beat } = await loadManagedBeat(me, beatId);
+
+  if (typeof req.body.is_active !== "boolean") {
+    throw new HttpError(400, "is_active must be true or false");
+  }
+  const makeActive = req.body.is_active;
+  const today = D.todayIST();
+
+  if (!makeActive) {
+    await guardPendingUses(beatId, today);
+    await model.setBeatActive(beatId, false);
+    const cleared = await model.clearFutureDraftDays(beatId, today);
+    return ok(
+      res,
+      await beatPayload(beatId),
+      cleared
+        ? `Beat deactivated. ${cleared} upcoming day(s) in draft plans were cleared.`
+        : "Beat deactivated",
+    );
+  }
+
+  // re-activating: its parties must not be sitting in another active beat now
+  const parties = await model.getBeatParties(beatId);
+  await validateParties(
+    parties.map((p) => p.id),
+    await userModel.getSubordinateIds(me),
+    beatId,
+  );
+  await model.setBeatActive(beatId, true);
+  return ok(res, await beatPayload(beatId), "Beat activated");
+});
+
+// GET /parties?assigned_user_id=&search=&exclude_beat_id=&limit=&offset=
+//   parties of the manager's team, each flagged if it is already in another beat
+exports.searchParties = wrap(async (req, res) => {
+  const me = req.user.id;
+  await requireManager(me);
+  const team = await userModel.getSubordinateIds(me);
+
+  const ownerId = req.query.assigned_user_id
+    ? toId(req.query.assigned_user_id, "assigned_user_id")
+    : null;
+  if (ownerId && !team.includes(ownerId)) {
+    throw new HttpError(403, "That employee is not in your team");
+  }
+
+  const excludeBeatId = req.query.exclude_beat_id
+    ? toId(req.query.exclude_beat_id, "exclude_beat_id")
+    : null;
+  const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), 50);
+  const offset = Math.max(Number(req.query.offset) || 0, 0);
+
+  const { rows, total } = await model.searchParties({
+    teamIds: team,
+    ownerId,
+    search: clean(req.query.search, 100),
+    limit,
+    offset,
+  });
+
+  const beatMap = await model.getPartyBeatMap(
+    rows.map((r) => r.id),
+    excludeBeatId,
+  );
+
+  return ok(res, {
+    total,
+    items: rows.map((r) => partyRow(r, beatMap.get(r.id))),
+  });
 });
 
 // ------------------------------------------------------------------

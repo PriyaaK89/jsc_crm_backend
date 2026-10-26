@@ -1,29 +1,26 @@
-const { Server } = require("socket.io");
 const jwt = require("jsonwebtoken");
 const realtime = require("./chat.realtime");
-const service = require("./chat.service");
+const service = require("../services/chat.service");
 const access = require("./chat.access");
 
-const initChatSocket = (httpServer) => {
-  const io = new Server(httpServer, {
-    cors: { origin: "*" }, // tighten for the web admin origin if needed
-    pingInterval: 25000,
-    pingTimeout: 20000,
-    maxHttpBufferSize: 1e6,
-  });
-  realtime.setIO(io);
+// Pass your EXISTING socket.io server (the `io` you already create). Chat lives in its own
+// namespace "/chat", so your current admin sockets ("joinAdmin") are not affected at all.
+const registerChatSocket = (io) => {
+  const chat = io.of("/chat");
+  console.log("[chat] /chat namespace registered");
+  realtime.setIO(chat);
 
-  // ---- Auth: Flutter connects with { auth: { token: "<same JWT as REST>" } } ----
-  io.use(async (socket, next) => {
+  // ---- Auth: Flutter connects to <baseUrl>/chat with { auth: { token: "<same JWT as REST>" } } ----
+  chat.use(async (socket, next) => {
     try {
       const token =
         (socket.handshake.auth && socket.handshake.auth.token) ||
         String(socket.handshake.headers.authorization || "").replace(/^Bearer\s+/i, "");
       if (!token) return next(new Error("AUTH_REQUIRED"));
 
-      // ADJUST to match your auth middleware (secret + payload field holding the user id)
+      // same secret + payload as your auth middleware (decoded.id)
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const userId = Number(decoded.id ?? decoded.user_id ?? decoded.userId);
+      const userId = Number(decoded.id);
       if (!userId) return next(new Error("AUTH_INVALID"));
 
       const user = await access.getChatUser(userId);
@@ -36,7 +33,7 @@ const initChatSocket = (httpServer) => {
     }
   });
 
-  io.on("connection", async (socket) => {
+  chat.on("connection", async (socket) => {
     const userId = socket.data.userId;
     socket.join(`user:${userId}`); // all events go to this room, so multi-device works
     const first = realtime.addSocket(userId, socket.id);
@@ -75,7 +72,7 @@ const initChatSocket = (httpServer) => {
     });
   });
 
-  return io;
+  return chat;
 };
 
-module.exports = { initChatSocket };
+module.exports = { registerChatSocket };

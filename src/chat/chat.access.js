@@ -7,7 +7,7 @@ const httpError = (status, message) => Object.assign(new Error(message), { statu
 
 const getChatUser = async (userId) => {
   const [rows] = await db.query(
-    `SELECT u.id, u.name, u.profile_image, u.is_active,
+    `SELECT u.id, u.name, u.profile_image, u.is_active, u.job_role_id,
             r.name AS role, jr.name AS job_role, jr.level
      FROM users u
      LEFT JOIN roles r ON r.id = u.role_id
@@ -18,13 +18,17 @@ const getChatUser = async (userId) => {
   return rows[0];
 };
 
-// ---------------------------------------------------------------------------
-// TODO (plug in YOUR permission system): return true if this user has the given
-// permission key. Keys used: cfg.PERMISSION_MESSAGE_ANYONE, cfg.PERMISSION_CREATE_GROUP
-// Until wired, only admin/super_admin (and job roles in config) get these powers.
-// ---------------------------------------------------------------------------
-const userHasPermission = async (user, permissionKey) => {
-  return false;
+// Uses your permissions + user_permissions tables (permissions.code, user_permissions.is_allowed)
+const userHasPermission = async (user, code) => {
+  const [rows] = await db.query(
+    `SELECT 1
+     FROM user_permissions up
+     JOIN permissions p ON p.id = up.permission_id
+     WHERE up.user_id = ? AND p.code = ? AND up.is_allowed = 1
+     LIMIT 1`,
+    [user.id, code]
+  );
+  return rows.length > 0;
 };
 
 const getChatCapabilities = async (userId) => {
@@ -36,10 +40,12 @@ const getChatCapabilities = async (userId) => {
     isUnrestricted || (await userHasPermission(user, cfg.PERMISSION_MESSAGE_ANYONE));
   const canCreateGroup =
     isUnrestricted ||
-    (await userHasPermission(user, cfg.PERMISSION_CREATE_GROUP)) ||
-    cfg.GROUP_CREATOR_JOB_ROLES.includes(norm(user.job_role));
+    cfg.GROUP_CREATOR_JOB_ROLE_IDS.includes(Number(user.job_role_id)) ||
+    (await userHasPermission(user, cfg.PERMISSION_CREATE_GROUP));
+  const canViewAll =
+    isUnrestricted || (await userHasPermission(user, cfg.PERMISSION_VIEW_ALL));
 
-  return { user, canMessageAnyone, canCreateGroup };
+  return { user, canMessageAnyone, canCreateGroup, canViewAll };
 };
 
 const getRelationSets = async (userId) => {
@@ -80,7 +86,15 @@ const assertCanAddUsers = async (caps, userId, ids) => {
   }
 };
 
+// React dashboard: only admin / super_admin / users with chat_view_all
+const assertCanViewAll = async (userId) => {
+  const caps = await getChatCapabilities(userId);
+  if (!caps.canViewAll) throw httpError(403, "You do not have access to view chats");
+  return caps;
+};
+
 module.exports = {
+  assertCanViewAll,
   httpError,
   getChatUser,
   getChatCapabilities,

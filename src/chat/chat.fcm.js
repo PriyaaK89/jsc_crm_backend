@@ -1,7 +1,6 @@
-// Requires firebase-admin to be initialised ONCE at startup (admin.initializeApp(...)).
-// If you already have FCM set up in the project, this just reuses that default app.
-const admin = require("firebase-admin");
-const model = require("./chat.model");
+// firebase-admin is initialised once in config/firebase.js (see SETUP_FCM_AND_DEPLOY.md)
+const admin = require("../config/firebase"); // ADJUST path
+const model = require("../models/chat.model");
 
 const BAD_TOKEN_CODES = [
   "messaging/registration-token-not-registered",

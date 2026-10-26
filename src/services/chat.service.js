@@ -1,8 +1,8 @@
-const model = require("./chat.model");
-const access = require("./chat.access");
-const realtime = require("./chat.realtime");
-const fcm = require("./chat.fcm");
-const cfg = require("./chat.config");
+const model = require("../models/chat.model");
+const access = require("../chat/chat.access");
+const realtime = require("../chat/chat.realtime");
+const fcm = require("../chat/chat.fcm");
+const cfg = require("../chat/chat.config");
 
 const { httpError } = access;
 const FILE_TYPES = ["DOCUMENT", "IMAGE", "KYC"];
@@ -342,6 +342,62 @@ const getPresence = async (userId) => {
 };
 
 // ---------------------------------------------------------------------------
+// React dashboard (read-only; never touches read/delivered pointers)
+// ---------------------------------------------------------------------------
+const adminListConversations = async (userId, { search, type, user_id, page, limit }) => {
+  await access.assertCanViewAll(userId);
+  const lim = Math.min(Math.max(Number(limit) || 20, 1), 100);
+  const pg = Math.max(Number(page) || 1, 1);
+  const { rows, hasMore } = await model.adminListConversations({
+    search, type: String(type || "").toUpperCase(), userId: Number(user_id) || null, page: pg, limit: lim,
+  });
+  const items = [];
+  for (const r of rows) {
+    items.push({
+      conversation_id: r.id,
+      type: r.type,
+      title: r.type === "GROUP" ? r.name : r.member_names,
+      icon_url: await model.sign(r.icon_path),
+      member_names: r.member_names,
+      member_count: r.member_count,
+      message_count: r.message_count,
+      last_message_at: r.last_message_at,
+      last_message: r.lm_type ? {
+        preview: model.previewOf(r.lm_type, r.lm_body, r.lm_file_name, !!r.lm_deleted),
+        sender_name: r.lm_sender_name,
+      } : null,
+    });
+  }
+  return { items, has_more: hasMore };
+};
+
+const adminGetConversation = async (userId, conversationId) => {
+  await access.assertCanViewAll(userId);
+  const d = await model.getConversationDetail(conversationId);
+  if (!d) throw httpError(404, "Conversation not found");
+  const members = [];
+  for (const m of d.members) {
+    members.push({
+      user_id: m.user_id, name: m.name, job_role: m.job_role, role: m.role,
+      avatar_url: await model.sign(m.profile_image),
+    });
+  }
+  return {
+    conversation_id: d.conv.id, type: d.conv.type, name: d.conv.name,
+    description: d.conv.description, icon_url: await model.sign(d.conv.icon_path),
+    created_by: d.conv.created_by, members,
+  };
+};
+
+const adminGetMessages = async (userId, conversationId, { beforeId, limit }) => {
+  await access.assertCanViewAll(userId);
+  const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  return model.getMessages(conversationId, { user_id: 0, visible_from_message_id: 0 }, {
+    beforeId: beforeId ? Number(beforeId) : null, limit: lim,
+  });
+};
+
+// ---------------------------------------------------------------------------
 // Groups
 // ---------------------------------------------------------------------------
 const createGroup = async (userId, { name, description, member_ids }) => {
@@ -477,6 +533,7 @@ const leaveGroup = async (userId, conversationId) => {
 module.exports = {
   emitReceipts, onSocketConnected, onSocketDisconnected, typing,
   sendMessage, getMessages, markRead, deleteMessage,
+  adminListConversations, adminGetConversation, adminGetMessages,
   startDirect, getConversationList, getConversationDetail, getContacts, getPresence,
   createGroup, updateGroup, setGroupIcon, addGroupMembers, removeGroupMember, setMemberRole, leaveGroup,
 };

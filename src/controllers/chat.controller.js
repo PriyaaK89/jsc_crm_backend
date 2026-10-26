@@ -1,8 +1,8 @@
-const service = require("../chat/chat.service");   // ADJUST paths to your folder layout
-const model = require("../chat/chat.model");
+const service = require("../services/chat.service");   // ADJUST paths to your folder layout
+const model = require("../models/chat.model");
 const cfg = require("../chat/chat.config");
 const { httpError } = require("../chat/chat.access");
-const { uploadFileToMinio } = require("../utils/minioUpload");
+const { uploadFileToMinio } = require("../utils/fileUpload");
 
 const fail = (res, e) => {
   if (!e.status) console.error("[chat]", e);
@@ -39,6 +39,7 @@ exports.getConversations = async (req, res) => {
 
 exports.startDirect = async (req, res) => {
   try {
+    console.log("startDirect body:", req.body, "me:", req.user.id);
     return ok(res, await service.startDirect(req.user.id, req.body.user_id));
   } catch (e) { return fail(res, e); }
 };
@@ -179,5 +180,26 @@ exports.deleteDeviceToken = async (req, res) => {
     if (!req.body.fcm_token) throw httpError(400, "fcm_token is required");
     await model.deleteDeviceToken(req.user.id, String(req.body.fcm_token));
     return ok(res, null, "Token removed");
+  } catch (e) { return fail(res, e); }
+};
+
+// ---- React dashboard (super_admin / admin / chat_view_all) ----
+exports.adminListConversations = async (req, res) => {
+  try {
+    return ok(res, await service.adminListConversations(req.user.id, req.query));
+  } catch (e) { return fail(res, e); }
+};
+
+exports.adminGetConversation = async (req, res) => {
+  try {
+    return ok(res, await service.adminGetConversation(req.user.id, Number(req.params.id)));
+  } catch (e) { return fail(res, e); }
+};
+
+exports.adminGetMessages = async (req, res) => {
+  try {
+    const { before_id, limit } = req.query;
+    const r = await service.adminGetMessages(req.user.id, Number(req.params.id), { beforeId: before_id, limit });
+    return ok(res, { messages: r.messages, has_more: r.hasMore });
   } catch (e) { return fail(res, e); }
 };

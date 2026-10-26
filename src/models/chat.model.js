@@ -1,6 +1,6 @@
 const db = require("../config/db");
 // ADJUST the path: this is the MinIO helper file you pasted (exports getPresignedUrl)
-const { getPresignedUrl } = require("../utils/minioUpload");
+const { getPresignedUrl } = require("../utils/fileUpload");
 
 const ISO = (col) => `DATE_FORMAT(${col}, '%Y-%m-%dT%H:%i:%sZ')`;
 const inList = (arr) => arr.map(() => "?").join(",");
@@ -532,6 +532,44 @@ const searchUsers = async ({ excludeId, ids, search, page, limit }) => {
 };
 
 // ---------------------------------------------------------------------------
+// React dashboard (read-only monitoring)
+// ---------------------------------------------------------------------------
+const adminListConversations = async ({ search, type, userId, page, limit }) => {
+  const params = [];
+  let where = "(c.type = 'GROUP' OR c.last_message_id IS NOT NULL)";
+  if (type === "DIRECT" || type === "GROUP") { where += " AND c.type = ?"; params.push(type); }
+  if (userId) {
+    where += " AND EXISTS (SELECT 1 FROM chat_members x WHERE x.conversation_id = c.id AND x.user_id = ?)";
+    params.push(userId);
+  }
+  if (search) {
+    where += ` AND (c.name LIKE ? OR EXISTS (
+      SELECT 1 FROM chat_members x JOIN users u ON u.id = x.user_id
+      WHERE x.conversation_id = c.id AND u.name LIKE ?))`;
+    params.push(`%${search}%`, `%${search}%`);
+  }
+  params.push(Number(limit) + 1, (Number(page) - 1) * Number(limit));
+  const [rows] = await db.query(
+    `SELECT c.id, c.type, c.name, c.icon_path, ${ISO("c.last_message_at")} AS last_message_at,
+            (SELECT GROUP_CONCAT(u.name ORDER BY u.name SEPARATOR ', ')
+               FROM chat_members x JOIN users u ON u.id = x.user_id
+              WHERE x.conversation_id = c.id AND x.is_active = 1) AS member_names,
+            (SELECT COUNT(*) FROM chat_members x WHERE x.conversation_id = c.id AND x.is_active = 1) AS member_count,
+            (SELECT COUNT(*) FROM chat_messages m WHERE m.conversation_id = c.id AND m.type <> 'SYSTEM') AS message_count,
+            lm.type AS lm_type, lm.body AS lm_body, lm.file_name AS lm_file_name, lm.is_deleted AS lm_deleted,
+            lmu.name AS lm_sender_name
+     FROM chat_conversations c
+     LEFT JOIN chat_messages lm ON lm.id = c.last_message_id
+     LEFT JOIN users lmu ON lmu.id = lm.sender_id
+     WHERE ${where}
+     ORDER BY (c.last_message_at IS NULL), c.last_message_at DESC, c.id DESC
+     LIMIT ? OFFSET ?`,
+    params
+  );
+  return { rows: rows.slice(0, Number(limit)), hasMore: rows.length > Number(limit) };
+};
+
+// ---------------------------------------------------------------------------
 // Device tokens + presence
 // ---------------------------------------------------------------------------
 const upsertDeviceToken = async (userId, token, platform) => {
@@ -588,6 +626,6 @@ module.exports = {
   getMessages, getMessageById, findByClientMsgId, getMessageMeta, insertMessage, softDeleteMessage,
   getReceiptMap, markRead, markDelivered, markAllDeliveredOnConnect,
   addMembers, removeMember, ensureAdmin, countAdmins, setMemberRole, updateGroup,
-  searchUsers,
+  searchUsers, adminListConversations,
   upsertDeviceToken, deleteDeviceToken, getTokensForUsers, deleteTokens, setLastSeen, getLastSeenMap,
 };

@@ -97,6 +97,8 @@ const EmpPerformanceTrackerRoute = require("../src/routes/employee-performance/p
 const assignTaskRoute = require("../src/routes/employee-performance/task.routes");
 const collectionAreaRoute = require("../src/routes/assign-area-to-emp/collectionArea.routes");
 const teamOverviewRoute = require("../src/routes/teams/teamOverview.routes");
+const beatPlanRoute = require("../src/routes/beatPlan.routes");
+const chatRoute = require("../src/routes/chat.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -174,7 +176,9 @@ app.use(todayPriorityRoute);
 app.use(EmpPerformanceTrackerRoute);
 app.use(assignTaskRoute);
 app.use(collectionAreaRoute);
-app.use(teamOverviewRoute)
+app.use(teamOverviewRoute);
+app.use("/beat-plan",beatPlanRoute);
+app.use("/chat",chatRoute);
 
 
 // 404 handler

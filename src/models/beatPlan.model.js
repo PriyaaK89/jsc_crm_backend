@@ -319,6 +319,239 @@ const getLogs = async (planId) => {
   return rows;
 };
 
+// ---------------------------------------------------------------------
+//  MANAGE BEATS  (manager side)
+// ---------------------------------------------------------------------
+const getUsersByIds = async (ids) => {
+  if (!ids.length) return [];
+  const [rows] = await db.query(
+    `SELECT u.id, u.name, jr.name AS job_role, jr.level
+     FROM users u
+     LEFT JOIN job_roles jr ON jr.id = u.job_role_id
+     WHERE u.id IN (?) AND u.is_active = 1
+     ORDER BY u.name ASC`,
+    [ids],
+  );
+  return rows;
+};
+
+const BEAT_SELECT = `
+  SELECT b.id, b.name, b.market_area, b.district, b.total_km, b.source,
+         b.is_active, b.assigned_user_id, b.created_by,
+         u.name  AS assigned_user_name,
+         jr.name AS assigned_role,
+         cb.name AS created_by_name,
+         (SELECT COUNT(*) FROM beat_parties bp WHERE bp.beat_id = b.id) AS parties_count
+  FROM beats b
+  LEFT JOIN users u  ON u.id  = b.assigned_user_id
+  LEFT JOIN job_roles jr ON jr.id = u.job_role_id
+  LEFT JOIN users cb ON cb.id = b.created_by`;
+
+const getBeatById = async (beatId) => {
+  const [rows] = await db.query(`${BEAT_SELECT} WHERE b.id = ?`, [beatId]);
+  return rows[0] || null;
+};
+
+// every MASTER beat created by the manager OR assigned to anybody in his team
+const listManagedBeats = async ({
+  teamIds,
+  createdBy,
+  status,
+  assignedUserId,
+  search,
+}) => {
+  const where = [
+    `b.source = 'MASTER'`,
+    `(b.created_by = ? OR b.assigned_user_id IN (?))`,
+  ];
+  const params = [createdBy, teamIds];
+
+  if (status === "active") where.push("b.is_active = 1");
+  if (status === "inactive") where.push("b.is_active = 0");
+
+  if (assignedUserId) {
+    where.push("b.assigned_user_id = ?");
+    params.push(assignedUserId);
+  }
+  if (search) {
+    where.push("(b.name LIKE ? OR b.market_area LIKE ? OR u.name LIKE ?)");
+    const s = `%${search}%`;
+    params.push(s, s, s);
+  }
+
+  const [rows] = await db.query(
+    `${BEAT_SELECT}
+     WHERE ${where.join(" AND ")}
+     ORDER BY b.is_active DESC, b.name ASC
+     LIMIT 300`,
+    params,
+  );
+  return rows;
+};
+
+const getBeatParties = async (beatId) => {
+  const [rows] = await db.query(
+    `SELECT l.id, l.ledger_name AS name, l.location,
+            gv.village_name, gt.tehsil_name,
+            lod.contact,
+            eu.name AS owner_name
+     FROM beat_parties bp
+     JOIN ledgers l ON l.id = bp.ledger_id
+     LEFT JOIN geo_villages gv ON gv.id = l.village_id
+     LEFT JOIN geo_tehsils  gt ON gt.id = l.tehsil_id
+     LEFT JOIN ledger_other_details lod ON lod.ledger_id = l.id
+     LEFT JOIN users eu ON eu.id = l.employee_under
+     WHERE bp.beat_id = ?
+     ORDER BY bp.sequence_no ASC, l.ledger_name ASC`,
+    [beatId],
+  );
+  return rows;
+};
+
+// parties (ledgers) that belong to the manager's team
+const searchParties = async ({ teamIds, ownerId, search, limit, offset }) => {
+  const where = ["l.employee_under IN (?)"];
+  const params = [teamIds];
+
+  if (ownerId) {
+    where.push("l.employee_under = ?");
+    params.push(ownerId);
+  }
+  if (search) {
+    where.push(
+      "(l.ledger_name LIKE ? OR l.location LIKE ? OR lod.contact LIKE ? OR gv.village_name LIKE ?)",
+    );
+    const s = `%${search}%`;
+    params.push(s, s, s, s);
+  }
+
+  const joins = `
+    FROM ledgers l
+    LEFT JOIN geo_villages gv ON gv.id = l.village_id
+    LEFT JOIN geo_tehsils  gt ON gt.id = l.tehsil_id
+    LEFT JOIN ledger_other_details lod ON lod.ledger_id = l.id
+    LEFT JOIN users eu ON eu.id = l.employee_under
+    WHERE ${where.join(" AND ")}`;
+
+  const [rows] = await db.query(
+    `SELECT DISTINCT l.id, l.ledger_name AS name, l.location,
+            gv.village_name, gt.tehsil_name, lod.contact,
+            eu.name AS owner_name
+     ${joins}
+     ORDER BY l.ledger_name ASC
+     LIMIT ? OFFSET ?`,
+    [...params, Number(limit), Number(offset)],
+  );
+
+  const [[countRow]] = await db.query(
+    `SELECT COUNT(DISTINCT l.id) AS total ${joins}`,
+    params,
+  );
+
+  return { rows, total: Number(countRow.total) || 0 };
+};
+
+const countLedgersInTeam = async (ledgerIds, teamIds) => {
+  if (!ledgerIds.length) return 0;
+  const [[row]] = await db.query(
+    `SELECT COUNT(*) AS c FROM ledgers
+     WHERE id IN (?) AND employee_under IN (?)`,
+    [ledgerIds, teamIds],
+  );
+  return Number(row.c) || 0;
+};
+
+// which of these parties already sit in another ACTIVE master beat
+const findPartyConflicts = async (ledgerIds, excludeBeatId = null) => {
+  if (!ledgerIds.length) return [];
+  const params = [ledgerIds];
+  let exclude = "";
+  if (excludeBeatId) {
+    exclude = "AND b.id <> ?";
+    params.push(excludeBeatId);
+  }
+  const [rows] = await db.query(
+    `SELECT bp.ledger_id, l.ledger_name, b.id AS beat_id, b.name AS beat_name
+     FROM beat_parties bp
+     JOIN beats b ON b.id = bp.beat_id AND b.is_active = 1 AND b.source = 'MASTER'
+     JOIN ledgers l ON l.id = bp.ledger_id
+     WHERE bp.ledger_id IN (?) ${exclude}`,
+    params,
+  );
+  return rows;
+};
+
+// beat_id of the active master beat each party is in (for the picker badges)
+const getPartyBeatMap = async (ledgerIds, excludeBeatId = null) => {
+  const rows = await findPartyConflicts(ledgerIds, excludeBeatId);
+  return new Map(rows.map((r) => [r.ledger_id, r]));
+};
+
+const updateBeat = async (
+  beatId,
+  { name, marketArea, district, totalKm, assignedUserId, partyIds },
+) => {
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    await conn.query(
+      `UPDATE beats
+       SET name = ?, market_area = ?, district = ?, total_km = ?, assigned_user_id = ?
+       WHERE id = ?`,
+      [name, marketArea || null, district || null, totalKm || 0, assignedUserId, beatId],
+    );
+
+    // partyIds === null  ->  keep the existing parties
+    if (Array.isArray(partyIds)) {
+      await conn.query(`DELETE FROM beat_parties WHERE beat_id = ?`, [beatId]);
+      for (let i = 0; i < partyIds.length; i++) {
+        await conn.query(
+          `INSERT INTO beat_parties (beat_id, ledger_id, sequence_no) VALUES (?, ?, ?)`,
+          [beatId, partyIds[i], i + 1],
+        );
+      }
+    }
+
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
+const setBeatActive = async (beatId, isActive) => {
+  await db.query(`UPDATE beats SET is_active = ? WHERE id = ?`, [
+    isActive ? 1 : 0,
+    beatId,
+  ]);
+};
+
+// plans that are waiting for approval and use this beat on a future day
+const countPendingFutureUses = async (beatId, today) => {
+  const [[row]] = await db.query(
+    `SELECT COUNT(DISTINCT p.id) AS c
+     FROM beat_plan_days d
+     JOIN beat_weekly_plans p ON p.id = d.plan_id
+     WHERE d.beat_id = ? AND d.plan_date >= ? AND p.status = 'SUBMITTED'`,
+    [beatId, today],
+  );
+  return Number(row.c) || 0;
+};
+
+// future days in DRAFT / REJECTED plans that still use this beat
+const clearFutureDraftDays = async (beatId, today) => {
+  const [result] = await db.query(
+    `DELETE d FROM beat_plan_days d
+     JOIN beat_weekly_plans p ON p.id = d.plan_id
+     WHERE d.beat_id = ? AND d.plan_date >= ? AND p.status IN ('DRAFT', 'REJECTED')`,
+    [beatId, today],
+  );
+  return result.affectedRows;
+};
+
 module.exports = {
   NOW,
   getUserForPlan,
@@ -339,4 +572,16 @@ module.exports = {
   countPlannedDays,
   addLog,
   getLogs,
+  getUsersByIds,
+  getBeatById,
+  listManagedBeats,
+  getBeatParties,
+  searchParties,
+  countLedgersInTeam,
+  findPartyConflicts,
+  getPartyBeatMap,
+  updateBeat,
+  setBeatActive,
+  countPendingFutureUses,
+  clearFutureDraftDays,
 };

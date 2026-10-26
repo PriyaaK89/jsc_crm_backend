@@ -44,19 +44,15 @@ const PORT = process.env.PORT || 5000;
 const { Server } = require("socket.io");
 
 
-//  Create HTTP server manually
 const server = http.createServer(app);
+//  Create HTTP server manually
+const io = new Server(server, { cors: { origin: "*", methods: ["GET","POST","PUT","DELETE"] } });
+global.io = io;
+
+const { registerChatSocket } = require("./chat/chat.socket");  // fix path to where you put the file
+registerChatSocket(io);
 
 //  Attach Socket.IO
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST", "PUT", "DELETE"]
-  }
-});
-
-// Make io globally available
-global.io = io;
 
 //  Socket connection
 io.on("connection", (socket) => {

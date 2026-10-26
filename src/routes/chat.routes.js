@@ -1,12 +1,12 @@
 const router = require("express").Router();
 const multer = require("multer");
-const { verifyToken } = require("../middleware/authMiddleware"); // ADJUST to your auth middleware
+const auth = require("../middleware/auth.middleware"); // ADJUST path: your JWT middleware (sets req.user.id)
 const c = require("../controllers/chat.controller");
 const cfg = require("../chat/chat.config");
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: cfg.MAX_FILE_SIZE } });
 
-router.use(verifyToken); // must set req.user.id
+router.use(auth);
 
 // contacts + conversations
 router.get("/contacts", c.getContacts);
@@ -31,6 +31,11 @@ router.post("/groups/:id/members", c.addMembers);
 router.delete("/groups/:id/members/:userId", c.removeMember);
 router.put("/groups/:id/members/:userId/role", c.setMemberRole);
 router.post("/groups/:id/leave", c.leaveGroup);
+
+// React dashboard (read-only)
+router.get("/admin/conversations", c.adminListConversations);
+router.get("/admin/conversations/:id", c.adminGetConversation);
+router.get("/admin/conversations/:id/messages", c.adminGetMessages);
 
 // push tokens
 router.post("/device-token", c.saveDeviceToken);

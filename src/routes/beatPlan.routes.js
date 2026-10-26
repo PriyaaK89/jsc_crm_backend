@@ -7,10 +7,19 @@ const c = require("../controllers/beatPlan.controller");
 
 router.use(authMiddleware);
 
-// ---------- beats (used by the Day Plan screen) ----------
-router.get("/beats/my", c.getMyBeats); //          list beats I can pick
-router.post("/beats/location", c.addLocation); //  "+ ADD & SELECT LOCATION"
-router.post("/beats", c.createBeat); //            manager creates / assigns a beat
+// ---------- beats: employee (Day Plan screen) ----------
+router.get("/beats/my", c.getMyBeats); //            beats assigned to me
+router.post("/beats/location", c.addLocation); //    "+ ADD & SELECT LOCATION"
+
+// ---------- beats: manager (Manage Beats screen) ----------
+//  ⚠ fixed paths (/managed, /team, /parties) must stay ABOVE "/beats/:id"
+router.get("/team", c.getTeam); //                   is_manager + team members
+router.get("/parties", c.searchParties); //          party picker
+router.get("/beats/managed", c.listManagedBeats); // beats of my team
+router.post("/beats", c.createBeat); //              create + assign
+router.get("/beats/:id", c.getManagedBeat); //       one beat with parties
+router.put("/beats/:id", c.updateBeat); //           edit / reassign
+router.post("/beats/:id/status", c.setBeatStatus); // activate / deactivate
 
 // ---------- manager: approvals ----------
 router.get("/approvals/pending", c.pendingApprovals);

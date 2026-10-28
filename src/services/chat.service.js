@@ -221,6 +221,15 @@ const deleteMessage = async (userId, messageId) => {
 // ---------------------------------------------------------------------------
 // Conversations & contacts
 // ---------------------------------------------------------------------------
+const getCapabilities = async (userId) => {
+  const caps = await access.getChatCapabilities(userId);
+  return {
+    can_message_anyone: caps.canMessageAnyone,
+    can_create_group: caps.canCreateGroup,
+    can_view_all: caps.canViewAll,
+  };
+};
+
 const startDirect = async (userId, targetId) => {
   targetId = Number(targetId);
   if (!targetId || targetId === userId) throw httpError(400, "Invalid user");
@@ -534,6 +543,6 @@ module.exports = {
   emitReceipts, onSocketConnected, onSocketDisconnected, typing,
   sendMessage, getMessages, markRead, deleteMessage,
   adminListConversations, adminGetConversation, adminGetMessages,
-  startDirect, getConversationList, getConversationDetail, getContacts, getPresence,
+  getCapabilities, startDirect, getConversationList, getConversationDetail, getContacts, getPresence,
   createGroup, updateGroup, setGroupIcon, addGroupMembers, removeGroupMember, setMemberRole, leaveGroup,
 };

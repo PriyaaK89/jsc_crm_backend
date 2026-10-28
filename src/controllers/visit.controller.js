@@ -86,7 +86,7 @@ exports.createVisit = async (req, res) => {
       new_retailer_name, new_retailer_firm_name,
       new_retailer_contact_number, new_retailer_area,
       new_retailer_district, new_retailer_pincode,
-      new_retailer_distributor_ledger_id
+      new_retailer_distributor_ledger_id, visit_start_time, visit_duration_seconds
     } = req.body;
  
     console.log("createVisit called | user_id:", user_id, "| body keys:", Object.keys(req.body));
@@ -235,25 +235,28 @@ if (files.document_image && files.document_image[0]) {
   const docUpload = await uploadFileToMinio(files.document_image[0], "visits_documents");
   documentImagePath = docUpload.object_path;
 }
- 
+
+let startEpoch = Number(clean(visit_start_epoch));
+let durationSeconds = null;
+const nowSec = Math.floor(Date.now() / 1000);
+if (Number.isFinite(startEpoch) && startEpoch > 0 && startEpoch <= nowSec + 60 && nowSec - startEpoch < 86400) {
+  durationSeconds = Math.max(0, nowSec - startEpoch);
+} else {
+  startEpoch = null;
+}
+
+
+
     const visitId = await visitModel.createVisit([
-      user_id,
-      finalCustomerId,
-      visit_type,
-       customer_type === "existing" ? "old" : customer_type, 
-      visit_purpose,
-      clean(visit_outcome),
-      comment,
-      cleanedReminderDate,
-      cleanedReminderTime,
-      clean(reminder_reason),
-       clean(priority) ? String(clean(priority)).toLowerCase() : null, 
-      imagePath,
-      shopImagePath,
-      documentImagePath,
-      clean(latitude),
-      clean(longitude)
-    ]);
+  user_id, finalCustomerId, visit_type,
+  customer_type === "existing" ? "old" : customer_type,
+  visit_purpose, clean(visit_outcome), comment,
+  cleanedReminderDate, cleanedReminderTime, clean(reminder_reason),
+  clean(priority) ? String(clean(priority)).toLowerCase() : null,
+  imagePath, shopImagePath, documentImagePath,
+  clean(latitude), clean(longitude),
+  startEpoch, durationSeconds
+]);
  
     const resolvedVisitType = visitTypeLabels[visit_type] || visit_type;
     const resolvedVisitPurpose = visitPurposeLabels[visit_purpose] || visit_purpose;

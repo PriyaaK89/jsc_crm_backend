@@ -552,6 +552,69 @@ const clearFutureDraftDays = async (beatId, today) => {
   return result.affectedRows;
 };
 
+// ---------------------------------------------------------------------
+//  HIERARCHY  (kept here so this module does not depend on other models)
+// ---------------------------------------------------------------------
+
+// people who report DIRECTLY to this user (used to decide "is a manager")
+const getDirectSubordinates = async (userId) => {
+  const [rows] = await db.query(
+    `SELECT id, name FROM users WHERE reporting_under = ? AND is_active = 1`,
+    [userId],
+  );
+  return rows;
+};
+
+
+const getSubordinateIds = async (userId) => {
+  const rootId = Number(userId);
+
+  if (!Number.isInteger(rootId) || rootId <= 0) {
+    throw new Error("Invalid user ID");
+  }
+
+  // Include the manager themselves.
+  const userIds = new Set([rootId]);
+  let currentLevelIds = [rootId];
+
+  // Prevent accidental infinite loops in case the hierarchy has bad data.
+  const MAX_LEVELS = 100;
+
+  for (let level = 0; level < MAX_LEVELS; level++) {
+    if (currentLevelIds.length === 0) {
+      break;
+    }
+
+    const placeholders = currentLevelIds.map(() => "?").join(",");
+
+    const [rows] = await db.query(
+      `SELECT id
+       FROM users
+       WHERE reporting_under IN (${placeholders})`,
+      currentLevelIds
+    );
+
+    const nextLevelIds = [];
+
+    for (const row of rows) {
+      const subordinateId = Number(row.id);
+
+      if (
+        Number.isInteger(subordinateId) &&
+        subordinateId > 0 &&
+        !userIds.has(subordinateId)
+      ) {
+        userIds.add(subordinateId);
+        nextLevelIds.push(subordinateId);
+      }
+    }
+
+    currentLevelIds = nextLevelIds;
+  }
+
+  return [...userIds];
+};
+
 module.exports = {
   NOW,
   getUserForPlan,
@@ -584,4 +647,6 @@ module.exports = {
   setBeatActive,
   countPendingFutureUses,
   clearFutureDraftDays,
+  getDirectSubordinates,
+  getSubordinateIds,
 };

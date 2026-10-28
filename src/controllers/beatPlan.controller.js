@@ -1,5 +1,4 @@
 const model = require("../models/beatPlan.model");
-const userModel = require("../models/user.model"); // adjust file name if different
 const D = require("../utils/beatDates");
 
 // ------------------------------------------------------------------
@@ -163,7 +162,7 @@ const resolveApproverId = async (employee) => {
 // owner, manager (approver) or anybody above in the reporting chain
 const canViewPlan = async (viewerId, plan) => {
   if (viewerId === plan.user_id || viewerId === plan.approver_id) return true;
-  const subordinateIds = await userModel.getSubordinateIds(viewerId);
+  const subordinateIds = await model.getSubordinateIds(viewerId);
   return subordinateIds.includes(plan.user_id);
 };
 
@@ -248,7 +247,7 @@ exports.addLocation = wrap(async (req, res) => {
 //  MANAGE BEATS  (manager side)
 // ------------------------------------------------------------------
 const requireManager = async (me) => {
-  const reports = await userModel.getDirectSubordinates(me);
+  const reports = await model.getDirectSubordinates(me);
   if (!reports.length) {
     throw new HttpError(403, "Only managers can manage beats");
   }
@@ -296,7 +295,7 @@ const loadManagedBeat = async (me, beatId) => {
   if (!beat || beat.source !== "MASTER") {
     throw new HttpError(404, "Beat not found");
   }
-  const team = await userModel.getSubordinateIds(me);
+  const team = await model.getSubordinateIds(me);
   if (beat.created_by !== me && !team.includes(beat.assigned_user_id)) {
     throw new HttpError(403, "This beat is not in your team");
   }
@@ -350,10 +349,10 @@ const beatPayload = async (beatId) => {
 // GET /team   -> is the user a manager + the people he can assign beats to
 exports.getTeam = wrap(async (req, res) => {
   const me = req.user.id;
-  const reports = await userModel.getDirectSubordinates(me);
+  const reports = await model.getDirectSubordinates(me);
   if (!reports.length) return ok(res, { is_manager: false, members: [] });
 
-  const ids = await userModel.getSubordinateIds(me); // includes the manager
+  const ids = await model.getSubordinateIds(me); // includes the manager
   const rows = await model.getUsersByIds(ids);
   const members = rows.map((u) => ({
     id: u.id,
@@ -376,7 +375,7 @@ exports.listManagedBeats = wrap(async (req, res) => {
     ? toId(req.query.assigned_user_id, "assigned_user_id")
     : null;
 
-  const team = await userModel.getSubordinateIds(me);
+  const team = await model.getSubordinateIds(me);
   const rows = await model.listManagedBeats({
     teamIds: team,
     createdBy: me,
@@ -403,7 +402,7 @@ exports.createBeat = wrap(async (req, res) => {
   await requireManager(me);
 
   const base = parseBeatBody(req.body);
-  const team = await userModel.getSubordinateIds(me);
+  const team = await model.getSubordinateIds(me);
 
   const assignedUserId = req.body.assigned_user_id
     ? toId(req.body.assigned_user_id, "assigned_user_id")
@@ -496,7 +495,7 @@ exports.setBeatStatus = wrap(async (req, res) => {
   const parties = await model.getBeatParties(beatId);
   await validateParties(
     parties.map((p) => p.id),
-    await userModel.getSubordinateIds(me),
+    await model.getSubordinateIds(me),
     beatId,
   );
   await model.setBeatActive(beatId, true);
@@ -508,7 +507,7 @@ exports.setBeatStatus = wrap(async (req, res) => {
 exports.searchParties = wrap(async (req, res) => {
   const me = req.user.id;
   await requireManager(me);
-  const team = await userModel.getSubordinateIds(me);
+  const team = await model.getSubordinateIds(me);
 
   const ownerId = req.query.assigned_user_id
     ? toId(req.query.assigned_user_id, "assigned_user_id")
@@ -827,7 +826,7 @@ const decide = async (req, res, decision) => {
   // the assigned manager, or anybody above him in the reporting chain
   let allowed = plan.approver_id === me;
   if (!allowed) {
-    const team = await userModel.getSubordinateIds(me);
+    const team = await model.getSubordinateIds(me);
     allowed = team.includes(plan.user_id);
   }
   if (!allowed) throw new HttpError(403, "You are not allowed to decide this plan");

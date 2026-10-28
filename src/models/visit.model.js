@@ -4,8 +4,8 @@ exports.createVisit = async (data) => {
   const query = `INSERT INTO visits
     (user_id, customer_id, visit_type, customer_type, visit_purpose, visit_outcome,
      comment, reminder_date, reminder_time, reminder_reason, priority,
-     image_path, shop_image_path, document_image_path, latitude, longitude)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+     image_path, shop_image_path, document_image_path, latitude, longitude, visit_start_time, visit_duration_seconds)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? , FROM_UNIXTIME(?), ?)`;
 
   const [result] = await db.query(query, data);
   return result.insertId;
@@ -82,7 +82,12 @@ if (filters.user_ids && filters.user_ids.length > 0) {
     
       v.reminder_date,
       v.image_path,
-      v.created_at,
+      DATE_FORMAT(
+  CONVERT_TZ(v.created_at, @@session.time_zone, '+05:30'),
+  '%Y-%m-%dT%H:%i:%s+05:30'
+) AS created_at,
+v.visit_start_time,
+v.visit_duration_seconds,
 
       c.name AS customer_name,
       c.firm_name,
@@ -268,7 +273,9 @@ exports.getHierarchyVisitSummary = async (filters) => {
 exports.getUserVisitDetails = async (userId, fromDate, toDate) => {
   let query = `
     SELECT
-      v.id, v.created_at, v.visit_type, v.customer_type, v.visit_purpose, v.comment, v.reminder_date, v.image_path,
+      v.id,  CONVERT_TZ(v.created_at, @@session.time_zone, '+05:30'),
+  '%Y-%m-%dT%H:%i:%s+05:30'
+) AS created_at, v.visit_type, v.customer_type, v.visit_purpose, v.comment, v.reminder_date, v.image_path,
       u.id AS user_id, u.name AS employee_name, u.contact_no,
       c.id AS customer_id, c.name AS customer_name, c.firm_name, c.contact_number, c.address, c.area, c.district, c.pincode
     FROM visits v

@@ -23,6 +23,12 @@ const UPLOAD_KINDS = {
   kyc:      { type: "KYC",      folder: "chat_kyc",       allow: (m) => IMG.test(m) || /^application\/pdf$/i.test(m) },
 };
 
+exports.getCapabilities = async (req, res) => {
+  try {
+    return ok(res, await service.getCapabilities(req.user.id));
+  } catch (e) { return fail(res, e); }
+};
+
 exports.getContacts = async (req, res) => {
   try {
     const { scope, search, page, limit } = req.query;
@@ -39,7 +45,6 @@ exports.getConversations = async (req, res) => {
 
 exports.startDirect = async (req, res) => {
   try {
-    console.log("startDirect body:", req.body, "me:", req.user.id);
     return ok(res, await service.startDirect(req.user.id, req.body.user_id));
   } catch (e) { return fail(res, e); }
 };

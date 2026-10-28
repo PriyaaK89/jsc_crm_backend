@@ -391,7 +391,8 @@ exports.updateUserById = async (req, res) => {
     const updateData = {
       name,
       gender,
-      contact_no,alternate_contact_no,
+      contact_no,
+      alternate_contact_no: alternate_contact_no === "" ? null : alternate_contact_no,
       date_of_birth,
       email,
       address_line1,
@@ -404,7 +405,8 @@ exports.updateUserById = async (req, res) => {
       pincode,
 
       father_name,
-      pan_number,bank_account_number,
+      pan_number,
+      bank_account_number: bank_account_number === "" ? null : bank_account_number,
       aadhar_no,
       blood_group,
 

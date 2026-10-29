@@ -1,6 +1,6 @@
 // firebase-admin is initialised once in config/firebase.js (see SETUP_FCM_AND_DEPLOY.md)
 const admin = require("../config/firebase"); // ADJUST path
-const model = require("./chat.model");
+const model = require("../models/chat.model");
 
 const BAD_TOKEN_CODES = [
   "messaging/registration-token-not-registered",

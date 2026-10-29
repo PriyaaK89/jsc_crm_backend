@@ -10,7 +10,7 @@ services:
     networks:
       - crm_dev_network
     volumes:
-      - /root/jsCRM/opt/jsc-secrets/firebase-service-account.json:/run/secrets/firebase-service-account.json:ro
+      - /opt/jsc-secrets/firebase-service-account.json:/run/secrets/firebase-service-account.json:ro
 
 networks:
   crm_dev_network:

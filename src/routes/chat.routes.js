@@ -8,7 +8,6 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: cfg
 
 router.use(auth);
 
-// contacts + conversations
 router.get("/capabilities", c.getCapabilities);
 router.get("/contacts", c.getContacts);
 router.get("/conversations", c.getConversations);

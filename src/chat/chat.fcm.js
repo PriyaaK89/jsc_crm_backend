@@ -1,6 +1,6 @@
 // firebase-admin is initialised once in config/firebase.js (see SETUP_FCM_AND_DEPLOY.md)
 const admin = require("../config/firebase"); // ADJUST path
-const model = require("../models/chat.model");
+const model = require("./chat.model");
 
 const BAD_TOKEN_CODES = [
   "messaging/registration-token-not-registered",
@@ -13,6 +13,7 @@ const toStringMap = (obj) =>
 const sendChatPush = async ({ userIds, title, body, data }) => {
   if (!userIds || !userIds.length) return;
   const tokens = await model.getTokensForUsers(userIds);
+  console.log(`[chat-push] users=${userIds.join(',')} tokens=${tokens.length}`);
   if (!tokens.length) return;
 
   const badTokens = [];
@@ -28,7 +29,9 @@ const sendChatPush = async ({ userIds, title, body, data }) => {
       },
       apns: { payload: { aps: { sound: "default", "thread-id": `chat_${data.conversation_id}` } } },
     });
+    console.log(`[chat-push] sent ok=${res.successCount} failed=${res.failureCount}`);
     res.responses.forEach((r, idx) => {
+      if (!r.success) console.error('[chat-push] error:', r.error && r.error.code, r.error && r.error.message);
       if (!r.success && r.error && BAD_TOKEN_CODES.includes(r.error.code)) badTokens.push(chunk[idx]);
     });
   }

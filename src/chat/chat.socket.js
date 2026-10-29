@@ -7,7 +7,6 @@ const access = require("./chat.access");
 // namespace "/chat", so your current admin sockets ("joinAdmin") are not affected at all.
 const registerChatSocket = (io) => {
   const chat = io.of("/chat");
-  console.log("[chat] /chat namespace registered");
   realtime.setIO(chat);
 
   // ---- Auth: Flutter connects to <baseUrl>/chat with { auth: { token: "<same JWT as REST>" } } ----
@@ -56,6 +55,7 @@ const registerChatSocket = (io) => {
 
     socket.on("message:send", handle((p) => service.sendMessage(userId, p)));
     socket.on("message:read", handle((p) => service.markRead(userId, Number(p.conversation_id), p.up_to_id)));
+    socket.on("app:state", (p) => realtime.setForeground(userId, socket.id, !(p && p.foreground === false)));
     socket.on("typing", (p) => {
       if (p && p.conversation_id) service.typing(userId, Number(p.conversation_id), p.is_typing).catch(() => {});
     });

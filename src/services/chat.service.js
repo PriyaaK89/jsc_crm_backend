@@ -152,7 +152,7 @@ const sendMessage = async (userId, p) => {
   if (onlineRecipients.length) await emitReceipts(conversationId, null);
 
   // 3) offline + not muted -> FCM push (fire and forget)
-  const toPush = recipients.filter((m) => !realtime.isOnline(m.user_id) && !m.is_muted).map((m) => m.user_id);
+  const toPush = recipients.filter((m) => !realtime.isForeground(m.user_id) && !m.is_muted).map((m) => m.user_id);
   if (toPush.length) {
     const conv = await model.getConversationBasic(conversationId);
     const preview = model.previewOf(type, body, file && file.name, false);

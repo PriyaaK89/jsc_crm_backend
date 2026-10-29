@@ -71,13 +71,14 @@ const clean = (value, max) => {
 //  - own DRAFT / REJECTED plan: every future day
 //  - own APPROVED plan: only EMPTY days (new days) or his own PENDING / REJECTED added days
 
-console.log("CAN_EDIT DEBUG", {
-  viewerId, viewerType: typeof viewerId,
+
+const canEditDay = (plan, viewerId, date, row, today) => {
+  console.log("CAN_EDIT DEBUG", {
+ viewerType: typeof viewerId,
   planUserId: plan.user_id, planUserType: typeof plan.user_id,
   date, today, status: plan.status,
   rowStatus: row ? row.amend_status : null,
 });
-const canEditDay = (plan, viewerId, date, row, today) => {
   if (viewerId !== plan.user_id) return false;
   if (date < today) return false;
   if (EDITABLE.includes(plan.status)) return true;

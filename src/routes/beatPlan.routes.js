@@ -21,6 +21,9 @@ router.get("/beats/:id", c.getManagedBeat); //       one beat with parties
 router.put("/beats/:id", c.updateBeat); //           edit / reassign
 router.post("/beats/:id/status", c.setBeatStatus); // activate / deactivate
 
+// ---------- Beat Plan home screen ----------
+router.get("/today", c.getToday); //                 today's beat + counts
+
 // ---------- manager: approvals ----------
 router.get("/approvals/pending", c.pendingApprovals);
 

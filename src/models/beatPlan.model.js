@@ -213,20 +213,28 @@ const listMyPlans = async (userId, limit = 12) => {
   return rows;
 };
 
+// submitted plans + approved plans that have NEW days waiting for approval
 const listPendingForApprover = async (approverId) => {
   const [rows] = await db.query(
     `SELECT ${PLAN_COLS},
             u.name AS user_name,
             jr.name AS job_role,
             (SELECT COUNT(*) FROM beat_plan_days d WHERE d.plan_id = p.id) AS days_planned,
+            (SELECT COUNT(*) FROM beat_plan_days d WHERE d.plan_id = p.id AND d.amend_status = 'PENDING') AS pending_days,
             (SELECT COALESCE(SUM(d.sales_target), 0) FROM beat_plan_days d WHERE d.plan_id = p.id) AS total_sales,
             (SELECT COALESCE(SUM(d.collection_target), 0) FROM beat_plan_days d WHERE d.plan_id = p.id) AS total_collection,
             (SELECT COALESCE(SUM(d.new_dealer_target), 0) FROM beat_plan_days d WHERE d.plan_id = p.id) AS total_new_dealers
      FROM beat_weekly_plans p
      JOIN users u ON u.id = p.user_id
      LEFT JOIN job_roles jr ON jr.id = u.job_role_id
-     WHERE p.approver_id = ? AND p.status = 'SUBMITTED'
-     ORDER BY p.submitted_at ASC`,
+     WHERE p.approver_id = ?
+       AND (
+         p.status = 'SUBMITTED'
+         OR (p.status = 'APPROVED' AND EXISTS (
+               SELECT 1 FROM beat_plan_days d
+               WHERE d.plan_id = p.id AND d.amend_status = 'PENDING'))
+       )
+     ORDER BY p.week_start ASC, p.id ASC`,
     [approverId],
   );
   return rows;
@@ -241,7 +249,7 @@ const getPlanDays = async (planId) => {
             DATE_FORMAT(d.plan_date, '%Y-%m-%d') AS plan_date,
             d.beat_id, b.name AS beat_name, b.source AS beat_source,
             d.purpose, d.sales_target, d.collection_target, d.abs_target,
-            d.new_dealer_target, d.remark
+            d.new_dealer_target, d.remark, d.amend_status, d.amend_remark
      FROM beat_plan_days d
      JOIN beats b ON b.id = d.beat_id
      WHERE d.plan_id = ?
@@ -251,12 +259,13 @@ const getPlanDays = async (planId) => {
   return rows;
 };
 
-const upsertDay = async (planId, date, d) => {
+// amendStatus: null for normal days, 'PENDING' for a day added to an approved plan
+const upsertDay = async (planId, date, d, amendStatus = null) => {
   await db.query(
     `INSERT INTO beat_plan_days
        (plan_id, plan_date, beat_id, purpose, sales_target, collection_target,
-        abs_target, new_dealer_target, remark)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        abs_target, new_dealer_target, remark, amend_status, amend_remark)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
      ON DUPLICATE KEY UPDATE
        beat_id = VALUES(beat_id),
        purpose = VALUES(purpose),
@@ -264,7 +273,9 @@ const upsertDay = async (planId, date, d) => {
        collection_target = VALUES(collection_target),
        abs_target = VALUES(abs_target),
        new_dealer_target = VALUES(new_dealer_target),
-       remark = VALUES(remark)`,
+       remark = VALUES(remark),
+       amend_status = VALUES(amend_status),
+       amend_remark = NULL`,
     [
       planId,
       date,
@@ -275,6 +286,7 @@ const upsertDay = async (planId, date, d) => {
       d.absTarget,
       d.newDealerTarget,
       d.remark || null,
+      amendStatus,
     ],
   );
 };
@@ -565,54 +577,105 @@ const getDirectSubordinates = async (userId) => {
   return rows;
 };
 
-
+// the user + everybody below him at any depth (ZSM -> RSM -> ASM -> TSM -> SO -> FA)
+// Works on every MySQL / MariaDB version (no "WITH RECURSIVE"): it walks the
+// reporting tree one level at a time.
 const getSubordinateIds = async (userId) => {
-  const rootId = Number(userId);
+  const seen = new Set([userId]);
+  let frontier = [userId];
 
-  if (!Number.isInteger(rootId) || rootId <= 0) {
-    throw new Error("Invalid user ID");
-  }
-
-  // Include the manager themselves.
-  const userIds = new Set([rootId]);
-  let currentLevelIds = [rootId];
-
-  // Prevent accidental infinite loops in case the hierarchy has bad data.
-  const MAX_LEVELS = 100;
-
-  for (let level = 0; level < MAX_LEVELS; level++) {
-    if (currentLevelIds.length === 0) {
-      break;
-    }
-
-    const placeholders = currentLevelIds.map(() => "?").join(",");
-
+  // 12 levels is far more than the 6-level hierarchy; it also stops loops
+  for (let depth = 0; depth < 12 && frontier.length; depth++) {
     const [rows] = await db.query(
-      `SELECT id
-       FROM users
-       WHERE reporting_under IN (${placeholders})`,
-      currentLevelIds
+      `SELECT id FROM users WHERE reporting_under IN (?)`,
+      [frontier],
     );
 
-    const nextLevelIds = [];
-
-    for (const row of rows) {
-      const subordinateId = Number(row.id);
-
-      if (
-        Number.isInteger(subordinateId) &&
-        subordinateId > 0 &&
-        !userIds.has(subordinateId)
-      ) {
-        userIds.add(subordinateId);
-        nextLevelIds.push(subordinateId);
+    frontier = [];
+    for (const r of rows) {
+      if (!seen.has(r.id)) {
+        seen.add(r.id);
+        frontier.push(r.id);
       }
     }
-
-    currentLevelIds = nextLevelIds;
   }
 
-  return [...userIds];
+  return [...seen];
+};
+
+// ---------------------------------------------------------------------
+//  ADD-ON DAYS (days added after the plan was approved)
+// ---------------------------------------------------------------------
+const getPlanDay = async (planId, date) => {
+  const [rows] = await db.query(
+    `SELECT id, beat_id, amend_status
+     FROM beat_plan_days
+     WHERE plan_id = ? AND plan_date = ?`,
+    [planId, date],
+  );
+  return rows[0] || null;
+};
+
+const countPendingAmendments = async (planId) => {
+  const [[row]] = await db.query(
+    `SELECT COUNT(*) AS c FROM beat_plan_days
+     WHERE plan_id = ? AND amend_status = 'PENDING'`,
+    [planId],
+  );
+  return Number(row.c) || 0;
+};
+
+// manager approves / rejects every PENDING added day of the plan
+const decideAmendments = async (planId, status, remark) => {
+  const [result] = await db.query(
+    `UPDATE beat_plan_days
+     SET amend_status = ?, amend_remark = ?
+     WHERE plan_id = ? AND amend_status = 'PENDING'`,
+    [status, remark || null, planId],
+  );
+  return result.affectedRows;
+};
+
+// ---------------------------------------------------------------------
+//  TODAY'S BEAT (Beat Plan home screen)
+// ---------------------------------------------------------------------
+const getTodayPlanDay = async (userId, date) => {
+  const [rows] = await db.query(
+    `SELECT p.id AS plan_id, p.status AS plan_status,
+            d.amend_status, d.beat_id, d.purpose, d.sales_target,
+            d.collection_target, d.new_dealer_target, d.remark,
+            b.name AS beat_name, b.market_area, b.district, b.total_km, b.source,
+            (SELECT COUNT(*) FROM beat_parties bp WHERE bp.beat_id = b.id) AS parties_count
+     FROM beat_plan_days d
+     JOIN beat_weekly_plans p ON p.id = d.plan_id
+     JOIN beats b ON b.id = d.beat_id
+     WHERE p.user_id = ? AND d.plan_date = ?
+     LIMIT 1`,
+    [userId, date],
+  );
+  return rows[0] || null;
+};
+
+const getBeatPartyIds = async (beatId) => {
+  const [rows] = await db.query(
+    `SELECT ledger_id FROM beat_parties WHERE beat_id = ?`,
+    [beatId],
+  );
+  return rows.map((r) => r.ledger_id);
+};
+
+// customers the user visited on that day (visits.customer_id)
+const getVisitedCustomerIds = async (userId, date) => {
+  const [rows] = await db.query(
+    `SELECT DISTINCT customer_id
+     FROM visits
+     WHERE user_id = ?
+       AND created_at >= ?
+       AND created_at < DATE_ADD(?, INTERVAL 1 DAY)
+       AND customer_id IS NOT NULL`,
+    [userId, date, date],
+  );
+  return rows.map((r) => r.customer_id);
 };
 
 module.exports = {
@@ -649,4 +712,10 @@ module.exports = {
   clearFutureDraftDays,
   getDirectSubordinates,
   getSubordinateIds,
+  getPlanDay,
+  countPendingAmendments,
+  decideAmendments,
+  getTodayPlanDay,
+  getBeatPartyIds,
+  getVisitedCustomerIds,
 };

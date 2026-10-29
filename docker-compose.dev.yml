@@ -1,4 +1,3 @@
-
 services:
   backend-dev:
     build: .
@@ -10,6 +9,8 @@ services:
     restart: unless-stopped
     networks:
       - crm_dev_network
+    volumes:
+      - /root/jsCRM/opt/jsc-secrets/firebase-service-account.json:/run/secrets/firebase-service-account.json:ro
 
 networks:
   crm_dev_network:

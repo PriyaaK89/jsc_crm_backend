@@ -67,12 +67,33 @@ const clean = (value, max) => {
 // ------------------------------------------------------------------
 //  response builder  (what the Flutter app receives)
 // ------------------------------------------------------------------
+// can the logged-in employee open / change this day?
+//  - own DRAFT / REJECTED plan: every future day
+//  - own APPROVED plan: only EMPTY days (new days) or his own PENDING / REJECTED added days
+
+console.log("CAN_EDIT DEBUG", {
+  viewerId, viewerType: typeof viewerId,
+  planUserId: plan.user_id, planUserType: typeof plan.user_id,
+  date, today, status: plan.status,
+  rowStatus: row ? row.amend_status : null,
+});
+const canEditDay = (plan, viewerId, date, row, today) => {
+  if (viewerId !== plan.user_id) return false;
+  if (date < today) return false;
+  if (EDITABLE.includes(plan.status)) return true;
+  if (plan.status === "APPROVED") {
+    return !row || ["PENDING", "REJECTED"].includes(row.amend_status);
+  }
+  return false;
+};
+
 const buildPlanPayload = async (plan, viewerId) => {
   const owner = await model.getUserForPlan(plan.user_id);
   const holidays = await model.getHolidaySet(plan.week_start, plan.week_end);
   const rows = await model.getPlanDays(plan.id);
   const byDate = new Map(rows.map((r) => [r.plan_date, r]));
 
+  const today = D.todayIST();
   const days = [];
   const offDays = [];
 
@@ -96,6 +117,9 @@ const buildPlanPayload = async (plan, viewerId) => {
       abs_target: r ? Number(r.abs_target) : 0,
       new_dealer_target: r ? Number(r.new_dealer_target) : 0,
       remark: r ? r.remark || "" : "",
+      amend_status: r ? r.amend_status || "" : "",
+      amend_remark: r ? r.amend_remark || "" : "",
+      can_edit: canEditDay(plan, viewerId, date, r, today),
     });
   }
 
@@ -148,6 +172,7 @@ const buildPlanPayload = async (plan, viewerId) => {
     totals,
     can_edit: editable,
     can_submit: editable && daysPlanned >= MIN_DAYS_TO_SUBMIT,
+    has_pending_amendments: rows.some((r) => r.amend_status === "PENDING"),
     days,
     off_days: offDays,
   };
@@ -169,6 +194,19 @@ const canViewPlan = async (viewerId, plan) => {
 const loadPlan = async (planId) => {
   const plan = await model.getPlanById(planId);
   if (!plan) throw new HttpError(404, "Beat plan not found");
+  return plan;
+};
+
+// day edits are also allowed on an APPROVED plan (new days that need approval)
+const loadDayEditablePlan = async (userId, planId) => {
+  const plan = await loadPlan(planId);
+  if (plan.user_id !== userId) throw new HttpError(403, "This is not your plan");
+  if (![...EDITABLE, "APPROVED"].includes(plan.status)) {
+    throw new HttpError(
+      409,
+      "A plan waiting for approval cannot be edited. Withdraw it first.",
+    );
+  }
   return plan;
 };
 
@@ -656,7 +694,7 @@ exports.saveDay = wrap(async (req, res) => {
   const date = req.params.date;
   if (!D.isValidDate(date)) throw new HttpError(400, "date must be YYYY-MM-DD");
 
-  const plan = await loadEditablePlan(me, planId);
+  const plan = await loadDayEditablePlan(me, planId);
 
   if (date < plan.week_start || date > plan.week_end) {
     throw new HttpError(400, "This date is outside the plan week");
@@ -677,6 +715,19 @@ exports.saveDay = wrap(async (req, res) => {
     );
   }
 
+  // on an APPROVED plan only NEW days (or his own pending / rejected added days)
+  // can be saved. Changing an approved day needs a Beat Change Request.
+  const addOn = plan.status === "APPROVED";
+  if (addOn) {
+    const existing = await model.getPlanDay(planId, date);
+    if (existing && !["PENDING", "REJECTED"].includes(existing.amend_status)) {
+      throw new HttpError(
+        409,
+        "This day is already approved. To change it, raise a Beat Change Request.",
+      );
+    }
+  }
+
   const beatId = toId(req.body.beat_id, "beat_id");
   const beat = await model.getBeatForUser(beatId, me);
   if (!beat) throw new HttpError(400, "This beat is not assigned to you");
@@ -689,7 +740,11 @@ exports.saveDay = wrap(async (req, res) => {
     absTarget: toAmount(req.body.abs_target, "ABS target"),
     newDealerTarget: toCount(req.body.new_dealer_target, "New dealer target"),
     remark: clean(req.body.remark, 500),
-  });
+  }, addOn ? "PENDING" : null);
+
+  if (addOn) {
+    await model.addLog(planId, "DAY_ADDED", me, date);
+  }
 
   // editing a rejected plan turns it back into a draft
   if (plan.status === "REJECTED") {
@@ -697,7 +752,7 @@ exports.saveDay = wrap(async (req, res) => {
   }
 
   const fresh = await loadPlan(planId);
-  return ok(res, await buildPlanPayload(fresh, me), "Day plan saved");
+  return ok(res, await buildPlanPayload(fresh, me), addOn ? "Day added – waiting for your manager's approval" : "Day plan saved");
 });
 
 // DELETE /plans/:id/days/:date   -> clear one planned day
@@ -707,9 +762,20 @@ exports.clearDay = wrap(async (req, res) => {
   const date = req.params.date;
   if (!D.isValidDate(date)) throw new HttpError(400, "date must be YYYY-MM-DD");
 
-  const plan = await loadEditablePlan(me, planId);
+  const plan = await loadDayEditablePlan(me, planId);
   if (date < D.todayIST()) {
     throw new HttpError(400, "You cannot change a past date");
+  }
+
+  if (plan.status === "APPROVED") {
+    // only an added day that is still pending / rejected can be removed
+    const existing = await model.getPlanDay(planId, date);
+    if (existing && !["PENDING", "REJECTED"].includes(existing.amend_status)) {
+      throw new HttpError(
+        409,
+        "This day is already approved. To change it, raise a Beat Change Request.",
+      );
+    }
   }
 
   await model.deleteDay(planId, date);
@@ -810,6 +876,8 @@ exports.pendingApprovals = wrap(async (req, res) => {
     total_sales: Number(p.total_sales) || 0,
     total_collection: Number(p.total_collection) || 0,
     total_new_dealers: Number(p.total_new_dealers) || 0,
+    is_amendment: p.status === "APPROVED", // approved plan with NEW days waiting
+    pending_days: Number(p.pending_days) || 0,
   }));
   return ok(res, data);
 });
@@ -836,6 +904,21 @@ const decide = async (req, res, decision) => {
     throw new HttpError(400, "Please give a reason for rejecting");
   }
 
+  // new days added to an already approved plan
+  if (plan.status === "APPROVED") {
+    const changed = await model.decideAmendments(planId, decision, remark);
+    if (!changed) {
+      throw new HttpError(409, "There are no new days waiting for approval");
+    }
+    await model.addLog(planId, `DAYS_${decision}`, me, remark || null);
+    const freshPlan = await loadPlan(planId);
+    return ok(
+      res,
+      await buildPlanPayload(freshPlan, me),
+      decision === "APPROVED" ? "New days approved" : "New days rejected",
+    );
+  }
+
   const done = await model.transitionStatus(planId, ["SUBMITTED"], {
     status: decision,
     decided_by: me,
@@ -860,3 +943,80 @@ exports.approvePlan = wrap((req, res) => decide(req, res, "APPROVED"));
 
 // POST /plans/:id/reject    body: { remark }   (reason is required)
 exports.rejectPlan = wrap((req, res) => decide(req, res, "REJECTED"));
+
+// ------------------------------------------------------------------
+//  TODAY'S BEAT  (Beat Plan home screen)
+// ------------------------------------------------------------------
+
+// GET /today
+//  -> today's beat of the logged-in employee + the planned / completed counts
+exports.getToday = wrap(async (req, res) => {
+  const me = req.user.id;
+  const today = D.todayIST();
+
+  const row = await model.getTodayPlanDay(me, today);
+
+  // APPROVED | PENDING | REJECTED | DRAFT | NONE
+  let approvalState = "NONE";
+  if (row) {
+    if (row.plan_status === "APPROVED") {
+      if (!row.amend_status || row.amend_status === "APPROVED") {
+        approvalState = "APPROVED";
+      } else {
+        approvalState = row.amend_status; // PENDING or REJECTED (added day)
+      }
+    } else if (row.plan_status === "SUBMITTED") {
+      approvalState = "PENDING";
+    } else if (row.plan_status === "REJECTED") {
+      approvalState = "REJECTED";
+    } else {
+      approvalState = "DRAFT";
+    }
+  }
+
+  // visits are compared with the beat's parties only when the beat is approved
+  let partyIds = [];
+  if (row && approvalState === "APPROVED") {
+    partyIds = await model.getBeatPartyIds(row.beat_id);
+  }
+
+  let completed = 0;
+  let unplanned = 0;
+  try {
+    const visited = await model.getVisitedCustomerIds(me, today);
+    const partySet = new Set(partyIds);
+    completed = visited.filter((id) => partySet.has(id)).length;
+    unplanned = visited.length - completed;
+  } catch (err) {
+    // never break the home screen if the visits table differs from what we expect
+    console.error("BEAT TODAY visits count failed:", err.message);
+  }
+
+  return ok(res, {
+    date: today,
+    approval_state: approvalState,
+    plan_id: row ? row.plan_id : null,
+    beat: row
+      ? {
+          id: row.beat_id,
+          name: row.beat_name,
+          market_area: row.market_area || "",
+          district: row.district || "",
+          total_km: Number(row.total_km) || 0,
+          parties_count: Number(row.parties_count) || 0,
+          is_new_location: row.source === "ADHOC",
+          purpose: row.purpose || "",
+          sales_target: Number(row.sales_target) || 0,
+          collection_target: Number(row.collection_target) || 0,
+          new_dealer_target: Number(row.new_dealer_target) || 0,
+          remark: row.remark || "",
+        }
+      : null,
+    counts: {
+      planned: partyIds.length,
+      completed,
+      missed: 0, // a party is "missed" only after the day is over
+      unplanned,
+    },
+  });
+});

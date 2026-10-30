@@ -4,6 +4,7 @@ const router = express.Router();
 // ⚠ use the SAME auth middleware your other routes use (it must set req.user.id)
 const authMiddleware = require("../middleware/auth.middleware");
 const c = require("../controllers/beatPlan.controller");
+const r = require("../controllers/beatReport.controller");
 
 router.use(authMiddleware);
 
@@ -23,6 +24,24 @@ router.post("/beats/:id/status", c.setBeatStatus); // activate / deactivate
 
 // ---------- Beat Plan home screen ----------
 router.get("/today", c.getToday); //                 today's beat + counts
+
+// ---------- team today (manager) ----------
+router.get("/team/today", r.teamToday); //            home preview + Team's Day page
+
+// ---------- reports ----------
+router.get("/reports/beat-performance", r.beatPerformance);
+router.get("/reports/my-kpis", r.myKpis);
+router.get("/reports/party-coverage", r.partyCoverage);
+router.get("/reports/recovery-priority", r.recoveryPriority);
+router.get("/reports/exceptions", r.exceptions);
+
+// ---------- beat change requests ----------
+//  ⚠ fixed paths must stay ABOVE the ":id" route
+router.get("/change-requests/context", r.changeContext); //  current beat + manager name
+router.get("/change-requests/mine", r.myChangeRequests); //  My Beat Change Requests
+router.get("/change-requests/pending", r.pendingChangeRequests); // manager
+router.post("/change-requests", r.createChangeRequest); //   SUBMIT REQUEST
+router.post("/change-requests/:id/decide", r.decideChangeRequest); // manager
 
 // ---------- manager: approvals ----------
 router.get("/approvals/pending", c.pendingApprovals);

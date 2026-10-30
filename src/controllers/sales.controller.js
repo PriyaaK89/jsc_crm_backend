@@ -14,11 +14,11 @@ exports.createSales = async (req, res) => {
     data.items = JSON.parse(data.items || "[]");
 
     if (!data.sales_ledger_id) {
-  throw new Error("Sales ledger is required");
-}
-if (!data.customer_ledger_id) {
-  throw new Error("Customer ledger is required");
-}
+      throw new Error("Sales ledger is required");
+    }
+    if (!data.customer_ledger_id) {
+      throw new Error("Customer ledger is required");
+    }
     // data.extra_ledgers = JSON.parse( data.extra_ledgers || "[]" );
     data.extra_ledgers = JSON.parse(data.extra_ledgers || "[]").filter(
       (ledger) =>
@@ -66,9 +66,9 @@ if (!data.customer_ledger_id) {
       billTImage = uploaded.object_path;
     }
 
-    const customerLedger = await purchaseModal.getLedgerById( connection, data.customer_ledger_id, );
+    const customerLedger = await purchaseModal.getLedgerById(connection, data.customer_ledger_id,);
     console.log("DEBUG customerLedger:", customerLedger);
-console.log("DEBUG total_amount:", data.total_amount, typeof data.total_amount);
+    console.log("DEBUG total_amount:", data.total_amount, typeof data.total_amount);
 
     await salesModel.enforceSalesRules(
       connection,
@@ -220,10 +220,10 @@ console.log("DEBUG total_amount:", data.total_amount, typeof data.total_amount);
 
     if (customerLedger?.maintain_bill_by_bill) {
       const creditDays = Number(customerLedger.default_credit_period || 0);
-    //   const dueDate = salesModel.addDays(data.sales_date, creditDays);
+      //   const dueDate = salesModel.addDays(data.sales_date, creditDays);
       const dueDate = new Date(data.sales_date);
-dueDate.setDate(dueDate.getDate() + creditDays);
-const formattedDueDate = dueDate.toISOString().slice(0, 10);
+      dueDate.setDate(dueDate.getDate() + creditDays);
+      const formattedDueDate = dueDate.toISOString().slice(0, 10);
       await salesModel.insertSalesBillReference(connection, {
         sale_id: saleId,
         ledger_id: data.customer_ledger_id,
@@ -250,18 +250,18 @@ const formattedDueDate = dueDate.toISOString().slice(0, 10);
       voucher_no,
     });
   } catch (error) {
-  await connection.rollback();
-  console.log(error);
-  return res.status(error.code ? 400 : 500).json({
-    success: false,
-    message: error.message,
-    ...(error.code ? { error_type: error.code } : {}),
-    ...(error.overdueBills ? { overdue_bills: error.overdueBills } : {}),
-    ...(error.creditLimitInfo ? { credit_limit_info: error.creditLimitInfo } : {}),
-  });
-} finally {
-  connection.release();
-}
+    await connection.rollback();
+    console.log(error);
+    return res.status(error.code ? 400 : 500).json({
+      success: false,
+      message: error.message,
+      ...(error.code ? { error_type: error.code } : {}),
+      ...(error.overdueBills ? { overdue_bills: error.overdueBills } : {}),
+      ...(error.creditLimitInfo ? { credit_limit_info: error.creditLimitInfo } : {}),
+    });
+  } finally {
+    connection.release();
+  }
 };
 
 exports.getSalesLedgerList = async (req, res) => {
@@ -323,5 +323,55 @@ exports.checkLedgerOverdueStatus = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   } finally {
     connection.release();
+  }
+};
+
+const ALLOWED_FILTERS = ["today", "week", "month", "all"];
+
+exports.getMyOrderHistory = async (req, res) => {
+  try {
+    const employeeId = req.user.id; // from your auth middleware (adjust if different)
+
+    let filter = (req.query.filter || "week").toLowerCase();
+    if (!ALLOWED_FILTERS.includes(filter)) filter = "week";
+
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
+    const offset = (page - 1) * limit;
+
+    const [stats, history] = await Promise.all([
+      salesModel.getEmployeeOrderStats(employeeId),
+      salesModel.getEmployeeOrderHistory(employeeId, filter, limit, offset),
+    ]);
+
+    return res.json({
+      success: true,
+      data: {
+        stats: {
+          orders_this_month: Number(stats.total_orders),
+          approved: Number(stats.approved),
+          pending: Number(stats.pending),
+        },
+        filter,
+        orders: history.rows.map((o) => ({
+          id: o.id,
+          order_no: o.order_no,
+          customer_name: o.customer_name,
+          total_amount: Number(o.total_amount),
+          order_date: o.created_at,
+          status: o.status,
+          status_message: o.status_message,
+        })),
+        pagination: {
+          page,
+          limit,
+          total: history.total,
+          total_pages: Math.ceil(history.total / limit),
+        },
+      },
+    });
+  } catch (err) {
+    console.error("getMyOrderHistory error:", err);
+    return res.status(500).json({ success: false, message: "Failed to fetch order history" });
   }
 };

@@ -724,6 +724,122 @@ exports.logReminderSent = async (data) => {
   );
 };
 
+// Date filter on the submission time of the order request.
+// Plain ranges on created_at, so your idx_ta_creator_type_created index is used.
+const getDateCondition = (filter) => {
+  switch (filter) {
+    case "today":
+      return `AND ta.created_at >= CURDATE() AND ta.created_at < CURDATE() + INTERVAL 1 DAY`;
+    case "month":
+      return `AND ta.created_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+              AND ta.created_at < DATE_FORMAT(CURDATE(), '%Y-%m-01') + INTERVAL 1 MONTH`;
+    case "all":
+      return ``;
+    case "week":
+    default:
+      // Monday of this week up to now
+      return `AND ta.created_at >= CURDATE() - INTERVAL WEEKDAY(CURDATE()) DAY
+              AND ta.created_at < CURDATE() + INTERVAL 1 DAY`;
+  }
+};
+
+// payload_json is longtext. Parse safely (handles double-encoded JSON too).
+const parsePayload = (raw) => {
+  try {
+    let p = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (typeof p === "string") p = JSON.parse(p);
+    return p && typeof p === "object" ? p : {};
+  } catch (e) {
+    return {};
+  }
+};
+
+// Top 3 cards: always the current month, independent of the tab
+exports.getEmployeeOrderStats = async (employeeId) => {
+  const [rows] = await db.query(
+    `
+    SELECT
+      COUNT(*) AS total_orders,
+      COALESCE(SUM(CASE WHEN ta.status = 'APPROVED' THEN 1 ELSE 0 END), 0) AS approved,
+      COALESCE(SUM(CASE WHEN ta.status = 'PENDING'  THEN 1 ELSE 0 END), 0) AS pending
+    FROM transaction_approvals ta
+    WHERE ta.transaction_type = 'SALES'
+      AND ta.created_by = ?
+      AND ta.created_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+      AND ta.created_at < DATE_FORMAT(CURDATE(), '%Y-%m-01') + INTERVAL 1 MONTH
+    `,
+    [employeeId]
+  );
+  return rows[0];
+};
+
+// Recent orders list with tab filter + pagination
+exports.getEmployeeOrderHistory = async (employeeId, filter, limit, offset) => {
+  const dateCondition = getDateCondition(filter);
+
+  const [approvals] = await db.query(
+    `
+    SELECT
+      ta.id,
+      ta.order_no,
+      ta.status,
+      ta.created_at,
+      ta.current_status_message,
+      ta.payload_json
+    FROM transaction_approvals ta
+    WHERE ta.transaction_type = 'SALES'
+      AND ta.created_by = ?
+      ${dateCondition}
+    ORDER BY ta.created_at DESC, ta.id DESC
+    LIMIT ? OFFSET ?
+    `,
+    [employeeId, limit, offset]
+  );
+
+  const [[{ total }]] = await db.query(
+    `SELECT COUNT(*) AS total
+     FROM transaction_approvals ta
+     WHERE ta.transaction_type = 'SALES' AND ta.created_by = ? ${dateCondition}`,
+    [employeeId]
+  );
+
+  // customer name + amount come from the saved order payload
+  const parsed = approvals.map((a) => ({ a, payload: parsePayload(a.payload_json) }));
+
+  const ledgerIds = [
+    ...new Set(
+      parsed
+        .map((p) => Number(p.payload.customer_ledger_id))
+        .filter((id) => Number.isInteger(id) && id > 0)
+    ),
+  ];
+
+  const ledgerNames = {};
+  if (ledgerIds.length) {
+    const [ledgers] = await db.query(
+      `SELECT id, ledger_name FROM ledgers WHERE id IN (?)`,
+      [ledgerIds]
+    );
+    ledgers.forEach((l) => (ledgerNames[l.id] = l.ledger_name));
+  }
+
+  const rows = parsed.map(({ a, payload }) => ({
+    id: a.id,
+    order_no: a.order_no,
+    status: a.status,
+    created_at: a.created_at,
+    status_message: a.current_status_message,
+    customer_name:
+      ledgerNames[Number(payload.customer_ledger_id)] ||
+      payload.ledger_name ||
+      payload.customer_name ||
+      "-",
+    total_amount: Number(payload.total_amount || 0),
+  }));
+
+  return { rows, total };
+};
+
 // exports.enforceSalesRules = async (
 //   connection,
 //   customerLedger,

@@ -28,6 +28,7 @@ const folderMap = {
   qr_code: "template",
   demo_proofs: "demo/proofs",
   demo_results: "demo/results",
+  task_proof: "task/task_proof",
   chat_documents: "chat/documents", chat_images: "chat/images", chat_kyc: "chat/kyc", chat_groups: "chat/groups",
 };
 

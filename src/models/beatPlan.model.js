@@ -97,8 +97,10 @@ const createBeat = async ({
 
     for (let i = 0; i < partyIds.length; i++) {
       await conn.query(
-        `INSERT INTO beat_parties (beat_id, ledger_id, sequence_no) VALUES (?, ?, ?)`,
-        [beatId, partyIds[i], i + 1],
+        `INSERT INTO beat_parties (beat_id, customer_id, ledger_id, sequence_no)
+         SELECT ?, c.id, c.distributor_ledger_id, ?
+         FROM customers c WHERE c.id = ?`,
+        [beatId, i + 1, partyIds[i]],
       );
     }
 
@@ -401,102 +403,150 @@ const listManagedBeats = async ({
   return rows;
 };
 
+// display name of a customer: the shop / firm name, else the person's name
+const PARTY_NAME = `COALESCE(NULLIF(c.firm_name, ''), c.name)`;
+
+// Customers that belong to these employees:
+//   distributor        -> its ledger is assigned to the employee (ledgers.employee_under)
+//   retailer / farmer  -> registered by the employee, or sitting under one of his distributors
+const PARTY_SCOPE = `(
+     (c.type = 'distributor' AND dl.employee_under IN (?))
+  OR (c.type IN ('retailer', 'farmer') AND c.created_by IN (?))
+  OR (c.type = 'retailer' AND EXISTS (
+        SELECT 1 FROM retailer_distributors rd
+        JOIN ledgers l2 ON l2.id = rd.distributor_ledger_id
+        WHERE rd.retailer_id = c.id AND l2.employee_under IN (?)))
+  OR (c.type = 'farmer' AND EXISTS (
+        SELECT 1 FROM farmer_distributors fd
+        JOIN ledgers l3 ON l3.id = fd.distributor_ledger_id
+        WHERE fd.farmer_id = c.id AND l3.employee_under IN (?)))
+  OR (c.type = 'farmer' AND EXISTS (
+        SELECT 1 FROM farmer_retailers fr
+        JOIN retailer_distributors rd2 ON rd2.retailer_id = fr.retailer_id
+        JOIN ledgers l4 ON l4.id = rd2.distributor_ledger_id
+        WHERE fr.farmer_id = c.id AND l4.employee_under IN (?)))
+)`;
+const scopeParams = (ids) => [ids, ids, ids, ids, ids];
+
+const PARTY_FROM = `
+  FROM customers c
+  LEFT JOIN ledgers dl ON dl.id = c.distributor_ledger_id
+  LEFT JOIN users eu ON eu.id = COALESCE(dl.employee_under, c.created_by)`;
+
+// Every ledger assigned to these employees is a distributor for the app. Make sure it
+// has its "distributor" customer row (same rule as findOrCreateDistributorCustomer),
+// so it can be picked as a beat party and visited. Safe to run many times.
+const ensureDistributorCustomers = async (employeeIds) => {
+  if (!employeeIds.length) return;
+  await db.query(
+    `INSERT INTO customers
+       (type, name, firm_name, gst_number, state, pincode, distributor_ledger_id, created_by)
+     SELECT 'distributor', l.ledger_name, l.ledger_name, l.gst_no, l.state, l.pincode,
+            l.id, l.employee_under
+     FROM ledgers l
+     WHERE l.employee_under IN (?)
+       AND NOT EXISTS (
+         SELECT 1 FROM customers c
+         WHERE c.type = 'distributor' AND c.distributor_ledger_id = l.id
+       )`,
+    [employeeIds],
+  );
+};
+
 const getBeatParties = async (beatId) => {
   const [rows] = await db.query(
-    `SELECT l.id, l.ledger_name AS name, l.location,
-            gv.village_name, gt.tehsil_name,
-            lod.contact,
+    `SELECT c.id, c.type, ${PARTY_NAME} AS display_name, c.name AS person,
+            c.area, c.town, c.district, c.contact_number AS contact,
             eu.name AS owner_name
      FROM beat_parties bp
-     JOIN ledgers l ON l.id = bp.ledger_id
-     LEFT JOIN geo_villages gv ON gv.id = l.village_id
-     LEFT JOIN geo_tehsils  gt ON gt.id = l.tehsil_id
-     LEFT JOIN ledger_other_details lod ON lod.ledger_id = l.id
-     LEFT JOIN users eu ON eu.id = l.employee_under
+     JOIN customers c ON c.id = bp.customer_id
+     LEFT JOIN ledgers dl ON dl.id = c.distributor_ledger_id
+     LEFT JOIN users eu ON eu.id = COALESCE(dl.employee_under, c.created_by)
      WHERE bp.beat_id = ?
-     ORDER BY bp.sequence_no ASC, l.ledger_name ASC`,
+     ORDER BY bp.sequence_no ASC, display_name ASC`,
     [beatId],
   );
   return rows;
 };
 
-// parties (ledgers) that belong to the manager's team
-const searchParties = async ({ teamIds, ownerId, search, limit, offset }) => {
-  const where = ["l.employee_under IN (?)"];
-  const params = [teamIds];
+// parties of the manager's team (or of one employee when ownerId is given)
+//   type: '' | distributor | retailer | farmer
+const searchParties = async ({ teamIds, ownerId, search, type, limit, offset }) => {
+  const ids = ownerId ? [ownerId] : teamIds;
+  await ensureDistributorCustomers(ids);
 
-  if (ownerId) {
-    where.push("l.employee_under = ?");
-    params.push(ownerId);
+  const where = [PARTY_SCOPE];
+  const params = scopeParams(ids);
+
+  if (["distributor", "retailer", "farmer"].includes(type)) {
+    where.push("c.type = ?");
+    params.push(type);
   }
   if (search) {
     where.push(
-      "(l.ledger_name LIKE ? OR l.location LIKE ? OR lod.contact LIKE ? OR gv.village_name LIKE ?)",
+      `(c.name LIKE ? OR c.firm_name LIKE ? OR c.contact_number LIKE ?
+        OR c.area LIKE ? OR c.town LIKE ? OR c.district LIKE ?)`,
     );
     const s = `%${search}%`;
-    params.push(s, s, s, s);
+    params.push(s, s, s, s, s, s);
   }
 
-  const joins = `
-    FROM ledgers l
-    LEFT JOIN geo_villages gv ON gv.id = l.village_id
-    LEFT JOIN geo_tehsils  gt ON gt.id = l.tehsil_id
-    LEFT JOIN ledger_other_details lod ON lod.ledger_id = l.id
-    LEFT JOIN users eu ON eu.id = l.employee_under
-    WHERE ${where.join(" AND ")}`;
-
   const [rows] = await db.query(
-    `SELECT DISTINCT l.id, l.ledger_name AS name, l.location,
-            gv.village_name, gt.tehsil_name, lod.contact,
+    `SELECT c.id, c.type, ${PARTY_NAME} AS display_name, c.name AS person,
+            c.area, c.town, c.district, c.contact_number AS contact,
             eu.name AS owner_name
-     ${joins}
-     ORDER BY l.ledger_name ASC
+     ${PARTY_FROM}
+     WHERE ${where.join(" AND ")}
+     ORDER BY display_name ASC
      LIMIT ? OFFSET ?`,
     [...params, Number(limit), Number(offset)],
   );
 
   const [[countRow]] = await db.query(
-    `SELECT COUNT(DISTINCT l.id) AS total ${joins}`,
+    `SELECT COUNT(*) AS total ${PARTY_FROM} WHERE ${where.join(" AND ")}`,
     params,
   );
 
   return { rows, total: Number(countRow.total) || 0 };
 };
 
-const countLedgersInTeam = async (ledgerIds, teamIds) => {
-  if (!ledgerIds.length) return 0;
+// how many of these customers belong to the team (all of them must)
+const countPartiesInScope = async (partyIds, teamIds) => {
+  if (!partyIds.length) return 0;
   const [[row]] = await db.query(
-    `SELECT COUNT(*) AS c FROM ledgers
-     WHERE id IN (?) AND employee_under IN (?)`,
-    [ledgerIds, teamIds],
+    `SELECT COUNT(*) AS c
+     ${PARTY_FROM}
+     WHERE c.id IN (?) AND ${PARTY_SCOPE}`,
+    [partyIds, ...scopeParams(teamIds)],
   );
   return Number(row.c) || 0;
 };
 
 // which of these parties already sit in another ACTIVE master beat
-const findPartyConflicts = async (ledgerIds, excludeBeatId = null) => {
-  if (!ledgerIds.length) return [];
-  const params = [ledgerIds];
+const findPartyConflicts = async (partyIds, excludeBeatId = null) => {
+  if (!partyIds.length) return [];
+  const params = [partyIds];
   let exclude = "";
   if (excludeBeatId) {
     exclude = "AND b.id <> ?";
     params.push(excludeBeatId);
   }
   const [rows] = await db.query(
-    `SELECT bp.ledger_id, l.ledger_name, b.id AS beat_id, b.name AS beat_name
+    `SELECT bp.customer_id AS party_id, ${PARTY_NAME} AS party_name,
+            b.id AS beat_id, b.name AS beat_name
      FROM beat_parties bp
      JOIN beats b ON b.id = bp.beat_id AND b.is_active = 1 AND b.source = 'MASTER'
-     JOIN ledgers l ON l.id = bp.ledger_id
-     WHERE bp.ledger_id IN (?) ${exclude}`,
+     JOIN customers c ON c.id = bp.customer_id
+     WHERE bp.customer_id IN (?) ${exclude}`,
     params,
   );
   return rows;
 };
 
-// beat_id of the active master beat each party is in (for the picker badges)
-const getPartyBeatMap = async (ledgerIds, excludeBeatId = null) => {
-  const rows = await findPartyConflicts(ledgerIds, excludeBeatId);
-  return new Map(rows.map((r) => [r.ledger_id, r]));
+// beat that each party is already in (for the picker badges)
+const getPartyBeatMap = async (partyIds, excludeBeatId = null) => {
+  const rows = await findPartyConflicts(partyIds, excludeBeatId);
+  return new Map(rows.map((r) => [r.party_id, r]));
 };
 
 const updateBeat = async (
@@ -519,8 +569,10 @@ const updateBeat = async (
       await conn.query(`DELETE FROM beat_parties WHERE beat_id = ?`, [beatId]);
       for (let i = 0; i < partyIds.length; i++) {
         await conn.query(
-          `INSERT INTO beat_parties (beat_id, ledger_id, sequence_no) VALUES (?, ?, ?)`,
-          [beatId, partyIds[i], i + 1],
+          `INSERT INTO beat_parties (beat_id, customer_id, ledger_id, sequence_no)
+         SELECT ?, c.id, c.distributor_ledger_id, ?
+         FROM customers c WHERE c.id = ?`,
+          [beatId, i + 1, partyIds[i]],
         );
       }
     }
@@ -658,10 +710,10 @@ const getTodayPlanDay = async (userId, date) => {
 
 const getBeatPartyIds = async (beatId) => {
   const [rows] = await db.query(
-    `SELECT ledger_id FROM beat_parties WHERE beat_id = ?`,
+    `SELECT customer_id FROM beat_parties WHERE beat_id = ? AND customer_id IS NOT NULL`,
     [beatId],
   );
-  return rows.map((r) => r.ledger_id);
+  return rows.map((r) => r.customer_id);
 };
 
 // customers the user visited on that day (visits.customer_id)
@@ -703,7 +755,8 @@ module.exports = {
   listManagedBeats,
   getBeatParties,
   searchParties,
-  countLedgersInTeam,
+  countPartiesInScope,
+  ensureDistributorCustomers,
   findPartyConflicts,
   getPartyBeatMap,
   updateBeat,

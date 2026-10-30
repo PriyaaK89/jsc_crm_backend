@@ -19,5 +19,6 @@ router.post(
 
 router.get( "/get-sales-invoice/:id", auth, salesController.getSalesInvoice);
 router.get("/sales/ledger-overdue-status/:ledgerId", salesController.checkLedgerOverdueStatus);
+router.get("/sale/my-orders", auth, salesController.getMyOrderHistory);
 
 module.exports = router;

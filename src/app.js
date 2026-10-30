@@ -99,6 +99,8 @@ const collectionAreaRoute = require("../src/routes/assign-area-to-emp/collection
 const teamOverviewRoute = require("../src/routes/teams/teamOverview.routes");
 const beatPlanRoute = require("../src/routes/beatPlan.routes");
 const chatRoute = require("../src/routes/chat.routes");
+const monthlySummaryofEmp = require("../src/routes/monthSummary.routes");
+
 
 // Health check
 app.get('/', (req, res) => {
@@ -177,8 +179,10 @@ app.use(EmpPerformanceTrackerRoute);
 app.use(assignTaskRoute);
 app.use(collectionAreaRoute);
 app.use(teamOverviewRoute);
+app.use(monthlySummaryofEmp);
 app.use("/beat-plan",beatPlanRoute);
 app.use("/chat",chatRoute);
+
 
 
 // 404 handler

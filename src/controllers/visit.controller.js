@@ -80,25 +80,37 @@ exports.createVisit = async (req, res) => {
       visit_purpose, visit_outcome, comment,
       reminder_date, reminder_time, reminder_reason, priority,
       latitude, longitude,
+      visit_start_epoch,                              // NEW: visit start time (epoch seconds) from the app
       distributor_ledger_id,                          // used directly for visit_type = distributor,
-                                                        // and as the distributor picked for a new retailer
-      retailer_id,                                     // existing retailer picked for a new farmer
+                                                      // and as the distributor picked for a new retailer
+      retailer_id,                                    // existing retailer picked for a new farmer
       new_retailer_name, new_retailer_firm_name,
       new_retailer_contact_number, new_retailer_area,
       new_retailer_district, new_retailer_pincode,
-      new_retailer_distributor_ledger_id, visit_start_time, visit_duration_seconds
+      new_retailer_distributor_ledger_id
     } = req.body;
- 
+
     console.log("createVisit called | user_id:", user_id, "| body keys:", Object.keys(req.body));
- 
-    if (!validPurposes.includes(visit_purpose)) {
+
+    // ============================================================
+    // 1. VALIDATIONS: everything that can fail runs BEFORE any
+    //    customer is created, so a failed request leaves no orphans.
+    // ============================================================
+
+    // visit_purpose can now be a CSV of multiple reasons (e.g. "sales_order,collection")
+    const reasons = String(visit_purpose || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (!reasons.length || !reasons.every((r) => validPurposes.includes(r))) {
       return res.status(400).json({ message: "Invalid visit purpose" });
     }
- 
+
     if (visit_outcome && !validOutcomes.includes(visit_outcome)) {
       return res.status(400).json({ message: "Invalid visit outcome" });
     }
- 
+
     const attendance = await attendanceModel.getTodayAttendance(user_id);
     if (!attendance) {
       return res.status(400).json({
@@ -106,20 +118,55 @@ exports.createVisit = async (req, res) => {
         message: "Please mark attendance before submitting a visit"
       });
     }
- 
+
     if (attendance.status === "day_over") {
       return res.status(400).json({
         success: false,
         message: "Attendance already marked as day over. Cannot submit visit."
       });
     }
- 
+
+    // Image is mandatory, so check it early
+    const files = req.files || {};
+    if (!files.image || !files.image[0]) {
+      return res.status(400).json({
+        success: false,
+        message: "Image is mandatory. Please upload an image."
+      });
+    }
+
+    // Existing customer must come with an id
+    if (customer_type === "existing" && !customer_id) {
+      return res.status(400).json({
+        message: "Customer ID is required for existing customer"
+      });
+    }
+
+    // Visit start time and duration.
+    // The client sends only the start epoch (seconds); the duration is
+    // computed from the SERVER clock so the device clock can't fake it.
+    let startEpoch = Number(clean(visit_start_epoch));
+    let durationSeconds = null;
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    if (
+      Number.isFinite(startEpoch) &&
+      startEpoch > 0 &&
+      startEpoch <= nowSec + 60 &&      // not in the future (60s clock skew allowed)
+      nowSec - startEpoch < 86400       // not older than 24 hours
+    ) {
+      durationSeconds = Math.max(0, nowSec - startEpoch);
+    } else {
+      startEpoch = null;
+      durationSeconds = null;
+    }
+
     let finalCustomerId = customer_id;
- 
+
     // ============================================================
-    // DISTRIBUTOR VISIT — always resolves to the one customers row
-    // that represents this employee's assigned ledger. Never goes
-    // through the new/existing customer_type flow at all.
+    // 2. DISTRIBUTOR VISIT: always resolves to the one customers row
+    //    that represents this employee's assigned ledger. Never goes
+    //    through the new/existing customer_type flow at all.
     // ============================================================
     if (visit_type === "distributor") {
       if (!distributor_ledger_id) {
@@ -130,14 +177,15 @@ exports.createVisit = async (req, res) => {
         user_id
       );
     }
- 
+
     // ============================================================
-    // NEW CUSTOMER FLOW — retailer or farmer
+    // 3. NEW CUSTOMER FLOW: retailer or farmer
     // ============================================================
     if (customer_type === "new" && (visit_type === "retailer" || visit_type === "farmer")) {
       if (!name) {
         return res.status(400).json({ message: "Customer name required" });
       }
+
       const existing = await customerModel.findCustomer(contact_number, visit_type);
       if (existing) {
         return res.status(400).json({ message: "Customer already exists with this mobile number" });
@@ -200,79 +248,78 @@ exports.createVisit = async (req, res) => {
         await customerModel.linkFarmerToRetailer(finalCustomerId, resolvedRetailerId, user_id);
       }
     }
- 
-    // EXISTING CUSTOMER FLOW (retailer / farmer / distributor all share this)
-    if (customer_type === "existing") {
-      if (!customer_id) {
-        return res.status(400).json({
-          message: "Customer ID is required for existing customer"
-        });
-      }
-    }
- 
-    const files = req.files || {};
-    if (!files.image || !files.image[0]) {
-      return res.status(400).json({
-        success: false,
-        message: "Image is mandatory. Please upload an image."
-      });
-    }
- 
+
+    // ============================================================
+    // 4. UPLOAD IMAGES
+    // ============================================================
     const cleanedReminderDate = clean(reminder_date);
     const cleanedReminderTime = clean(reminder_time);
- 
+
     const mainUpload = await uploadFileToMinio(files.image[0], "visits");
     const imagePath = mainUpload.object_path;
- 
-  let shopImagePath = null;
-if (files.shop_image && files.shop_image[0]) {
-  const shopUpload = await uploadFileToMinio(files.shop_image[0], "visits_shop");
-  shopImagePath = shopUpload.object_path;
-}
 
-let documentImagePath = null;
-if (files.document_image && files.document_image[0]) {
-  const docUpload = await uploadFileToMinio(files.document_image[0], "visits_documents");
-  documentImagePath = docUpload.object_path;
-}
+    let shopImagePath = null;
+    if (files.shop_image && files.shop_image[0]) {
+      const shopUpload = await uploadFileToMinio(files.shop_image[0], "visits_shop");
+      shopImagePath = shopUpload.object_path;
+    }
 
-let startEpoch = Number(clean(visit_start_epoch));
-let durationSeconds = null;
-const nowSec = Math.floor(Date.now() / 1000);
-if (Number.isFinite(startEpoch) && startEpoch > 0 && startEpoch <= nowSec + 60 && nowSec - startEpoch < 86400) {
-  durationSeconds = Math.max(0, nowSec - startEpoch);
-} else {
-  startEpoch = null;
-}
+    let documentImagePath = null;
+    if (files.document_image && files.document_image[0]) {
+      const docUpload = await uploadFileToMinio(files.document_image[0], "visits_documents");
+      documentImagePath = docUpload.object_path;
+    }
 
-
-
+    // ============================================================
+    // 5. SAVE THE VISIT (18 values, matching the INSERT in visit.model.js)
+    // ============================================================
     const visitId = await visitModel.createVisit([
-  user_id, finalCustomerId, visit_type,
-  customer_type === "existing" ? "old" : customer_type,
-  visit_purpose, clean(visit_outcome), comment,
-  cleanedReminderDate, cleanedReminderTime, clean(reminder_reason),
-  clean(priority) ? String(clean(priority)).toLowerCase() : null,
-  imagePath, shopImagePath, documentImagePath,
-  clean(latitude), clean(longitude),
-  startEpoch, durationSeconds
-]);
- 
+      user_id,
+      finalCustomerId,
+      visit_type,
+      customer_type === "existing" ? "old" : customer_type,
+      visit_purpose,                                   // stored as CSV
+      clean(visit_outcome),
+      comment,
+      cleanedReminderDate,
+      cleanedReminderTime,
+      clean(reminder_reason),
+      clean(priority) ? String(clean(priority)).toLowerCase() : null,
+      imagePath,
+      shopImagePath,
+      documentImagePath,
+      clean(latitude),
+      clean(longitude),
+      startEpoch,                                      // -> FROM_UNIXTIME(?) = visit_start_time
+      durationSeconds                                  // -> visit_duration_seconds
+    ]);
+
+    // ============================================================
+    // 6. LABELS + WHATSAPP
+    // ============================================================
+    const joinPurposeLabels = (csv) =>
+      String(csv || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((r) => visitPurposeLabels[r] || r)
+        .join(", ");
+
     const resolvedVisitType = visitTypeLabels[visit_type] || visit_type;
-    const resolvedVisitPurpose = visitPurposeLabels[visit_purpose] || visit_purpose;
+    const resolvedVisitPurpose = joinPurposeLabels(visit_purpose);
     const resolvedVisitOutcome = visit_outcome
       ? (visitOutcomeLabels[visit_outcome] || visit_outcome)
       : null;
- 
+
     try {
       const visit = await visitModel.getVisitWhatsappData(visitId);
- 
+
       if (visit && visit.contact_number && visit.customer_name && visit.employee_name) {
         let mobile = visit.contact_number.replace(/\D/g, "");
         if (!mobile.startsWith("91")) {
           mobile = "91" + mobile;
         }
- 
+
         await whatsappService.sendTemplateMessage(
           mobile,
           "visit_submitted",
@@ -284,7 +331,7 @@ if (Number.isFinite(startEpoch) && startEpoch > 0 && startEpoch <= nowSec + 60 &
                 { type: "text", text: visit.customer_name },
                 { type: "text", text: visit.employee_name },
                 { type: "text", text: visitTypeLabels[visit.visit_type] || visit.visit_type },
-                { type: "text", text: visitPurposeLabels[visit.visit_purpose] || visit.visit_purpose },
+                { type: "text", text: joinPurposeLabels(visit.visit_purpose) },
                 { type: "text", text: visit.visit_date }
               ]
             }
@@ -294,7 +341,10 @@ if (Number.isFinite(startEpoch) && startEpoch > 0 && startEpoch <= nowSec + 60 &
     } catch (err) {
       console.error("WhatsApp Error:", err.response?.data || err.message);
     }
- 
+
+    // ============================================================
+    // 7. RESPONSE
+    // ============================================================
     return res.status(201).json({
       success: true,
       message: "Visit created successfully",
@@ -305,10 +355,11 @@ if (Number.isFinite(startEpoch) && startEpoch > 0 && startEpoch <= nowSec + 60 &
         visit_purpose: visit_purpose,
         visit_purpose_label: resolvedVisitPurpose,
         visit_outcome: visit_outcome || null,
-        visit_outcome_label: resolvedVisitOutcome
+        visit_outcome_label: resolvedVisitOutcome,
+        visit_duration_seconds: durationSeconds
       }
     });
- 
+
   } catch (err) {
     console.error(" ERROR:", err);
     return res.status(500).json({

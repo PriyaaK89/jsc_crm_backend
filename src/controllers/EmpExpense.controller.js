@@ -165,6 +165,19 @@ exports.uploadMyExpense = async (req, res) => {
     if (!EXPENSE_TYPES.includes(expense_type)) {
       return res.status(400).json({ message: "Invalid expense type" });
     }
+
+    const clientRequestId = req.body.client_request_id || null;
+
+if (clientRequestId) {
+  const existing = await expenseModel.findByClientRequestId(userId, clientRequestId);
+  if (existing) {
+    // this is a retry of an upload that already succeeded
+    return res.status(200).json({
+      message: "Expense uploaded successfully",
+      data: existing
+    });
+  }
+}
     if (!req.file) {
       return res.status(400).json({ message: "Please upload bill image" });
     }
@@ -201,7 +214,10 @@ exports.uploadMyExpense = async (req, res) => {
       });
     }
 
+
+    console.time("minio-upload");
     const billUpload = await uploadFileToMinio(req.file, "bills");
+    console.timeEnd("minio-upload");
 
     const created = await expenseModel.createExpenseEntry({
       allocation_id: allocation.id,
@@ -220,8 +236,14 @@ exports.uploadMyExpense = async (req, res) => {
       data: created
     });
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+  if (error.code === "ER_DUP_ENTRY") {
+    const existing = await expenseModel.findByClientRequestId(
+      req.user?.id || req.body.user_id, req.body.client_request_id
+    );
+    return res.status(200).json({ message: "Expense uploaded successfully", data: existing });
   }
+  return res.status(500).json({ error: error.message });
+}
 };
 
 exports.getMyUploadedExpenses = async (req, res) => {
@@ -449,7 +471,7 @@ exports.getEmployeeExpenseByDate = async (req, res) => {
       offset
     });
 
-   const entries = await Promise.all(rawEntries.map(formatEntry));
+    const entries = await Promise.all(rawEntries.map(formatEntry));
 
     return res.status(200).json({
       message: "Employee expense fetched successfully",

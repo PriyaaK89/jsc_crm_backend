@@ -182,15 +182,15 @@ exports.getUsedAmountByTypeForDate = async (userId, expenseType, date) => {
 
 exports.createExpenseEntry = async ({
   allocation_id, user_id, expense_type, expense_date, amount,
-  bill_object_path, bill_url, remarks, details = {}
+  bill_object_path, bill_url, remarks, details = {}, client_request_id = null
 }) => {
   const cols = [
     "allocation_id", "user_id", "expense_type", "expense_date",
-    "amount", "bill_object_path", "bill_url", "remarks"
+    "amount", "bill_object_path", "bill_url", "remarks", "client_request_id"
   ];
   const vals = [
     allocation_id, user_id, expense_type, expense_date,
-    amount, bill_object_path, bill_url, remarks
+    amount, bill_object_path, bill_url, remarks, client_request_id
   ];
 
   // column names come from the whitelist, never from user input
@@ -631,4 +631,13 @@ exports.getExpenseEntriesForAdmin = async (userId, filters = {}) => {
 
   const [rows] = await db.execute(sql, values);
   return rows;
+};
+
+exports.findByClientRequestId = async (userId, clientRequestId) => {
+  const [rows] = await db.execute(
+    `SELECT * FROM employee_expense_entries
+     WHERE user_id = ? AND client_request_id = ? LIMIT 1`,
+    [userId, clientRequestId]
+  );
+  return rows[0];
 };

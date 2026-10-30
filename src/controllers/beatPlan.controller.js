@@ -1,4 +1,5 @@
 const model = require("../models/beatPlan.model");
+const rpt = require("../models/beatReport.model");
 const D = require("../utils/beatDates");
 
 // ------------------------------------------------------------------
@@ -70,15 +71,7 @@ const clean = (value, max) => {
 // can the logged-in employee open / change this day?
 //  - own DRAFT / REJECTED plan: every future day
 //  - own APPROVED plan: only EMPTY days (new days) or his own PENDING / REJECTED added days
-
-
 const canEditDay = (plan, viewerId, date, row, today) => {
-  console.log("CAN_EDIT DEBUG", {
- viewerType: typeof viewerId,
-  planUserId: plan.user_id, planUserType: typeof plan.user_id,
-  date, today, status: plan.status,
-  rowStatus: row ? row.amend_status : null,
-});
   if (viewerId !== plan.user_id) return false;
   if (date < today) return false;
   if (EDITABLE.includes(plan.status)) return true;
@@ -313,7 +306,7 @@ const parsePartyIds = (value) => {
 const validateParties = async (partyIds, teamIds, excludeBeatId) => {
   if (!partyIds.length) return;
 
-  const inTeam = await model.countLedgersInTeam(partyIds, teamIds);
+  const inTeam = await model.countPartiesInScope(partyIds, teamIds);
   if (inTeam !== partyIds.length) {
     throw new HttpError(400, "Some parties do not belong to your team");
   }
@@ -324,7 +317,7 @@ const validateParties = async (partyIds, teamIds, excludeBeatId) => {
     const more = conflicts.length > 1 ? ` (and ${conflicts.length - 1} more)` : "";
     throw new HttpError(
       409,
-      `${c.ledger_name} is already in beat "${c.beat_name}"${more}`,
+      `${c.party_name} is already in beat "${c.beat_name}"${more}`,
     );
   }
 };
@@ -352,12 +345,13 @@ const guardPendingUses = async (beatId, today) => {
   }
 };
 
+// a party is a CUSTOMER row: distributor / retailer / farmer
 const partyRow = (p, beatInfo) => ({
   id: p.id,
-  name: p.name,
-  location: p.location || "",
-  village: p.village_name || "",
-  tehsil: p.tehsil_name || "",
+  type: p.type || "",
+  name: p.display_name || p.name || "",
+  person: p.person || "",
+  location: [p.area, p.town, p.district].filter(Boolean).join(", "),
   contact: p.contact || "",
   owner_name: p.owner_name || "",
   in_beat_id: beatInfo ? beatInfo.beat_id : null,
@@ -565,6 +559,7 @@ exports.searchParties = wrap(async (req, res) => {
     teamIds: team,
     ownerId,
     search: clean(req.query.search, 100),
+    type: clean(req.query.type, 20).toLowerCase(),
     limit,
     offset,
   });
@@ -981,13 +976,18 @@ exports.getToday = wrap(async (req, res) => {
     partyIds = await model.getBeatPartyIds(row.beat_id);
   }
 
+  // completed = customers of today's beat that the employee visited,
+  // unplanned  = other customers he visited today
   let completed = 0;
   let unplanned = 0;
   try {
-    const visited = await model.getVisitedCustomerIds(me, today);
-    const partySet = new Set(partyIds);
-    completed = visited.filter((id) => partySet.has(id)).length;
-    unplanned = visited.length - completed;
+    const split = await rpt.getTodayVisitSplit(
+      me,
+      today,
+      approvalState === "APPROVED" && row ? row.beat_id : 0,
+    );
+    completed = split.inBeat;
+    unplanned = split.total - split.inBeat;
   } catch (err) {
     // never break the home screen if the visits table differs from what we expect
     console.error("BEAT TODAY visits count failed:", err.message);

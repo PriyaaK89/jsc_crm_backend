@@ -43,6 +43,10 @@ const weekStartOf = (s) => addDays(s, -((weekdayIndex(s) + 6) % 7));
 
 const weekEndOf = (weekStart) => addDays(weekStart, 6);
 
+// whole days from date a to date b (b - a)
+const daysBetween = (a, b) =>
+  Math.round((parse(b).getTime() - parse(a).getTime()) / 86400000);
+
 // the 7 dates Mon..Sun
 const weekDates = (weekStart) =>
   Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
@@ -65,6 +69,7 @@ module.exports = {
   weekdayName,
   weekStartOf,
   weekEndOf,
+  daysBetween,
   weekDates,
   nonWorkingReason,
 };

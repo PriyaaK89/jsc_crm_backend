@@ -38,6 +38,52 @@ const HAS_PERMISSION_SQL = `EXISTS (
 const nz = (v) => (v === undefined || v === null || v === '' ? null : v);
 const toBool = (v) => (v === true || v === 1 || v === '1' || v === 'true' ? 1 : 0);
 
+const SOIL_TYPES = ['LOAMY', 'SANDY', 'CLAY', 'BLACK_COTTON'];
+const IRRIGATION_TYPES = ['IRRIGATED', 'RAINFED'];
+
+const strOrNull = (v, max) => {
+  const s = (v === undefined || v === null ? '' : String(v)).trim().slice(0, max);
+  return s || null;
+};
+
+function parseFieldDetails(d) {
+  d = d || {};
+  const enumOrNull = (v, name, allowed) => {
+    if (v === undefined || v === null || v === '') return null;
+    const x = String(v).toUpperCase();
+    if (!allowed.includes(x)) throw new HttpError(400, `Invalid ${name}`);
+    return x;
+  };
+  const dateOrNull = (v, name) => {
+    if (v === undefined || v === null || v === '') return null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(Date.parse(v))) {
+      throw new HttpError(400, `${name} must be in YYYY-MM-DD format`);
+    }
+    return v;
+  };
+  let landArea = null;
+  if (d.land_area !== undefined && d.land_area !== null && d.land_area !== '') {
+    landArea = Number(d.land_area);
+    if (!Number.isFinite(landArea) || landArea < 0) throw new HttpError(400, 'Invalid land area');
+  }
+  return {
+    village: strOrNull(d.village, 100),
+    district: strOrNull(d.district, 100),
+    land_area: landArea,
+    land_unit: strOrNull(d.land_unit, 30),
+    soil_type: enumOrNull(d.soil_type, 'soil type', SOIL_TYPES),
+    irrigation_type: enumOrNull(d.irrigation_type, 'irrigation type', IRRIGATION_TYPES),
+    sowing_date: dateOrNull(d.sowing_date, 'sowing_date'),
+    expected_result_date: dateOrNull(d.expected_result_date, 'expected_result_date'),
+  };
+}
+
+const DETAIL_COLS = [
+  'village', 'district', 'land_area', 'land_unit',
+  'soil_type', 'irrigation_type', 'sowing_date', 'expected_result_date',
+];
+const detailValues = (r) => DETAIL_COLS.map((c) => (r.details ? r.details[c] : null) ?? null);
+
 const EDITABLE_FIELDS = [
  'crop_id', 'party_id', 'demo_type', 'is_distributor_sponsored', "distributor_ledger_id",
   'distributor_name', 'distributor_contact', 'sponsorship_share_pct',
@@ -46,6 +92,17 @@ const EDITABLE_FIELDS = [
   'expected_result_date', 'followup_reminder_date', 'field_officer_id', 'narration',
 ];
 
+async function syncHeaderFromFirstCustomer(conn, demoId, d) {
+  if (!d) return;
+  await conn.query(
+    `UPDATE demo_requests
+        SET village = ?, district = ?, land_area = ?, land_unit = ?,
+            soil_type = ?, irrigation_type = ?, sowing_date = ?, expected_result_date = ?
+      WHERE id = ?`,
+    [d.village, d.district, d.land_area, d.land_unit, d.soil_type,
+     d.irrigation_type, d.sowing_date, d.expected_result_date, demoId]
+  );
+}
 
 // async function getApproverIds(conn, excludeUserId = null) {
 //   const [rows] = await conn.query(
@@ -231,6 +288,8 @@ async function unreadCount(userId, { types = [], pendingOnly = false } = {}) {
   );
   return row.cnt;
 }
+
+
 
 async function markAllRead(userId, { types = [] } = {}) {
   const vals = [userId];
@@ -875,13 +934,17 @@ async function resolveSelections(selections, employeeId, isAdmin) {
   const rows = [];
   const seen = new Set();
 
-  const addRow = (partyType, partyId, isPrimary, allocatedQty, parentIndex) => {
+  const addRow = (partyType, partyId, isPrimary, allocatedQty, parentIndex, rawDetails) => {
     const key = `${partyType}:${partyId}`;
     if (seen.has(key)) {
       throw new HttpError(400, `${partyType.toLowerCase()} ${partyId} is selected more than once`);
     }
     seen.add(key);
-    rows.push({ party_type: partyType, party_id: partyId, is_primary: isPrimary ? 1 : 0, allocated_qty: allocatedQty, parent_index: parentIndex });
+    rows.push({
+      party_type: partyType, party_id: partyId, is_primary: isPrimary ? 1 : 0,
+      allocated_qty: allocatedQty, parent_index: parentIndex,
+      details: parseFieldDetails(rawDetails),
+    });
     return rows.length - 1;
   };
 
@@ -897,7 +960,8 @@ async function resolveSelections(selections, employeeId, isAdmin) {
       // materialize (or reuse) the customers row for this ledger — same
       // function the visit-mapping flow already uses.
       const partyId = await customerModel.findOrCreateDistributorCustomer(ledgerId, employeeId);
-      const primaryIndex = addRow('DISTRIBUTOR', partyId, true, toQty(sel.allocated_qty), null);
+      // const primaryIndex = addRow('DISTRIBUTOR', partyId, true, toQty(sel.allocated_qty), null);
+      const primaryIndex = addRow('DISTRIBUTOR', partyId, true, toQty(sel.allocated_qty), null, sel.field_details);
 
       if (Array.isArray(sel.sub_customers) && sel.sub_customers.length > 0) {
         const eligible = await getEligibleUnderDistributor(ledgerId, employeeId, isAdmin);
@@ -913,7 +977,8 @@ async function resolveSelections(selections, employeeId, isAdmin) {
           } else {
             throw new HttpError(400, "A distributor's sub-customer must be RETAILER or FARMER");
           }
-          addRow(sub.party_type, subId, false, toQty(sub.allocated_qty), primaryIndex);
+          // addRow(sub.party_type, subId, false, toQty(sub.allocated_qty), primaryIndex);
+          addRow(sub.party_type, subId, false, toQty(sub.allocated_qty), primaryIndex, sub.field_details);
         }
       }
 
@@ -922,7 +987,8 @@ async function resolveSelections(selections, employeeId, isAdmin) {
       if (!retailerId) throw new HttpError(400, 'party_id is required for a retailer selection');
 
       const eligible = await getEligibleUnderRetailer(retailerId, employeeId, isAdmin);
-      const primaryIndex = addRow('RETAILER', retailerId, true, toQty(sel.allocated_qty), null);
+      // const primaryIndex = addRow('RETAILER', retailerId, true, toQty(sel.allocated_qty), null);
+      const primaryIndex = addRow('RETAILER', retailerId, true, toQty(sel.allocated_qty), null, sel.field_details);
 
       if (Array.isArray(sel.sub_customers) && sel.sub_customers.length > 0) {
         const eligibleFarmerIds = new Set((eligible.farmers || []).map((f) => f.id));
@@ -930,7 +996,8 @@ async function resolveSelections(selections, employeeId, isAdmin) {
           if (sub.party_type !== 'FARMER') throw new HttpError(400, "A retailer's sub-customer must be FARMER");
           const subId = Number(sub.party_id);
           if (!eligibleFarmerIds.has(subId)) throw new HttpError(400, `Farmer ${subId} is not mapped under this retailer`);
-          addRow('FARMER', subId, false, toQty(sub.allocated_qty), primaryIndex);
+          // addRow('FARMER', subId, false, toQty(sub.allocated_qty), primaryIndex);
+          addRow('FARMER', subId, false, toQty(sub.allocated_qty), primaryIndex, sub.field_details);
         }
       }
 
@@ -938,7 +1005,8 @@ async function resolveSelections(selections, employeeId, isAdmin) {
       const farmerId = Number(sel.party_id);
       if (!farmerId) throw new HttpError(400, 'party_id is required for a farmer selection');
       await getEligibleForFarmer(farmerId, employeeId, isAdmin);
-      addRow('FARMER', farmerId, true, toQty(sel.allocated_qty), null);
+      // addRow('FARMER', farmerId, true, toQty(sel.allocated_qty), null);
+      addRow('FARMER', farmerId, true, toQty(sel.allocated_qty), null, sel.field_details);
     }
   }
 
@@ -962,15 +1030,17 @@ function validateAllocationTotal(rows, productQty) {
 // with parent_customer_id resolved.
 async function insertDemoCustomers(conn, demoId, rows, employeeId) {
   const insertedIds = new Array(rows.length).fill(null);
+  const detailCols = DETAIL_COLS.join(', ');
+  const detailMarks = DETAIL_COLS.map(() => '?').join(',');
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     if (r.parent_index !== null) continue;
     const [res] = await conn.query(
       `INSERT INTO demo_request_customers
-        (demo_id, party_type, party_id, is_primary, parent_customer_id, allocated_qty, created_by)
-       VALUES (?,?,?,?,NULL,?,?)`,
-      [demoId, r.party_type, r.party_id, r.is_primary, r.allocated_qty, employeeId]
+        (demo_id, party_type, party_id, is_primary, parent_customer_id, allocated_qty, created_by, ${detailCols})
+       VALUES (?,?,?,?,NULL,?,?,${detailMarks})`,
+      [demoId, r.party_type, r.party_id, r.is_primary, r.allocated_qty, employeeId, ...detailValues(r)]
     );
     insertedIds[i] = res.insertId;
   }
@@ -981,13 +1051,12 @@ async function insertDemoCustomers(conn, demoId, rows, employeeId) {
     const parentId = insertedIds[r.parent_index];
     const [res] = await conn.query(
       `INSERT INTO demo_request_customers
-        (demo_id, party_type, party_id, is_primary, parent_customer_id, allocated_qty, created_by)
-       VALUES (?,?,?,?,?,?,?)`,
-      [demoId, r.party_type, r.party_id, r.is_primary, parentId, r.allocated_qty, employeeId]
+        (demo_id, party_type, party_id, is_primary, parent_customer_id, allocated_qty, created_by, ${detailCols})
+       VALUES (?,?,?,?,?,?,?,${detailMarks})`,
+      [demoId, r.party_type, r.party_id, r.is_primary, parentId, r.allocated_qty, employeeId, ...detailValues(r)]
     );
     insertedIds[i] = res.insertId;
   }
-
   return insertedIds;
 }
 
@@ -1011,6 +1080,98 @@ async function getDemoCustomers(demoId, { includeRemoved = false } = {}) {
 // Merge newly-resolved selections into the demo's existing customer rows.
 // Never deletes a row — only flips is_removed — so any demo_results tied to
 // a row survive untouched.
+// async function mergeDemoCustomers(conn, demoId, resolvedRows, employeeId) {
+//   const [existing] = await conn.query(
+//     'SELECT * FROM demo_request_customers WHERE demo_id = ? FOR UPDATE',
+//     [demoId]
+//   );
+//   const byKey = new Map(existing.map((r) => [`${r.party_type}:${r.party_id}`, r]));
+//   const keptKeys = new Set();
+//   const insertedIds = new Array(resolvedRows.length).fill(null);
+
+//   let added = 0, reactivated = 0, updated = 0;
+
+//     const setDetails = DETAIL_COLS.map((c) => `${c} = ?`).join(', ');
+//   const detailCols = DETAIL_COLS.join(', ');
+//   const detailMarks = DETAIL_COLS.map(() => '?').join(',');
+
+//   // pass 1: primaries
+//   for (let i = 0; i < resolvedRows.length; i++) {
+//     const r = resolvedRows[i];
+//     if (r.parent_index !== null) continue;
+//     const key = `${r.party_type}:${r.party_id}`;
+//     keptKeys.add(key);
+//     const existingRow = byKey.get(key);
+
+//     if (existingRow) {
+//       await conn.query(
+//         `UPDATE demo_request_customers
+//             SET is_primary = 1, parent_customer_id = NULL, allocated_qty = ?, is_removed = 0
+//           WHERE id = ?`,
+//         [r.allocated_qty, existingRow.id]
+//       );
+//       insertedIds[i] = existingRow.id;
+//       if (existingRow.is_removed) reactivated++; else updated++;
+//     } else {
+//       const [res] = await conn.query(
+//         `INSERT INTO demo_request_customers
+//           (demo_id, party_type, party_id, is_primary, parent_customer_id, allocated_qty, created_by)
+//          VALUES (?,?,?,1,NULL,?,?)`,
+//         [demoId, r.party_type, r.party_id, r.allocated_qty, employeeId]
+//       );
+//       insertedIds[i] = res.insertId;
+//       added++;
+//     }
+//   }
+
+//   // pass 2: sub-customers
+//   for (let i = 0; i < resolvedRows.length; i++) {
+//     const r = resolvedRows[i];
+//     if (r.parent_index === null) continue;
+//     const key = `${r.party_type}:${r.party_id}`;
+//     keptKeys.add(key);
+//     const parentId = insertedIds[r.parent_index];
+//     const existingRow = byKey.get(key);
+
+//     if (existingRow) {
+//       await conn.query(
+//         `UPDATE demo_request_customers
+//             SET is_primary = 0, parent_customer_id = ?, allocated_qty = ?, is_removed = 0
+//           WHERE id = ?`,
+//         [parentId, r.allocated_qty, existingRow.id]
+//       );
+//       insertedIds[i] = existingRow.id;
+//       if (existingRow.is_removed) reactivated++; else updated++;
+//     } else {
+//       const [res] = await conn.query(
+//         `INSERT INTO demo_request_customers
+//           (demo_id, party_type, party_id, is_primary, parent_customer_id, allocated_qty, created_by)
+//          VALUES (?,?,?,0,?,?,?)`,
+//         [demoId, r.party_type, r.party_id, parentId, r.allocated_qty, employeeId]
+//       );
+//       insertedIds[i] = res.insertId;
+//       added++;
+//     }
+//   }
+
+//   // pass 3: soft-remove anything active that wasn't in the new set
+//   let removed = 0;
+//   for (const row of existing) {
+//     const key = `${row.party_type}:${row.party_id}`;
+//     if (!row.is_removed && !keptKeys.has(key)) {
+//       await conn.query('UPDATE demo_request_customers SET is_removed = 1 WHERE id = ?', [row.id]);
+//       removed++;
+//     }
+//   }
+
+//   const [finalRows] = await conn.query(
+//     'SELECT * FROM demo_request_customers WHERE demo_id = ? AND is_removed = 0',
+//     [demoId]
+//   );
+
+//   return { added, reactivated, updated, removed, rows: finalRows };
+// }
+
 async function mergeDemoCustomers(conn, demoId, resolvedRows, employeeId) {
   const [existing] = await conn.query(
     'SELECT * FROM demo_request_customers WHERE demo_id = ? FOR UPDATE',
@@ -1021,6 +1182,10 @@ async function mergeDemoCustomers(conn, demoId, resolvedRows, employeeId) {
   const insertedIds = new Array(resolvedRows.length).fill(null);
 
   let added = 0, reactivated = 0, updated = 0;
+
+  const setDetails = DETAIL_COLS.map((c) => `${c} = ?`).join(', ');
+  const detailCols = DETAIL_COLS.join(', ');
+  const detailMarks = DETAIL_COLS.map(() => '?').join(',');
 
   // pass 1: primaries
   for (let i = 0; i < resolvedRows.length; i++) {
@@ -1033,18 +1198,18 @@ async function mergeDemoCustomers(conn, demoId, resolvedRows, employeeId) {
     if (existingRow) {
       await conn.query(
         `UPDATE demo_request_customers
-            SET is_primary = 1, parent_customer_id = NULL, allocated_qty = ?, is_removed = 0
+            SET is_primary = 1, parent_customer_id = NULL, allocated_qty = ?, is_removed = 0, ${setDetails}
           WHERE id = ?`,
-        [r.allocated_qty, existingRow.id]
+        [r.allocated_qty, ...detailValues(r), existingRow.id]
       );
       insertedIds[i] = existingRow.id;
       if (existingRow.is_removed) reactivated++; else updated++;
     } else {
       const [res] = await conn.query(
         `INSERT INTO demo_request_customers
-          (demo_id, party_type, party_id, is_primary, parent_customer_id, allocated_qty, created_by)
-         VALUES (?,?,?,1,NULL,?,?)`,
-        [demoId, r.party_type, r.party_id, r.allocated_qty, employeeId]
+          (demo_id, party_type, party_id, is_primary, parent_customer_id, allocated_qty, created_by, ${detailCols})
+         VALUES (?,?,?,1,NULL,?,?,${detailMarks})`,
+        [demoId, r.party_type, r.party_id, r.allocated_qty, employeeId, ...detailValues(r)]
       );
       insertedIds[i] = res.insertId;
       added++;
@@ -1063,18 +1228,18 @@ async function mergeDemoCustomers(conn, demoId, resolvedRows, employeeId) {
     if (existingRow) {
       await conn.query(
         `UPDATE demo_request_customers
-            SET is_primary = 0, parent_customer_id = ?, allocated_qty = ?, is_removed = 0
+            SET is_primary = 0, parent_customer_id = ?, allocated_qty = ?, is_removed = 0, ${setDetails}
           WHERE id = ?`,
-        [parentId, r.allocated_qty, existingRow.id]
+        [parentId, r.allocated_qty, ...detailValues(r), existingRow.id]
       );
       insertedIds[i] = existingRow.id;
       if (existingRow.is_removed) reactivated++; else updated++;
     } else {
       const [res] = await conn.query(
         `INSERT INTO demo_request_customers
-          (demo_id, party_type, party_id, is_primary, parent_customer_id, allocated_qty, created_by)
-         VALUES (?,?,?,0,?,?,?)`,
-        [demoId, r.party_type, r.party_id, parentId, r.allocated_qty, employeeId]
+          (demo_id, party_type, party_id, is_primary, parent_customer_id, allocated_qty, created_by, ${detailCols})
+         VALUES (?,?,?,0,?,?,?,${detailMarks})`,
+        [demoId, r.party_type, r.party_id, parentId, r.allocated_qty, employeeId, ...detailValues(r)]
       );
       insertedIds[i] = res.insertId;
       added++;
@@ -1109,13 +1274,17 @@ async function applyAllocationEdits(conn, demoId, allocations, productQty) {
   );
   const next = new Map(rows.map((r) => [Number(r.id), r.allocated_qty == null ? null : Number(r.allocated_qty)]));
   const changed = [];
+  const detailEdits = [];
 
   for (const a of allocations) {
     const cid = Number(a.id);
     if (!next.has(cid)) throw new HttpError(400, `Customer row ${a.id} is not part of this demo`);
-    const q = toQty(a.allocated_qty); // '' / null -> null, invalid -> 400
-    if ((next.get(cid) ?? null) !== q) changed.push([q, cid]);
-    next.set(cid, q);
+    if (a.allocated_qty !== undefined) {
+      const q = toQty(a.allocated_qty);
+      if ((next.get(cid) ?? null) !== q) changed.push([q, cid]);
+      next.set(cid, q);
+    }
+    if (a.field_details !== undefined) detailEdits.push([cid, parseFieldDetails(a.field_details)]);
   }
 
   const total = [...next.values()].reduce((s, v) => s + (v || 0), 0);
@@ -1126,15 +1295,56 @@ async function applyAllocationEdits(conn, demoId, allocations, productQty) {
   for (const [q, cid] of changed) {
     await conn.query('UPDATE demo_request_customers SET allocated_qty = ? WHERE id = ? AND demo_id = ?', [q, cid, demoId]);
   }
+  const setDetails = DETAIL_COLS.map((c) => `${c} = ?`).join(', ');
+  for (const [cid, det] of detailEdits) {
+    await conn.query(
+      `UPDATE demo_request_customers SET ${setDetails} WHERE id = ? AND demo_id = ?`,
+      [...DETAIL_COLS.map((c) => det[c]), cid, demoId]
+    );
+  }
 
   return {
     requested_qty: productQty,
     allocated_qty: +total.toFixed(2),
     remaining_qty: +(productQty - total).toFixed(2),
-    changed_count: changed.length,
+    changed_count: changed.length + detailEdits.length,
   };
 }
+// total rows (read or unread) – used for pagination in the web bell
+async function notificationTotal(userId, { unreadOnly = false, types = [], pendingOnly = false } = {}) {
+  const where = ['n.user_id = ?'];
+  const vals = [userId];
+  if (unreadOnly) where.push('n.is_read = 0');
+  if (types.length) { where.push('n.type IN (?)'); vals.push(types); }
+  if (pendingOnly) where.push("d.status = 'PENDING_APPROVAL'");
 
+  const [[row]] = await db.query(
+    `SELECT COUNT(*) AS cnt
+       FROM demo_notifications n
+       LEFT JOIN demo_requests d ON d.id = n.demo_id
+      WHERE ${where.join(' AND ')}`,
+    vals
+  );
+  return row.cnt;
+}
+
+async function deleteNotification(userId, notificationId) {
+  const [r] = await db.query(
+    'DELETE FROM demo_notifications WHERE id = ? AND user_id = ?',
+    [notificationId, userId]
+  );
+  return r.affectedRows;
+}
+
+// types are mandatory so this can never wipe every notification of a user
+async function deleteAllNotifications(userId, { types = [] } = {}) {
+  if (!types.length) return 0;
+  const [r] = await db.query(
+    'DELETE FROM demo_notifications WHERE user_id = ? AND type IN (?)',
+    [userId, types]
+  );
+  return r.affectedRows;
+}
 module.exports = {
   db, HttpError, MAX_RESULTS, MAX_RESULT_PHOTOS, RESULT_ELIGIBLE_STATUSES, PARTY_TABLE, PARTY_NAME_COL,
   getApproverIds, canApprove, canApproveDemo, hasDirectReports, getManagerIds, notifyUsers,
@@ -1154,5 +1364,5 @@ module.exports = {
   validateAllocationTotal,
   insertDemoCustomers,
   getDemoCustomers,
-  mergeDemoCustomers, applyAllocationEdits, parseTypes
+  mergeDemoCustomers, applyAllocationEdits, parseTypes,  notificationTotal, deleteNotification, deleteAllNotifications, syncHeaderFromFirstCustomer
 };

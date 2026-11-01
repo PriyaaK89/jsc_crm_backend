@@ -32,7 +32,14 @@ const wrap = (fn) => async (req, res) => {
       .json({ success: false, message: "Something went wrong" });
   }
 };
-
+// today's date as yyyy-MM-dd in IST (Asia/Kolkata)
+const todayYmd = () =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 const ok = (res, data, message = "OK", status = 200) =>
   res.status(status).json({ success: true, message, data });
 
@@ -64,6 +71,25 @@ const clean = (value, max) => {
   const s = String(value ?? "").trim();
   return s.length > max ? s.slice(0, max) : s;
 };
+
+// ------------------------------------------------------------------
+//  notifications (a failed notification must never break the real action)
+// ------------------------------------------------------------------
+const fmtDate = (d) => {
+  const [y, m, day] = String(d).split("-");
+  return `${day}-${m}-${y}`;
+};
+const weekLabel = (plan) => `${fmtDate(plan.week_start)} to ${fmtDate(plan.week_end)}`;
+
+const notify = (userIds, payload) =>
+  model
+    .addNotification(userIds, payload)
+    .catch((e) => console.error("BEAT NOTIFY ERROR:", e));
+
+const clearPending = (planId) =>
+  model
+    .clearActionNotifications(planId)
+    .catch((e) => console.error("BEAT NOTIFY CLEAR ERROR:", e));
 
 // ------------------------------------------------------------------
 //  response builder  (what the Flutter app receives)
@@ -740,6 +766,16 @@ exports.saveDay = wrap(async (req, res) => {
 
   if (addOn) {
     await model.addLog(planId, "DAY_ADDED", me, date);
+
+    if (plan.approver_id) {
+      notify([plan.approver_id], {
+        planId,
+        type: "BEAT_DAYS_ADDED",
+        title: "New beat days awaiting approval",
+        message: `${owner.name} added new day(s) to the approved beat plan for ${weekLabel(plan)}`,
+        skipIfUnread: true,
+      });
+    }
   }
 
   // editing a rejected plan turns it back into a draft
@@ -828,8 +864,17 @@ exports.submitPlan = wrap(async (req, res) => {
   if (!done) throw new HttpError(409, "Plan status has just changed, please refresh");
 
   await model.addLog(planId, "SUBMITTED", me);
+
+  notify([approverId], {
+    planId,
+    type: "BEAT_PLAN_SUBMITTED",
+    title: "Beat plan awaiting approval",
+    message: `${employee.name} submitted the beat plan for ${weekLabel(plan)}`,
+  });
+
   const fresh = await loadPlan(planId);
   return ok(res, await buildPlanPayload(fresh, me), "Plan submitted for approval");
+ 
 });
 
 // POST /plans/:id/withdraw   -> take back a submitted plan (before manager acts)
@@ -849,6 +894,8 @@ exports.withdrawPlan = wrap(async (req, res) => {
   }
 
   await model.addLog(planId, "WITHDRAWN", me);
+
+  clearPending(planId);
   const fresh = await loadPlan(planId);
   return ok(res, await buildPlanPayload(fresh, me), "Plan withdrawn");
 });
@@ -900,6 +947,10 @@ const decide = async (req, res, decision) => {
     throw new HttpError(400, "Please give a reason for rejecting");
   }
 
+  const decider = await model.getUserForPlan(me);
+  const deciderName = (decider && decider.name) || "Your manager";
+  const approved = decision === "APPROVED";
+
   // new days added to an already approved plan
   if (plan.status === "APPROVED") {
     const changed = await model.decideAmendments(planId, decision, remark);
@@ -907,11 +958,22 @@ const decide = async (req, res, decision) => {
       throw new HttpError(409, "There are no new days waiting for approval");
     }
     await model.addLog(planId, `DAYS_${decision}`, me, remark || null);
+
+    clearPending(planId);
+    notify([plan.user_id], {
+      planId,
+      type: approved ? "BEAT_DAYS_APPROVED" : "BEAT_DAYS_REJECTED",
+      title: approved ? "New beat days approved" : "New beat days rejected",
+      message: approved
+        ? `${deciderName} approved the new day(s) in your beat plan for ${weekLabel(plan)}`
+        : `${deciderName} rejected the new day(s) in your beat plan for ${weekLabel(plan)}: ${remark}`,
+    });
+
     const freshPlan = await loadPlan(planId);
     return ok(
       res,
       await buildPlanPayload(freshPlan, me),
-      decision === "APPROVED" ? "New days approved" : "New days rejected",
+      approved ? "New days approved" : "New days rejected",
     );
   }
 
@@ -926,11 +988,22 @@ const decide = async (req, res, decision) => {
   }
 
   await model.addLog(planId, decision, me, remark || null);
+
+  clearPending(planId);
+  notify([plan.user_id], {
+    planId,
+    type: approved ? "BEAT_PLAN_APPROVED" : "BEAT_PLAN_REJECTED",
+    title: approved ? "Beat plan approved" : "Beat plan rejected",
+    message: approved
+      ? `${deciderName} approved your beat plan for ${weekLabel(plan)}${remark ? `: ${remark}` : ""}`
+      : `${deciderName} rejected your beat plan for ${weekLabel(plan)}: ${remark}`,
+  });
+
   const fresh = await loadPlan(planId);
   return ok(
     res,
     await buildPlanPayload(fresh, me),
-    decision === "APPROVED" ? "Plan approved" : "Plan rejected",
+    approved ? "Plan approved" : "Plan rejected",
   );
 };
 
@@ -1021,3 +1094,184 @@ exports.getToday = wrap(async (req, res) => {
     },
   });
 });
+
+
+// ------------------------------------------------------------------
+//  NOTIFICATIONS  (bell / app inbox of the logged-in user)
+// ------------------------------------------------------------------
+
+// GET /notifications?unread=1&page=1&limit=10
+exports.myNotifications = wrap(async (req, res) => {
+  const page = Math.max(Number(req.query.page) || 1, 1);
+  const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 50);
+  const out = await model.listNotifications(req.user.id, {
+    unreadOnly: req.query.unread === "1",
+    page,
+    limit,
+  });
+  return ok(res, {
+    items: out.rows,
+    total: out.total,
+    page,
+    limit,
+    unread_count: out.unread,
+  });
+});
+
+// GET /notifications/unread-count
+exports.unreadNotificationCount = wrap(async (req, res) => {
+  return ok(res, {
+    unread_count: await model.countUnreadNotifications(req.user.id),
+  });
+});
+
+// PATCH /notifications/:nid/read
+exports.markNotificationRead = wrap(async (req, res) => {
+  await model.markNotificationRead(req.user.id, toId(req.params.nid, "notification id"));
+  return ok(res, null, "Marked as read");
+});
+
+// PATCH /notifications/read-all
+exports.markAllNotificationsRead = wrap(async (req, res) => {
+  await model.markAllNotificationsRead(req.user.id);
+  return ok(res, null, "All marked as read");
+});
+
+// DELETE /notifications/:nid
+exports.deleteNotification = wrap(async (req, res) => {
+  const removed = await model.deleteNotification(
+    req.user.id,
+    toId(req.params.nid, "notification id"),
+  );
+  if (!removed) throw new HttpError(404, "Notification not found");
+  return ok(res, null, "Notification deleted");
+});
+
+// DELETE /notifications
+exports.deleteAllNotifications = wrap(async (req, res) => {
+  const deleted = await model.deleteAllNotifications(req.user.id);
+  return ok(res, { deleted }, "Notifications cleared");
+});
+
+
+// today's date in India (server may run in UTC)
+
+const todayIST = () =>
+  new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+const addDays = (iso, n) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
+// Saturday -> Friday week that contains `iso`
+const satFriWeek = (iso) => {
+  const dow = new Date(`${iso}T00:00:00Z`).getUTCDay(); // 0=Sun ... 6=Sat
+  const start = addDays(iso, -((dow + 1) % 7));
+  return { start, end: addDays(start, 6) };
+};
+
+exports.getWeekSummary = async (req, res) => {
+  try {
+    const userId = req.user.id; // same way your other handlers read it
+    const today = todayIST();
+
+    const plan = await model.getWeekPlanRange(userId, today);
+    const fallback = satFriWeek(today);
+    const weekStart = plan ? plan.week_start : fallback.start;
+    const weekEnd = plan ? plan.week_end : fallback.end;
+
+    const days = plan
+      ? await model.getWeekBeatDays(plan.id, userId)
+      : [];
+
+    let completed = 0, missed = 0, remaining = 0;
+    for (const d of days) {
+      if (Number(d.done) === 1) completed++;
+      else if (d.plan_date < today) missed++;
+      else remaining++;
+    }
+
+    // unplanned: days with visits (up to today) that have no approved beat day
+    const plannedDates = new Set(days.map((d) => d.plan_date));
+    const lastDay = today < weekEnd ? today : weekEnd;
+    let unplanned = 0;
+    if (weekStart <= lastDay) {
+      const visitDates = await model.getVisitDates(userId, weekStart, lastDay);
+      unplanned = visitDates.filter((d) => !plannedDates.has(d)).length;
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        week_start: weekStart,
+        week_end: weekEnd,
+        planned: days.length,
+        completed,
+        missed,
+        remaining,
+        unplanned,
+      },
+    });
+  } catch (err) {
+    console.error("getWeekSummary error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+exports.getRouteOverview = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const today = todayYmd(); // your existing IST helper
+
+    const withStatus = async (beatId, date) => {
+      const [stops, visitedIds] = await Promise.all([
+        model.getBeatStops(beatId),
+        model.getVisitedCustomerIds(userId, date),
+      ]);
+      const v = new Set(visitedIds);
+      return stops.map((s) => ({ ...s, visited: v.has(s.id) }));
+    };
+
+    // ---- today ----
+    let todayRoute = null;
+    const t = await model.getTodayPlanDay(userId, today);
+    if (t && t.plan_status === "APPROVED" &&
+        (t.amend_status === null || t.amend_status === "APPROVED")) {
+      const stops = await withStatus(t.beat_id, today);
+      todayRoute = {
+        date: today,
+        beat_name: t.beat_name,
+        area: [t.market_area, t.district].filter(Boolean).join(", "),
+        stops,
+      };
+    }
+
+    // ---- week ----
+    const week = [];
+    const range = await model.getWeekPlanRange(userId, today);
+    if (range) {
+      const days = await model.getWeekBeatDays(range.id, userId);
+      const names = await model.getPlanDays(range.id); // has beat_name per date
+      const nameBy = new Map(names.map((d) => [d.plan_date, d.beat_name]));
+      for (const d of days) {
+        const stops = await withStatus(d.beat_id, d.plan_date);
+        let status = "UPCOMING";
+        if (d.plan_date === today) status = d.done ? "DONE" : "TODAY";
+        else if (d.plan_date < today) status = d.done ? "DONE" : "MISSED";
+        week.push({
+          date: d.plan_date,
+          beat_name: nameBy.get(d.plan_date) || "",
+          status,
+          stops,
+        });
+      }
+    }
+
+    res.json({ success: true, data: { today: todayRoute, week } });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ success: false, message: "Could not load route" });
+  }
+};

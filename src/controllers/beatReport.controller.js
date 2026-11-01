@@ -201,6 +201,75 @@ const weekWindow = (given, today) => {
   return { weekStart, weekEnd, end };
 };
 
+// GET /reports/week-compliance   -> "Beat Compliance This Week" on the Beat Plan home screen
+//  one cell per day (Mon..Sun) of the logged-in employee:
+//    percent = customers visited / customers planned (approved beat of that day)
+//    state   = DONE | TODAY | PLANNED (future day with a plan) | NO_PLAN | OFF | FUTURE
+//  the big % = all days up to today together
+exports.weekCompliance = wrap(async (req, res) => {
+  const me = req.user.id;
+  const today = D.todayIST();
+  const weekStart = D.weekStartOf(today);
+  const weekEnd = D.weekEndOf(weekStart);
+
+  const owner = await plan.getUserForPlan(me);
+  const holidays = await plan.getHolidaySet(weekStart, weekEnd);
+  const rows = await rpt.getApprovedDays({
+    planOwnerIds: [me],
+    start: weekStart,
+    end: weekEnd,
+  });
+  const byDate = new Map(rows.map((r) => [r.plan_date, r]));
+
+  let plannedTotal = 0;
+  let doneTotal = 0;
+
+  const days = D.weekDates(weekStart).map((date) => {
+    const row = byDate.get(date);
+    const parties = row ? Number(row.parties) || 0 : 0;
+    const done = row ? Number(row.done) || 0 : 0;
+    const isFuture = date > today;
+    const off = D.nonWorkingReason(date, owner && owner.week_off, holidays);
+
+    let state;
+    let percent = null;
+
+    if (!row) {
+      state = off ? "OFF" : isFuture ? "FUTURE" : "NO_PLAN";
+    } else if (isFuture) {
+      state = "PLANNED";
+    } else {
+      state = date === today ? "TODAY" : "DONE";
+      if (parties > 0) {
+        percent = Math.min(Math.round((done / parties) * 100), 100);
+        plannedTotal += parties;
+        doneTotal += done;
+      }
+    }
+
+    return {
+      date,
+      label: D.weekdayName(date).slice(0, 3),
+      state,
+      planned: parties,
+      done,
+      percent,
+    };
+  });
+
+  return ok(res, {
+    week_start: weekStart,
+    week_end: weekEnd,
+    planned: plannedTotal,
+    done: doneTotal,
+    percent:
+      plannedTotal > 0
+        ? Math.min(Math.round((doneTotal / plannedTotal) * 100), 100)
+        : 0,
+    days,
+  });
+});
+
 // GET /reports/beat-performance?week_start=
 exports.beatPerformance = wrap(async (req, res) => {
   const me = req.user.id;

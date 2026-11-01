@@ -122,15 +122,20 @@ exports.createDemo = async (req, res) => {
     const allocation = m.validateAllocationTotal(rows, productQty);
     await m.insertDemoCustomers(conn, demoId, rows, req.user.id);
 
+      const firstPrimary = rows.find((r) => r.parent_index === null);
+    await m.syncHeaderFromFirstCustomer(conn, demoId, firstPrimary && firstPrimary.details);
+
     await m.saveProofs(conn, demoId, uploaded, req.user.id);
     await m.log(
       conn, demoId, req.user.id, 'CREATED',
       `Customers: ${rows.length}, allocated ${allocation.allocated_qty}/${allocation.requested_qty}`
     );
 
-    const approverIds = await m.getApproverIds(conn, req.user.id);
-    const managerIds = await m.getManagerIds(conn, [req.user.id]);
-    const notifyIds = [...new Set([...approverIds, ...managerIds])].filter((id) => id !== req.user.id);
+        const notifyIds = await m.getApproverIds(conn, req.user.id);
+
+    //     const approverIds = await m.getApproverIds(conn, req.user.id);
+    // const managerIds = await m.getManagerIds(conn, [req.user.id]);
+    // const notifyIds = [...new Set([...approverIds, ...managerIds])].filter((id) => id !== req.user.id);
 
     await conn.commit();
 
@@ -707,6 +712,41 @@ exports.getDemoCustomers = async (req, res) => {
     })();
 
     res.json({ success: true, data: rows, allocation });
+  });
+};
+
+exports.myNotifications = async (req, res) => {
+  await run(res, null, async () => {
+    const types = m.parseTypes(req.query.types);
+    const pendingOnly = req.query.pending_only === '1';
+    const unreadOnly = req.query.unread === '1';
+    const data = await m.listNotifications(req.user.id, {
+      unreadOnly,
+      types,
+      pendingOnly,
+      page: req.query.page,
+      limit: req.query.limit,
+    });
+    const unread = await m.unreadCount(req.user.id, { types, pendingOnly });
+    const total = await m.notificationTotal(req.user.id, { unreadOnly, types, pendingOnly });
+    res.json({ success: true, data, unread_count: unread, total });
+  });
+};
+
+exports.deleteNotification = async (req, res) => {
+  await run(res, null, async () => {
+    const n = await m.deleteNotification(req.user.id, req.params.nid);
+    if (!n) throw new HttpError(404, 'Notification not found');
+    res.json({ success: true });
+  });
+};
+
+exports.deleteAllNotifications = async (req, res) => {
+  await run(res, null, async () => {
+    const types = m.parseTypes(req.query.types);
+    if (!types.length) throw new HttpError(400, 'types is required');
+    const deleted = await m.deleteAllNotifications(req.user.id, { types });
+    res.json({ success: true, deleted });
   });
 };
 

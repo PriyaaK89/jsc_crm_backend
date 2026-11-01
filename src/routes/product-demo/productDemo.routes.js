@@ -72,4 +72,7 @@ router.post('/tracking/:trackId/end', auth, tr.endTracking);
 router.post('/:id/customers/:customerId/results/:resultNo/tracking/start', auth, tr.startTracking);
 router.get('/:id/tracks', auth, tr.listDemoTracks);
 
+router.delete('/product-demo/notifications/:nid', auth, c.deleteNotification);
+router.delete('/product-demo/notifications', auth, c.deleteAllNotifications);
+
 module.exports = router;

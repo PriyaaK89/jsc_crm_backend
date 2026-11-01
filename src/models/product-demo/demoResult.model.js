@@ -19,6 +19,15 @@ const DISEASE_LEVELS = ['NONE', 'MILD', 'MODERATE', 'SEVERE'];
 const str = (v, max) => (v === undefined || v === null ? '' : String(v)).trim().slice(0, max) || null;
 const FIELD_SET_FOR_STAGE = { 2: 2, 3: 2 };
 
+// "Ramesh Kumar (ABC Agro)": person name plus shop / firm name when it differs
+const partyLabel = (p) => {
+  if (!p) return 'customer';
+  const name = (p.name || '').trim();
+  const firm = (p.firm_name || '').trim();
+  if (name && firm && firm.toLowerCase() !== name.toLowerCase()) return `${name} (${firm})`;
+  return name || firm || 'customer';
+};
+
 function optionalNumber(v, name, { min, max } = {}) {
   if (v === undefined || v === null || v === '') return null;
   const n = Number(v);
@@ -288,12 +297,14 @@ async function addResultForCustomer({ demoId, customerId, resultNo, body, files,
       };
     } else if (resultNo === 2) {
       // days after sowing: Result 1's sowing date, else the demo's planned sowing date
-      const [[d]] = await conn.query(
+
+            const [[d]] = await conn.query(
         `SELECT DATEDIFF(COALESCE(?, CURDATE()),
                 COALESCE((SELECT sowing_date FROM demo_results
                            WHERE demo_request_customer_id = ? AND result_no = 1),
+                         (SELECT sowing_date FROM demo_request_customers WHERE id = ?),
                          (SELECT sowing_date FROM demo_requests WHERE id = ?))) AS das`,
-        [resultDate, customerId, demoId]
+        [resultDate, customerId, customerId, demoId]
       );
       if (d.das !== null && d.das < 0) {
         throw new HttpError(400, 'Observation date cannot be before the sowing date');
@@ -381,6 +392,14 @@ async function addResultForCustomer({ demoId, customerId, resultNo, body, files,
     );
 
     const approverIds = await m.getApproverIds(conn, user.id);
+
+    // customer name for the notification text (instead of the internal row id)
+    const [[party]] = await conn.query(
+      'SELECT name, firm_name FROM customers WHERE id = ?',
+      [cust.party_id]
+    );
+    const customerLabel = partyLabel(party);
+
     await conn.commit();
 
     const notifyIds = [...approverIds, demo.created_by, demo.field_officer_id].filter((id) => id && id !== user.id);
@@ -388,7 +407,7 @@ async function addResultForCustomer({ demoId, customerId, resultNo, body, files,
       demoId,
       type: 'DEMO_RESULT',
       title: `Demo result ${resultNo} of ${MAX_RESULTS}`,
-      message: `${demo.demo_no}: customer #${customerId} — ${b.outcome}${newDemoStatus === 'COMPLETED' ? ' (demo closed)' : ''}`,
+      message: `${demo.demo_no}: ${customerLabel} — ${b.outcome}${newDemoStatus === 'COMPLETED' ? ' (demo closed)' : ''}`,
     }).catch((e) => console.error('[demo notify]', e));
 
     return {
@@ -416,11 +435,20 @@ async function getResultContext(demoId, customerId, user) {
     [demoId]
   );
   const [[party]] = await db.query('SELECT name, firm_name FROM customers WHERE id = ?', [cust.party_id]);
-  const [[d]] = await db.query(
-    `SELECT DATE_FORMAT(sowing_date, '%Y-%m-%d') AS sowing_date,
-            land_area, land_unit, soil_type, irrigation_type
-       FROM demo_requests WHERE id = ?`,
-    [demoId]
+
+     const [[d]] = await db.query(
+    `SELECT DATE_FORMAT(COALESCE(c.sowing_date, r.sowing_date), '%Y-%m-%d') AS sowing_date,
+            COALESCE(c.land_area, r.land_area) AS land_area,
+            COALESCE(c.land_unit, r.land_unit) AS land_unit,
+            COALESCE(c.soil_type, r.soil_type) AS soil_type,
+            COALESCE(c.irrigation_type, r.irrigation_type) AS irrigation_type,
+            COALESCE(c.village, r.village) AS village,
+            COALESCE(c.district, r.district) AS district,
+            DATE_FORMAT(COALESCE(c.expected_result_date, r.expected_result_date), '%Y-%m-%d') AS expected_result_date
+       FROM demo_request_customers c
+       JOIN demo_requests r ON r.id = c.demo_id
+      WHERE c.id = ?`,
+    [customerId]
   );
   const [[r1]] = await db.query(
     `SELECT DATE_FORMAT(sowing_date, '%Y-%m-%d') AS sowing_date
@@ -439,13 +467,119 @@ async function getResultContext(demoId, customerId, user) {
     party_type: cust.party_type,
     product: item || null,
     allocated_qty: cust.allocated_qty,
-    sowing_date: (r1 && r1.sowing_date) || d.sowing_date || null,
+        sowing_date: (r1 && r1.sowing_date) || (d && d.sowing_date) || null,
     defaults: d,
     crop,
     crop_required: !demo.crop_id,
     results_count: cust.results_count,
   };
 }
+
+
+
+// -------- read results for one customer --------
+
+const parsePhotos = (v) => {
+  if (!v) return [];
+  if (typeof v === 'string') { try { return JSON.parse(v); } catch { return []; } }
+  return v;
+};
+
+async function attachExtras(row) {
+  const photos = parsePhotos(row.photos);
+  const photo_urls = await Promise.all(photos.map((p) => m.signPathSafe ? m.signPathSafe(p) : null));
+  let growth_values = [];
+  // if (row.result_no === 2) {
+  if ([2, 3].includes(row.result_no)) {
+    const [vals] = await db.query(
+      `SELECT v.field_value, fm.field_id, f.field_code, f.field_name, f.input_type, fm.unit_override, f.default_unit
+         FROM demo_result_growth_values v
+         JOIN crop_growth_field_mapping fm ON fm.id = v.crop_growth_field_mapping_id
+         JOIN crop_growth_fields f ON f.id = fm.field_id
+        WHERE v.demo_result_id = ?
+        ORDER BY fm.display_order ASC`,
+      [row.id]
+    );
+    growth_values = vals.map((v) => ({ ...v, unit: v.unit_override || v.default_unit }));
+  }
+  return { ...row, photos, photo_urls, growth_values };
+}
+
+async function getResultsForCustomer(demoId, customerId, user) {
+  const { demo } = await loadDemoAndCustomer(db, demoId, customerId);
+  await checkResultAccess(db, user, demo);
+
+  const [rows] = await db.query(
+    `SELECT r.*, u.name AS submitted_by_name
+       FROM demo_results r LEFT JOIN users u ON u.id = r.created_by
+      WHERE r.demo_request_customer_id = ?
+      ORDER BY r.result_no`,
+    [customerId]
+  );
+  return Promise.all(rows.map(attachExtras));
+}
+
+// All active customers of a demo with their result progress (for the
+// admin/employee "who still needs a result" view).
+async function listDemoCustomersWithProgress(demoId, user) {
+  const [[demo]] = await db.query('SELECT * FROM demo_requests WHERE id = ?', [demoId]);
+  if (!demo) throw new HttpError(404, 'Demo request not found');
+  await checkResultAccess(db, user, demo);
+
+  const [rows] = await db.query(
+    `SELECT dc.id, dc.party_type, dc.party_id, dc.is_primary, dc.parent_customer_id,
+            dc.allocated_qty, dc.results_count, dc.result_status,
+            dc.village, dc.district, dc.land_area, dc.land_unit,
+            dc.soil_type, dc.irrigation_type,
+            DATE_FORMAT(dc.sowing_date, '%Y-%m-%d') AS sowing_date,
+            DATE_FORMAT(dc.expected_result_date, '%Y-%m-%d') AS expected_result_date,
+            c.name AS party_name, c.firm_name AS party_firm_name
+       FROM demo_request_customers dc
+       JOIN customers c ON c.id = dc.party_id
+      WHERE dc.demo_id = ? AND dc.is_removed = 0
+      ORDER BY dc.is_primary DESC, dc.id ASC`,
+    [demoId]
+  );
+  return rows;
+}
+// Employee-facing: every (demo, customer) pair still awaiting a result,
+// across all of this employee's approved/in-progress demos.
+async function getMyPendingResultCustomers(userId, { search = '', page = 1, limit = 50 } = {}) {
+  const lim = Math.min(Number(limit) || 50, 100);
+  const off = (Math.max(Number(page), 1) - 1) * lim;
+  const where = [
+    "d.status IN ('APPROVED','IN_PROGRESS')",
+    "dc.is_removed = 0",
+    "dc.result_status != 'COMPLETED'",
+    '(d.created_by = ? OR d.field_officer_id = ?)',
+  ];
+  const vals = [userId, userId];
+  if (search) {
+    where.push('(d.demo_no LIKE ? OR c.name LIKE ?)');
+    vals.push(`%${search}%`, `%${search}%`);
+  }
+  const [rows] = await db.query(
+    `SELECT dc.id AS demo_customer_id, dc.party_type, dc.results_count, dc.results_count + 1 AS next_result_no,
+            c.name AS party_name, c.firm_name AS party_firm_name,
+            d.id AS demo_id, d.demo_no, d.demo_type, d.village, d.district, d.approved_at, d.followup_reminder_date
+       FROM demo_request_customers dc
+       JOIN demo_requests d ON d.id = dc.demo_id
+       JOIN customers c ON c.id = dc.party_id
+      WHERE ${where.join(' AND ')}
+      ORDER BY (d.followup_reminder_date IS NULL), d.followup_reminder_date ASC, d.approved_at DESC
+      LIMIT ? OFFSET ?`,
+    [...vals, lim, off]
+  );
+  return rows;
+}
+
+module.exports = {
+  HttpError, MAX_RESULTS, MAX_RESULT_PHOTOS,
+  setDemoCrop, getGrowthFieldsForm, addResultForCustomer,
+  getResultsForCustomer, listDemoCustomersWithProgress, getMyPendingResultCustomers, getFinalEvaluationForm, getResultContext
+};
+
+
 
 // async function addResultForCustomer({ demoId, customerId, resultNo, body, files, user }) {
 //   resultNo = Number(resultNo);
@@ -603,101 +737,3 @@ async function getResultContext(demoId, customerId, user) {
 //     conn.release();
 //   }
 // }
-
-// -------- read results for one customer --------
-
-const parsePhotos = (v) => {
-  if (!v) return [];
-  if (typeof v === 'string') { try { return JSON.parse(v); } catch { return []; } }
-  return v;
-};
-
-async function attachExtras(row) {
-  const photos = parsePhotos(row.photos);
-  const photo_urls = await Promise.all(photos.map((p) => m.signPathSafe ? m.signPathSafe(p) : null));
-  let growth_values = [];
-  // if (row.result_no === 2) {
-  if ([2, 3].includes(row.result_no)) {
-    const [vals] = await db.query(
-      `SELECT v.field_value, fm.field_id, f.field_code, f.field_name, f.input_type, fm.unit_override, f.default_unit
-         FROM demo_result_growth_values v
-         JOIN crop_growth_field_mapping fm ON fm.id = v.crop_growth_field_mapping_id
-         JOIN crop_growth_fields f ON f.id = fm.field_id
-        WHERE v.demo_result_id = ?
-        ORDER BY fm.display_order ASC`,
-      [row.id]
-    );
-    growth_values = vals.map((v) => ({ ...v, unit: v.unit_override || v.default_unit }));
-  }
-  return { ...row, photos, photo_urls, growth_values };
-}
-
-async function getResultsForCustomer(demoId, customerId, user) {
-  const { demo } = await loadDemoAndCustomer(db, demoId, customerId);
-  await checkResultAccess(db, user, demo);
-
-  const [rows] = await db.query(
-    `SELECT r.*, u.name AS submitted_by_name
-       FROM demo_results r LEFT JOIN users u ON u.id = r.created_by
-      WHERE r.demo_request_customer_id = ?
-      ORDER BY r.result_no`,
-    [customerId]
-  );
-  return Promise.all(rows.map(attachExtras));
-}
-
-// All active customers of a demo with their result progress (for the
-// admin/employee "who still needs a result" view).
-async function listDemoCustomersWithProgress(demoId, user) {
-  const [[demo]] = await db.query('SELECT * FROM demo_requests WHERE id = ?', [demoId]);
-  if (!demo) throw new HttpError(404, 'Demo request not found');
-  await checkResultAccess(db, user, demo);
-
-  const [rows] = await db.query(
-    `SELECT dc.id, dc.party_type, dc.party_id, dc.is_primary, dc.parent_customer_id,
-            dc.allocated_qty, dc.results_count, dc.result_status,
-            c.name AS party_name, c.firm_name AS party_firm_name
-       FROM demo_request_customers dc
-       JOIN customers c ON c.id = dc.party_id
-      WHERE dc.demo_id = ? AND dc.is_removed = 0
-      ORDER BY dc.is_primary DESC, dc.id ASC`,
-    [demoId]
-  );
-  return rows;
-}
-// Employee-facing: every (demo, customer) pair still awaiting a result,
-// across all of this employee's approved/in-progress demos.
-async function getMyPendingResultCustomers(userId, { search = '', page = 1, limit = 50 } = {}) {
-  const lim = Math.min(Number(limit) || 50, 100);
-  const off = (Math.max(Number(page), 1) - 1) * lim;
-  const where = [
-    "d.status IN ('APPROVED','IN_PROGRESS')",
-    "dc.is_removed = 0",
-    "dc.result_status != 'COMPLETED'",
-    '(d.created_by = ? OR d.field_officer_id = ?)',
-  ];
-  const vals = [userId, userId];
-  if (search) {
-    where.push('(d.demo_no LIKE ? OR c.name LIKE ?)');
-    vals.push(`%${search}%`, `%${search}%`);
-  }
-  const [rows] = await db.query(
-    `SELECT dc.id AS demo_customer_id, dc.party_type, dc.results_count, dc.results_count + 1 AS next_result_no,
-            c.name AS party_name, c.firm_name AS party_firm_name,
-            d.id AS demo_id, d.demo_no, d.demo_type, d.village, d.district, d.approved_at, d.followup_reminder_date
-       FROM demo_request_customers dc
-       JOIN demo_requests d ON d.id = dc.demo_id
-       JOIN customers c ON c.id = dc.party_id
-      WHERE ${where.join(' AND ')}
-      ORDER BY (d.followup_reminder_date IS NULL), d.followup_reminder_date ASC, d.approved_at DESC
-      LIMIT ? OFFSET ?`,
-    [...vals, lim, off]
-  );
-  return rows;
-}
-
-module.exports = {
-  HttpError, MAX_RESULTS, MAX_RESULT_PHOTOS,
-  setDemoCrop, getGrowthFieldsForm, addResultForCustomer,
-  getResultsForCustomer, listDemoCustomersWithProgress, getMyPendingResultCustomers, getFinalEvaluationForm, getResultContext
-};

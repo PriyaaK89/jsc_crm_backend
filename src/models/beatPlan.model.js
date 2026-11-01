@@ -730,6 +730,188 @@ const getVisitedCustomerIds = async (userId, date) => {
   return rows.map((r) => r.customer_id);
 };
 
+// ---------------------------------------------------------------------
+//  NOTIFICATIONS
+// ---------------------------------------------------------------------
+// skipIfUnread: do not insert again when that user already has an UNREAD
+// notification of the same type for the same plan (avoids spam)
+const addNotification = async (
+  userIds,
+  { planId, type, title, message, skipIfUnread = false },
+) => {
+  const ids = [...new Set((userIds || []).filter(Boolean))];
+  if (!ids.length) return;
+
+  let targets = ids;
+  if (skipIfUnread) {
+    const [rows] = await db.query(
+      `SELECT user_id FROM beat_notifications
+       WHERE plan_id = ? AND type = ? AND is_read = 0 AND user_id IN (?)`,
+      [planId, type, ids],
+    );
+    const already = new Set(rows.map((r) => r.user_id));
+    targets = ids.filter((id) => !already.has(id));
+    if (!targets.length) return;
+  }
+
+  await db.query(
+    `INSERT INTO beat_notifications (user_id, plan_id, type, title, message)
+     VALUES ?`,
+    [targets.map((id) => [id, planId, type, title, message || null])],
+  );
+};
+
+// once a plan is decided / withdrawn, the managers' "awaiting approval" alerts are done
+const clearActionNotifications = async (planId) => {
+  await db.query(
+    `UPDATE beat_notifications
+     SET is_read = 1, read_at = NOW()
+     WHERE plan_id = ? AND is_read = 0
+       AND type IN ('BEAT_PLAN_SUBMITTED', 'BEAT_DAYS_ADDED')`,
+    [planId],
+  );
+};
+
+const countUnreadNotifications = async (userId) => {
+  const [[row]] = await db.query(
+    `SELECT COUNT(*) AS c FROM beat_notifications WHERE user_id = ? AND is_read = 0`,
+    [userId],
+  );
+  return Number(row.c) || 0;
+};
+
+const listNotifications = async (
+  userId,
+  { unreadOnly = false, page = 1, limit = 10 } = {},
+) => {
+  const lim = Math.min(Math.max(Number(limit) || 10, 1), 100);
+  const off = (Math.max(Number(page) || 1, 1) - 1) * lim;
+  const where = unreadOnly ? "user_id = ? AND is_read = 0" : "user_id = ?";
+
+  const [rows] = await db.query(
+    `SELECT id, plan_id, type, title, message, is_read, created_at
+     FROM beat_notifications
+     WHERE ${where}
+     ORDER BY id DESC
+     LIMIT ? OFFSET ?`,
+    [userId, lim, off],
+  );
+  const [[t]] = await db.query(
+    `SELECT COUNT(*) AS c FROM beat_notifications WHERE ${where}`,
+    [userId],
+  );
+  return {
+    rows,
+    total: Number(t.c) || 0,
+    unread: await countUnreadNotifications(userId),
+  };
+};
+
+const markNotificationRead = async (userId, id) => {
+  await db.query(
+    `UPDATE beat_notifications SET is_read = 1, read_at = NOW()
+     WHERE id = ? AND user_id = ?`,
+    [id, userId],
+  );
+};
+
+const markAllNotificationsRead = async (userId) => {
+  await db.query(
+    `UPDATE beat_notifications SET is_read = 1, read_at = NOW()
+     WHERE user_id = ? AND is_read = 0`,
+    [userId],
+  );
+};
+
+const deleteNotification = async (userId, id) => {
+  const [result] = await db.query(
+    `DELETE FROM beat_notifications WHERE id = ? AND user_id = ?`,
+    [id, userId],
+  );
+  return result.affectedRows > 0;
+};
+
+const deleteAllNotifications = async (userId) => {
+  const [result] = await db.query(
+    `DELETE FROM beat_notifications WHERE user_id = ?`,
+    [userId],
+  );
+  return result.affectedRows;
+};
+
+// the employee's current / upcoming APPROVED plan week
+const getWeekPlanRange = async (userId, today) => {
+  const [rows] = await db.query(
+    `SELECT id,
+            DATE_FORMAT(week_start, '%Y-%m-%d') AS week_start,
+            DATE_FORMAT(week_end,   '%Y-%m-%d') AS week_end
+     FROM beat_weekly_plans
+     WHERE user_id = ? AND status = 'APPROVED' AND week_end >= ?
+     ORDER BY week_start ASC
+     LIMIT 1`,
+    [userId, today],
+  );
+  return rows[0] || null;
+};
+
+// approved beat days of that plan + whether the employee actually did them
+const getWeekBeatDays = async (planId, userId) => {
+  const [rows] = await db.query(
+    `SELECT DATE_FORMAT(d.plan_date, '%Y-%m-%d') AS plan_date,
+            d.beat_id,
+            EXISTS (
+              SELECT 1 FROM visits v
+              WHERE v.user_id = ?
+                AND v.created_at >= d.plan_date
+                AND v.created_at <  DATE_ADD(d.plan_date, INTERVAL 1 DAY)
+                AND (
+                  NOT EXISTS (SELECT 1 FROM beat_parties b1
+                              WHERE b1.beat_id = d.beat_id)
+                  OR v.customer_id IN (SELECT b2.customer_id FROM beat_parties b2
+                                       WHERE b2.beat_id = d.beat_id)
+                )
+            ) AS done
+     FROM beat_plan_days d
+     WHERE d.plan_id = ?
+       AND (d.amend_status IS NULL OR d.amend_status = 'APPROVED')
+     ORDER BY d.plan_date ASC`,
+    [userId, planId],
+  );
+  return rows;
+};
+
+// dates (yyyy-MM-dd) on which the employee made at least one visit
+const getVisitDates = async (userId, start, end) => {
+  const [rows] = await db.query(
+    `SELECT DISTINCT DATE_FORMAT(created_at, '%Y-%m-%d') AS d
+     FROM visits
+     WHERE user_id = ?
+       AND created_at >= ?
+       AND created_at <  DATE_ADD(?, INTERVAL 1 DAY)`,
+    [userId, start, end],
+  );
+  return rows.map((r) => r.d);
+};
+
+// stops of a beat in visiting order, with lat/lng
+const getBeatStops = async (beatId) => {
+  const [rows] = await db.query(
+    `SELECT c.id, c.type, ${PARTY_NAME} AS name, bp.sequence_no,
+            lv.latitude  AS lat,
+            lv.longitude AS lng
+     FROM beat_parties bp
+     JOIN customers c ON c.id = bp.customer_id
+     LEFT JOIN visits lv ON lv.id = (
+       SELECT MAX(v.id) FROM visits v
+       WHERE v.customer_id = c.id
+         AND v.latitude IS NOT NULL AND v.longitude IS NOT NULL
+     )
+     WHERE bp.beat_id = ?
+     ORDER BY bp.sequence_no ASC`,
+    [beatId],
+  );
+  return rows;
+};
 module.exports = {
   NOW,
   getUserForPlan,
@@ -771,4 +953,13 @@ module.exports = {
   getTodayPlanDay,
   getBeatPartyIds,
   getVisitedCustomerIds,
+   getVisitedCustomerIds,
+  addNotification,
+  clearActionNotifications,
+  countUnreadNotifications,
+  listNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  deleteNotification,
+  deleteAllNotifications, getWeekBeatDays, getVisitDates, getWeekPlanRange, getBeatStops
 };

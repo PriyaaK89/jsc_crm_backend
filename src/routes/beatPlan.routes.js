@@ -59,7 +59,16 @@ router.post("/plans/:id/withdraw", c.withdrawPlan); //     take back before mana
 router.post("/plans/:id/approve", c.approvePlan);
 router.post("/plans/:id/reject", c.rejectPlan);
 
-module.exports = router;
+router.get("/reports/week-compliance", r.weekCompliance);
 
-// In app.js / server.js add:
-//   app.use("/api/beat-plan", require("./routes/beatPlanRoutes"));
+// ---------- notifications ----------
+// ---------- notifications ----------
+router.get("/notifications", c.myNotifications);
+router.get("/notifications/unread-count", c.unreadNotificationCount);
+router.patch("/notifications/read-all", c.markAllNotificationsRead);
+router.patch("/notifications/:nid/read", c.markNotificationRead);
+router.delete("/notifications", c.deleteAllNotifications);
+router.delete("/notifications/:nid", c.deleteNotification);
+router.get("/beat-plan-week-summary", c.getWeekSummary);
+router.get("/beat/route-overview", c.getRouteOverview)
+module.exports = router;

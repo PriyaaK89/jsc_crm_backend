@@ -1,7 +1,7 @@
 const minioClient = require("../config/minio");
 const { PDFDocument } = require("pdf-lib");
 
-const BUCKET = "jsc-crm"; //  define bucket
+const BUCKET = process.env.MINIO_BUCKET;; //  define bucket
 
 // 🔹 Auth Header
 const getDigioAuthHeader = () => {

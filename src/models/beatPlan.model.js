@@ -205,7 +205,9 @@ const transitionStatus = async (planId, fromStatuses, fields) => {
 const listMyPlans = async (userId, limit = 12) => {
   const [rows] = await db.query(
     `SELECT ${PLAN_COLS},
-            (SELECT COUNT(*) FROM beat_plan_days d WHERE d.plan_id = p.id) AS days_planned
+            (SELECT COUNT(*) FROM beat_plan_days d WHERE d.plan_id = p.id) AS days_planned,
+            (SELECT COUNT(*) FROM beat_plan_days d
+             WHERE d.plan_id = p.id AND d.amend_status = 'RESUBMIT_REQUIRED') AS resubmit_days
      FROM beat_weekly_plans p
      WHERE p.user_id = ?
      ORDER BY p.week_start DESC
@@ -737,7 +739,7 @@ const getVisitedCustomerIds = async (userId, date) => {
 // notification of the same type for the same plan (avoids spam)
 const addNotification = async (
   userIds,
-  { planId, type, title, message, skipIfUnread = false },
+  { planId, refId = null, type, title, message, skipIfUnread = false },
 ) => {
   const ids = [...new Set((userIds || []).filter(Boolean))];
   if (!ids.length) return;
@@ -755,9 +757,9 @@ const addNotification = async (
   }
 
   await db.query(
-    `INSERT INTO beat_notifications (user_id, plan_id, type, title, message)
+    `INSERT INTO beat_notifications (user_id, plan_id, ref_id, type, title, message)
      VALUES ?`,
-    [targets.map((id) => [id, planId, type, title, message || null])],
+    [targets.map((id) => [id, planId, refId, type, title, message || null])],
   );
 };
 
@@ -769,6 +771,16 @@ const clearActionNotifications = async (planId) => {
      WHERE plan_id = ? AND is_read = 0
        AND type IN ('BEAT_PLAN_SUBMITTED', 'BEAT_DAYS_ADDED')`,
     [planId],
+  );
+};
+
+// once a beat change request is decided, the "please review" alert is done
+const clearChangeRequestNotifications = async (requestId) => {
+  await db.query(
+    `UPDATE beat_notifications
+     SET is_read = 1, read_at = NOW()
+     WHERE ref_id = ? AND type = 'BEAT_CHANGE_REQUESTED' AND is_read = 0`,
+    [requestId],
   );
 };
 
@@ -789,7 +801,7 @@ const listNotifications = async (
   const where = unreadOnly ? "user_id = ? AND is_read = 0" : "user_id = ?";
 
   const [rows] = await db.query(
-    `SELECT id, plan_id, type, title, message, is_read, created_at
+    `SELECT id, user_id, plan_id, ref_id, type, title, message, is_read, created_at
      FROM beat_notifications
      WHERE ${where}
      ORDER BY id DESC
@@ -956,6 +968,7 @@ module.exports = {
    getVisitedCustomerIds,
   addNotification,
   clearActionNotifications,
+  clearChangeRequestNotifications,
   countUnreadNotifications,
   listNotifications,
   markNotificationRead,

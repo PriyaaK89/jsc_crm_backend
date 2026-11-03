@@ -3,7 +3,7 @@ const axios = require("axios");
 const db = require("../config/db");
 const minioClient = require("../config/minio");
 
-const BUCKET = "jsc-crm";
+const BUCKET = process.env.MINIO_BUCKET;;
 
 exports.leegalityWebhook = async (req, res) => {
   try {

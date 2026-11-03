@@ -1,6 +1,6 @@
 const db = require("../config/db");
 const minioClient = require("../config/minio");
-const BUCKET = "jsc-crm";
+const BUCKET = process.env.MINIO_BUCKET;
 
 const getPresignedUrl = async (
   objectPath,
@@ -15,8 +15,7 @@ const getPresignedUrl = async (
     ) {
       const url = new URL(objectPath);
 
-      // pathname:
-      // /jsc-crm/employee/expenses/bills/test.jpg
+
 
       objectPath = decodeURIComponent(
         url.pathname

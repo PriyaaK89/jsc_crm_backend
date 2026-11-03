@@ -82,7 +82,7 @@ exports.createVisit = async (req, res) => {
       latitude, longitude,
       visit_start_epoch,                              // NEW: visit start time (epoch seconds) from the app
       distributor_ledger_id,                          // used directly for visit_type = distributor,
-                                                      // and as the distributor picked for a new retailer
+      // and as the distributor picked for a new retailer
       retailer_id,                                    // existing retailer picked for a new farmer
       new_retailer_name, new_retailer_firm_name,
       new_retailer_contact_number, new_retailer_area,
@@ -401,7 +401,8 @@ exports.getVisits = async (req, res) => {
 
     const data = await Promise.all(
       result.data.map(async (item) => ({
-        ...item, image_url: item.image_path ? await getPresignedUrl(item.image_path) : null }))
+        ...item, image_url: item.image_path ? await getPresignedUrl(item.image_path) : null
+      }))
     );
 
     res.status(200).json({
@@ -699,12 +700,21 @@ exports.getMyVisitDetailsById = async (req, res) => {
     const visitId = req.params.id;
     const isAdmin = ["ADMIN", "SUPER_ADMIN"].includes(req.user.role);
 
-    const visit = isAdmin
+     const visit = isAdmin
       ? await visitModel.getVisitByIdAdmin(visitId)
       : await visitModel.getVisitByIdForUser(visitId, req.user.id);
 
     if (!visit) {
       return res.status(404).json({ success: false, message: "Visit not found" });
+    }
+
+    // Non-admins can open their own visits and their team's visits
+    if (!isAdmin) {
+      const allowedUserIds = await User.getSubordinateIds(req.user.id);
+
+      if (!allowedUserIds.includes(Number(visit.user_id))) {
+        return res.status(404).json({ success: false, message: "Visit not found" });
+      }
     }
 
     const data = {
@@ -716,6 +726,91 @@ exports.getMyVisitDetailsById = async (req, res) => {
 
     return res.status(200).json({ success: true, data });
   } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// exports.getMyVisitDetailsById = async (req, res) => {
+//   try {
+//     const visitId = req.params.id;
+//     const isAdmin = ["ADMIN", "SUPER_ADMIN"].includes(req.user.role);
+
+//     const visit = isAdmin
+//       ? await visitModel.getVisitByIdAdmin(visitId)
+//       : await visitModel.getVisitByIdForUser(visitId, req.user.id);
+
+//     if (!visit) {
+//       return res.status(404).json({ success: false, message: "Visit not found" });
+//     }
+
+//     const data = {
+//       ...visit,
+//       image_url: visit.image_path ? await getPresignedUrl(visit.image_path) : null,
+//       shop_image_url: visit.shop_image_path ? await getPresignedUrl(visit.shop_image_path) : null,
+//       document_image_url: visit.document_image_path ? await getPresignedUrl(visit.document_image_path) : null
+//     };
+
+//     return res.status(200).json({ success: true, data });
+//   } catch (err) {
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
+exports.getFollowUpVisits = async (req, res) => {
+  try {
+    const validStatuses = ["overdue", "due_today", "upcoming", "no_date", "completed"];
+    const status = clean(req.query.status);
+
+    if (status && !validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status. Use one of: ${validStatuses.join(", ")}`
+      });
+    }
+
+    // Admins see everyone. Others see their own and their team's follow-ups.
+    let userIds = null;
+    if (!["ADMIN", "SUPER_ADMIN"].includes(req.user.role)) {
+      const subordinateIds = await User.getSubordinateIds(req.user.id);
+      userIds = [...new Set([req.user.id, ...(subordinateIds || [])])];
+    }
+
+    // "en-CA" formats the date as YYYY-MM-DD
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+
+    const result = await visitModel.getFollowUpVisits({
+      today,
+      status,
+      user_ids: userIds,
+      user_id: clean(req.query.user_id),
+      visit_type: clean(req.query.visit_type),
+      priority: clean(req.query.priority),
+      district: clean(req.query.district),
+      from_date: clean(req.query.from_date),
+      to_date: clean(req.query.to_date),
+      search: clean(req.query.search),
+      page: req.query.page || 1,
+      limit: req.query.limit || 10
+    });
+
+    const data = await Promise.all(
+      result.data.map(async (item) => ({
+        ...item,
+        image_url: item.image_path ? await getPresignedUrl(item.image_path) : null
+      }))
+    );
+
+    return res.status(200).json({
+      success: true,
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
+      summary: result.summary,
+      data
+    });
+  } catch (err) {
+    console.error("getFollowUpVisits Error:", err);
     return res.status(500).json({ success: false, message: err.message });
   }
 };

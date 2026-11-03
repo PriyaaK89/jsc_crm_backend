@@ -1,7 +1,7 @@
 const minioClient = require("../config/minio");
 const db = require("../config/db");
 
-const BUCKET = "jsc-crm";
+const BUCKET = process.env.MINIO_BUCKET;;
 
 exports.uploadEmployeeLetter = async (req, res) => {
   try {

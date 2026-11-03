@@ -8,6 +8,8 @@ const D = require("../utils/beatDates");
 const MIN_DAYS_TO_SUBMIT = 1; // employee may submit with just 1-2-3 days planned
 const MAX_WEEKS_AHEAD = 2; // can plan current week + next 2 weeks
 const EDITABLE = ["DRAFT", "REJECTED"];
+// day states on an APPROVED plan that the employee may still change
+const OPEN_DAY_STATES = ["PENDING", "REJECTED", "RESUBMIT_REQUIRED"];
 
 // ------------------------------------------------------------------
 //  small helpers
@@ -102,7 +104,7 @@ const canEditDay = (plan, viewerId, date, row, today) => {
   if (date < today) return false;
   if (EDITABLE.includes(plan.status)) return true;
   if (plan.status === "APPROVED") {
-    return !row || ["PENDING", "REJECTED"].includes(row.amend_status);
+    return !row || OPEN_DAY_STATES.includes(row.amend_status);
   }
   return false;
 };
@@ -112,6 +114,8 @@ const buildPlanPayload = async (plan, viewerId) => {
   const holidays = await model.getHolidaySet(plan.week_start, plan.week_end);
   const rows = await model.getPlanDays(plan.id);
   const byDate = new Map(rows.map((r) => [r.plan_date, r]));
+  const changes = await rpt.getActiveChangesForPlan(plan.id);
+  const changeByDate = new Map(changes.map((c) => [c.plan_date, c]));
 
   const today = D.todayIST();
   const days = [];
@@ -124,6 +128,7 @@ const buildPlanPayload = async (plan, viewerId) => {
       continue;
     }
     const r = byDate.get(date);
+    const change = changeByDate.get(date);
     days.push({
       date,
       weekday: D.weekdayName(date),
@@ -140,6 +145,19 @@ const buildPlanPayload = async (plan, viewerId) => {
       amend_status: r ? r.amend_status || "" : "",
       amend_remark: r ? r.amend_remark || "" : "",
       can_edit: canEditDay(plan, viewerId, date, r, today),
+      resubmission_required: !!r && r.amend_status === "RESUBMIT_REQUIRED",
+      change_request: change
+        ? {
+            id: change.id,
+            revision_status: change.revision_status,
+            original_beat_id: change.original_beat_id,
+            original_beat_name: change.original_beat_name || "",
+            requested_beat_id: change.requested_beat_id,
+            requested_beat_name: change.requested_beat_name || "",
+            reason: change.reason,
+            manager_remark: change.manager_remark || "",
+          }
+        : null,
     });
   }
 
@@ -193,6 +211,7 @@ const buildPlanPayload = async (plan, viewerId) => {
     can_edit: editable,
     can_submit: editable && daysPlanned >= MIN_DAYS_TO_SUBMIT,
     has_pending_amendments: rows.some((r) => r.amend_status === "PENDING"),
+    resubmit_days: rows.filter((r) => r.amend_status === "RESUBMIT_REQUIRED").length,
     days,
     off_days: offDays,
   };
@@ -408,8 +427,11 @@ const beatPayload = async (beatId) => {
 // GET /team   -> is the user a manager + the people he can assign beats to
 exports.getTeam = wrap(async (req, res) => {
   const me = req.user.id;
+  const isAdmin = ["ADMIN", "SUPER_ADMIN"].includes(req.user.role);
   const reports = await model.getDirectSubordinates(me);
-  if (!reports.length) return ok(res, { is_manager: false, members: [] });
+  if (!reports.length) {
+    return ok(res, { is_manager: false, is_admin: isAdmin, members: [] });
+  }
 
   const ids = await model.getSubordinateIds(me); // includes the manager
   const rows = await model.getUsersByIds(ids);
@@ -419,7 +441,7 @@ exports.getTeam = wrap(async (req, res) => {
     job_role: u.job_role || "",
     is_self: u.id === me,
   }));
-  return ok(res, { is_manager: true, members });
+  return ok(res, { is_manager: true, is_admin: isAdmin, members });
 });
 
 // GET /beats/managed?status=active|inactive|all&assigned_user_id=&search=
@@ -628,6 +650,7 @@ exports.listMyPlans = wrap(async (req, res) => {
       status: p.status,
       days_planned: Number(p.days_planned) || 0,
       total_days: totalDays,
+      resubmit_days: Number(p.resubmit_days) || 0,
       manager_remark: p.manager_remark,
     });
   }
@@ -740,9 +763,10 @@ exports.saveDay = wrap(async (req, res) => {
   // on an APPROVED plan only NEW days (or his own pending / rejected added days)
   // can be saved. Changing an approved day needs a Beat Change Request.
   const addOn = plan.status === "APPROVED";
+  let existing = null;
   if (addOn) {
-    const existing = await model.getPlanDay(planId, date);
-    if (existing && !["PENDING", "REJECTED"].includes(existing.amend_status)) {
+    existing = await model.getPlanDay(planId, date);
+    if (existing && !OPEN_DAY_STATES.includes(existing.amend_status)) {
       throw new HttpError(
         409,
         "This day is already approved. To change it, raise a Beat Change Request.",
@@ -754,6 +778,20 @@ exports.saveDay = wrap(async (req, res) => {
   const beat = await model.getBeatForUser(beatId, me);
   if (!beat) throw new HttpError(400, "This beat is not assigned to you");
 
+  // a day revised through an approved Beat Change Request
+  const change = addOn ? await rpt.getActiveChangeForDay(planId, date) : null;
+  if (change) {
+    if (change.requested_beat_id && beatId !== change.requested_beat_id) {
+      throw new HttpError(
+        400,
+        `Your manager approved "${change.requested_beat_name}". Select that beat.`,
+      );
+    }
+    if (!change.requested_beat_id && beatId === change.original_beat_id) {
+      throw new HttpError(400, "Select a different beat from the original one");
+    }
+  }
+
   await model.upsertDay(planId, date, {
     beatId,
     purpose: clean(req.body.purpose, 255),
@@ -764,7 +802,26 @@ exports.saveDay = wrap(async (req, res) => {
     remark: clean(req.body.remark, 500),
   }, addOn ? "PENDING" : null);
 
-  if (addOn) {
+  if (addOn && change) {
+    // a repeat tap with the same beat adds no second history row
+    const isNewSubmission =
+      existing.amend_status !== "PENDING" || existing.beat_id !== beatId;
+
+    if (isNewSubmission) {
+      await rpt.recordResubmission(change.id, planId, date, me);
+      await model.addLog(planId, "DAY_RESUBMITTED", me, date);
+    }
+
+    if (plan.approver_id) {
+      notify([plan.approver_id], {
+        planId,
+        type: "BEAT_DAYS_ADDED",
+        title: "Revised beat awaiting approval",
+        message: `${owner.name} resubmitted ${fmtDate(date)} in the beat plan for ${weekLabel(plan)}`,
+        skipIfUnread: true,
+      });
+    }
+  } else if (addOn) {
     await model.addLog(planId, "DAY_ADDED", me, date);
 
     if (plan.approver_id) {
@@ -784,7 +841,15 @@ exports.saveDay = wrap(async (req, res) => {
   }
 
   const fresh = await loadPlan(planId);
-  return ok(res, await buildPlanPayload(fresh, me), addOn ? "Day added – waiting for your manager's approval" : "Day plan saved");
+  return ok(
+    res,
+    await buildPlanPayload(fresh, me),
+    change
+      ? "Revised beat sent to your manager for approval"
+      : addOn
+        ? "Day added – waiting for your manager's approval"
+        : "Day plan saved",
+  );
 });
 
 // DELETE /plans/:id/days/:date   -> clear one planned day
@@ -807,6 +872,10 @@ exports.clearDay = wrap(async (req, res) => {
         409,
         "This day is already approved. To change it, raise a Beat Change Request.",
       );
+    }
+    // a day under an approved change must be resubmitted, not removed
+    if (await rpt.getActiveChangeForDay(planId, date)) {
+      throw new HttpError(409, "This day has an approved beat change. Resubmit it instead.");
     }
   }
 
@@ -953,10 +1022,14 @@ const decide = async (req, res, decision) => {
 
   // new days added to an already approved plan
   if (plan.status === "APPROVED") {
+    // read before deciding: decideAmendments clears the PENDING state
+    const revisedDays = await rpt.getPendingRevisedDays(planId);
+
     const changed = await model.decideAmendments(planId, decision, remark);
     if (!changed) {
       throw new HttpError(409, "There are no new days waiting for approval");
     }
+    await rpt.recordRevisionDecision(revisedDays, decision, me, remark);
     await model.addLog(planId, `DAYS_${decision}`, me, remark || null);
 
     clearPending(planId);

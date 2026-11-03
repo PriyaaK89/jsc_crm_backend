@@ -332,19 +332,85 @@ const CR_SELECT = `
          DATE_FORMAT(r.created_at, '%Y-%m-%d') AS created_at,
          DATE_FORMAT(r.decided_at, '%Y-%m-%d') AS decided_at,
          u.name AS user_name, jr.name AS job_role,
-         b.name AS beat_name
+         b.name AS beat_name,
+         DATE_FORMAT(r.plan_date, '%Y-%m-%d') AS plan_date,
+         r.plan_id, r.requested_beat_id, r.revision_status,
+         rb.name AS requested_beat_name
   FROM beat_change_requests r
   JOIN users u ON u.id = r.user_id
   LEFT JOIN job_roles jr ON jr.id = u.job_role_id
-  LEFT JOIN beats b ON b.id = r.beat_id`;
+  LEFT JOIN beats b ON b.id = r.beat_id
+  LEFT JOIN beats rb ON rb.id = r.requested_beat_id`;
 
-const createChangeRequest = async ({ userId, beatId, reason, details, approverId }) => {
-  const [result] = await db.query(
-    `INSERT INTO beat_change_requests (user_id, beat_id, reason, details, approver_id)
-     VALUES (?, ?, ?, ?, ?)`,
-    [userId, beatId || null, reason, details, approverId || null],
+// the employee's planned day for a date, in any state
+const getPlanDayForChange = async (userId, date) => {
+  const [rows] = await db.query(
+    `SELECT d.id AS day_id, d.plan_id, d.beat_id, d.amend_status, p.status AS plan_status
+     FROM beat_plan_days d
+     JOIN beat_weekly_plans p ON p.id = d.plan_id
+     WHERE p.user_id = ? AND d.plan_date = ?
+     LIMIT 1`,
+    [userId, date],
   );
-  return result.insertId;
+  return rows[0] || null;
+};
+
+// returns the new id, or null when a request for that day is already pending.
+// The day row is locked so a double tap cannot create two requests.
+const createChangeRequest = async ({
+  userId,
+  beatId,
+  reason,
+  details,
+  approverId,
+  planId = null,
+  planDate = null,
+  dayId = null,
+  requestedBeatId = null,
+}) => {
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    if (dayId) {
+      await conn.query(`SELECT id FROM beat_plan_days WHERE id = ? FOR UPDATE`, [dayId]);
+      const [open] = await conn.query(
+        `SELECT id FROM beat_change_requests
+         WHERE user_id = ? AND plan_date = ? AND status = 'PENDING'
+         LIMIT 1`,
+        [userId, planDate],
+      );
+      if (open.length) {
+        await conn.rollback();
+        return null;
+      }
+    }
+
+    const [result] = await conn.query(
+      `INSERT INTO beat_change_requests
+         (user_id, beat_id, reason, details, approver_id,
+          plan_id, plan_date, requested_beat_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        userId,
+        beatId || null,
+        reason,
+        details,
+        approverId || null,
+        planId,
+        planDate,
+        requestedBeatId,
+      ],
+    );
+
+    await conn.commit();
+    return result.insertId;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 };
 
 const getChangeRequestById = async (id) => {
@@ -368,15 +434,284 @@ const listPendingChangeRequests = async (approverId) => {
   return rows;
 };
 
-// compare-and-set: only a PENDING request can be decided (once)
-const decideChangeRequest = async (id, decidedBy, status, remark) => {
-  const [result] = await db.query(
-    `UPDATE beat_change_requests
-     SET status = ?, decided_by = ?, decided_at = NOW(), manager_remark = ?
-     WHERE id = ? AND status = 'PENDING'`,
-    [status, decidedBy, remark || null, id],
+// history rows are only ever added, never changed
+const insertRevision = (runner, requestId, day, event, actorId, note) =>
+  runner.query(
+    `INSERT INTO beat_plan_day_revisions
+       (change_request_id, plan_id, plan_date, user_id, event, beat_id, purpose,
+        sales_target, collection_target, abs_target, new_dealer_target, remark,
+        note, actor_id)
+     SELECT ?, d.plan_id, d.plan_date, p.user_id, ?, d.beat_id, d.purpose,
+            d.sales_target, d.collection_target, d.abs_target, d.new_dealer_target,
+            d.remark, ?, ?
+     FROM beat_plan_days d
+     JOIN beat_weekly_plans p ON p.id = d.plan_id
+     WHERE d.id = ?`,
+    [requestId, event, note || null, actorId, day],
   );
-  return result.affectedRows > 0;
+
+// Decides a request once (compare-and-set). When approved, the affected future
+// day moves to RESUBMIT_REQUIRED and its original values are saved first.
+// applied = false: approved, but no day could be moved (old request or past date)
+const decideChangeRequest = async (id, decidedBy, status, remark, today) => {
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [result] = await conn.query(
+      `UPDATE beat_change_requests
+       SET status = ?, decided_by = ?, decided_at = NOW(), manager_remark = ?
+       WHERE id = ? AND status = 'PENDING'`,
+      [status, decidedBy, remark || null, id],
+    );
+    if (!result.affectedRows) {
+      await conn.rollback();
+      return { done: false, applied: false };
+    }
+
+    const [[request]] = await conn.query(
+      `SELECT plan_id, DATE_FORMAT(plan_date, '%Y-%m-%d') AS plan_date
+       FROM beat_change_requests WHERE id = ?`,
+      [id],
+    );
+
+    let applied = false;
+    if (status === "APPROVED" && request.plan_id && request.plan_date >= today) {
+      const [days] = await conn.query(
+        `SELECT d.id
+         FROM beat_plan_days d
+         JOIN beat_weekly_plans p ON p.id = d.plan_id
+         WHERE d.plan_id = ? AND d.plan_date = ? AND p.status = 'APPROVED'
+           AND (d.amend_status IS NULL OR d.amend_status = 'APPROVED')
+         FOR UPDATE`,
+        [request.plan_id, request.plan_date],
+      );
+
+      if (days.length) {
+        await insertRevision(conn, id, days[0].id, "ORIGINAL", decidedBy, remark);
+        await conn.query(
+          `UPDATE beat_plan_days
+           SET amend_status = 'RESUBMIT_REQUIRED', amend_remark = ?
+           WHERE id = ?`,
+          [remark || null, days[0].id],
+        );
+        await conn.query(
+          `UPDATE beat_change_requests
+           SET revision_status = 'AWAITING_RESUBMISSION'
+           WHERE id = ?`,
+          [id],
+        );
+        applied = true;
+      }
+    }
+
+    if (request.plan_id) {
+      await conn.query(
+        `INSERT INTO beat_plan_logs (plan_id, action, actor_id, remark)
+         VALUES (?, ?, ?, ?)`,
+        [request.plan_id, `CHANGE_${status}`, decidedBy, remark || null],
+      );
+    }
+
+    await conn.commit();
+    return { done: true, applied, planId: request.plan_id, planDate: request.plan_date };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
+// approved future days the employee can still ask to change
+const getChangeableDays = async (userId, today) => {
+  const [rows] = await db.query(
+    `SELECT DATE_FORMAT(d.plan_date, '%Y-%m-%d') AS plan_date,
+            d.beat_id, b.name AS beat_name
+     FROM beat_plan_days d
+     JOIN beat_weekly_plans p ON p.id = d.plan_id
+     JOIN beats b ON b.id = d.beat_id
+     WHERE p.user_id = ? AND p.status = 'APPROVED' AND d.plan_date >= ?
+       AND (d.amend_status IS NULL OR d.amend_status = 'APPROVED')
+       AND NOT EXISTS (
+         SELECT 1 FROM beat_change_requests r
+         WHERE r.plan_id = d.plan_id AND r.plan_date = d.plan_date
+           AND r.status = 'PENDING'
+       )
+     ORDER BY d.plan_date ASC
+     LIMIT 21`,
+    [userId, today],
+  );
+  return rows;
+};
+
+// a change is active until its revised day is finally approved
+const ACTIVE_CHANGE_SELECT = `
+  SELECT r.id, r.reason, r.manager_remark, r.revision_status,
+         DATE_FORMAT(r.plan_date, '%Y-%m-%d') AS plan_date,
+         r.beat_id AS original_beat_id, ob.name AS original_beat_name,
+         r.requested_beat_id, rb.name AS requested_beat_name
+  FROM beat_change_requests r
+  LEFT JOIN beats ob ON ob.id = r.beat_id
+  LEFT JOIN beats rb ON rb.id = r.requested_beat_id
+  WHERE r.status = 'APPROVED'
+    AND r.revision_status IN ('AWAITING_RESUBMISSION', 'RESUBMITTED', 'REJECTED')`;
+
+const getActiveChangesForPlan = async (planId) => {
+  const [rows] = await db.query(`${ACTIVE_CHANGE_SELECT} AND r.plan_id = ?`, [planId]);
+  return rows;
+};
+
+const getActiveChangeForDay = async (planId, date) => {
+  const [rows] = await db.query(
+    `${ACTIVE_CHANGE_SELECT} AND r.plan_id = ? AND r.plan_date = ? LIMIT 1`,
+    [planId, date],
+  );
+  return rows[0] || null;
+};
+
+const recordResubmission = async (requestId, planId, date, actorId) => {
+  const [days] = await db.query(
+    `SELECT id FROM beat_plan_days WHERE plan_id = ? AND plan_date = ?`,
+    [planId, date],
+  );
+  if (!days.length) return;
+  await insertRevision(db, requestId, days[0].id, "RESUBMITTED", actorId, null);
+  await db.query(
+    `UPDATE beat_change_requests SET revision_status = 'RESUBMITTED' WHERE id = ?`,
+    [requestId],
+  );
+};
+
+// revised days of this plan that are waiting for the manager
+const getPendingRevisedDays = async (planId) => {
+  const [rows] = await db.query(
+    `SELECT d.id AS day_id, r.id AS change_request_id
+     FROM beat_plan_days d
+     JOIN beat_change_requests r
+       ON r.plan_id = d.plan_id AND r.plan_date = d.plan_date
+      AND r.status = 'APPROVED' AND r.revision_status = 'RESUBMITTED'
+     WHERE d.plan_id = ? AND d.amend_status = 'PENDING'`,
+    [planId],
+  );
+  return rows;
+};
+
+const recordRevisionDecision = async (days, decision, actorId, remark) => {
+  for (const d of days) {
+    await insertRevision(db, d.change_request_id, d.day_id, decision, actorId, remark);
+    await db.query(
+      `UPDATE beat_change_requests SET revision_status = ? WHERE id = ?`,
+      [decision, d.change_request_id],
+    );
+  }
+};
+
+// ---------------------------------------------------------------------
+//  ADMIN: BEAT CHANGE HISTORY
+// ---------------------------------------------------------------------
+const listChangeHistory = async ({
+  userId,
+  status,
+  revisionStatus,
+  fromDate,
+  toDate,
+  search,
+  page,
+  limit,
+}) => {
+  const where = ["1=1"];
+  const params = [];
+
+  if (userId) {
+    where.push("r.user_id = ?");
+    params.push(userId);
+  }
+  if (status) {
+    where.push("r.status = ?");
+    params.push(status);
+  }
+  if (revisionStatus) {
+    where.push("r.revision_status = ?");
+    params.push(revisionStatus);
+  }
+  if (fromDate) {
+    where.push("DATE(r.created_at) >= ?");
+    params.push(fromDate);
+  }
+  if (toDate) {
+    where.push("DATE(r.created_at) <= ?");
+    params.push(toDate);
+  }
+  if (search) {
+    where.push("(u.name LIKE ? OR r.reason LIKE ? OR r.details LIKE ?)");
+    const s = `%${search}%`;
+    params.push(s, s, s);
+  }
+
+  const [[count]] = await db.query(
+    `SELECT COUNT(*) AS total
+     FROM beat_change_requests r
+     JOIN users u ON u.id = r.user_id
+     WHERE ${where.join(" AND ")}`,
+    params,
+  );
+
+  const offset = (page - 1) * limit;
+  const [rows] = await db.query(
+    `SELECT r.id, r.user_id, u.name AS user_name, jr.name AS job_role,
+            r.reason, r.details, r.status, r.revision_status, r.manager_remark,
+            r.plan_id,
+            DATE_FORMAT(r.plan_date, '%Y-%m-%d') AS plan_date,
+            r.beat_id AS original_beat_id, ob.name AS original_beat_name,
+            r.requested_beat_id, rb.name AS requested_beat_name,
+            d.beat_id AS current_beat_id, cb.name AS current_beat_name,
+            d.amend_status AS day_status,
+            r.approver_id, ap.name AS reporting_manager,
+            r.decided_by, db.name AS decided_by_name,
+            DATE_FORMAT(r.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+            DATE_FORMAT(r.decided_at, '%Y-%m-%d %H:%i:%s') AS decided_at
+     FROM beat_change_requests r
+     JOIN users u ON u.id = r.user_id
+     LEFT JOIN job_roles jr ON jr.id = u.job_role_id
+     LEFT JOIN beats ob ON ob.id = r.beat_id
+     LEFT JOIN beats rb ON rb.id = r.requested_beat_id
+     LEFT JOIN users ap ON ap.id = r.approver_id
+     LEFT JOIN users db ON db.id = r.decided_by
+     LEFT JOIN beat_plan_days d ON d.plan_id = r.plan_id AND d.plan_date = r.plan_date
+     LEFT JOIN beats cb ON cb.id = d.beat_id
+     WHERE ${where.join(" AND ")}
+     ORDER BY r.id DESC
+     LIMIT ? OFFSET ?`,
+    [...params, limit, offset],
+  );
+
+  const revisions = new Map();
+  if (rows.length) {
+    const [revRows] = await db.query(
+      `SELECT v.id, v.change_request_id, v.event, v.beat_id, b.name AS beat_name,
+              v.purpose, v.sales_target, v.collection_target, v.abs_target,
+              v.new_dealer_target, v.remark, v.note,
+              v.actor_id, a.name AS actor_name,
+              DATE_FORMAT(v.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+       FROM beat_plan_day_revisions v
+       LEFT JOIN beats b ON b.id = v.beat_id
+       LEFT JOIN users a ON a.id = v.actor_id
+       WHERE v.change_request_id IN (?)
+       ORDER BY v.id ASC`,
+      [rows.map((r) => r.id)],
+    );
+    revRows.forEach((v) => {
+      const list = revisions.get(v.change_request_id) || [];
+      list.push(v);
+      revisions.set(v.change_request_id, list);
+    });
+  }
+
+  return {
+    total: Number(count.total) || 0,
+    rows: rows.map((r) => ({ ...r, revisions: revisions.get(r.id) || [] })),
+  };
 };
 
 module.exports = {
@@ -394,9 +729,17 @@ module.exports = {
   getLastVisitDates,
   getOverdueParties,
   getLateLogins,
+  getPlanDayForChange,
   createChangeRequest,
   getChangeRequestById,
   listMyChangeRequests,
   listPendingChangeRequests,
   decideChangeRequest,
+  getChangeableDays,
+  getActiveChangesForPlan,
+  getActiveChangeForDay,
+  recordResubmission,
+  getPendingRevisedDays,
+  recordRevisionDecision,
+  listChangeHistory,
 };

@@ -3,7 +3,7 @@ const minioClient = require("../config/minio");
 const axios = require("axios");
 const crypto = require("crypto");
 
-const BUCKET = "jsc-crm";
+const BUCKET = process.env.MINIO_BUCKET;;
 
 function pretty(data) {
   try {

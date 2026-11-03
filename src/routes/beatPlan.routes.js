@@ -40,6 +40,7 @@ router.get("/reports/exceptions", r.exceptions);
 router.get("/change-requests/context", r.changeContext); //  current beat + manager name
 router.get("/change-requests/mine", r.myChangeRequests); //  My Beat Change Requests
 router.get("/change-requests/pending", r.pendingChangeRequests); // manager
+router.get("/change-requests/history", r.changeHistory); //  admin
 router.post("/change-requests", r.createChangeRequest); //   SUBMIT REQUEST
 router.post("/change-requests/:id/decide", r.decideChangeRequest); // manager
 

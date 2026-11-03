@@ -443,25 +443,47 @@ const getUsersUnderManager = async (managerId) => {
 };
 
 const getSubordinateIds = async (userId) => {
-  const query = `
-    WITH RECURSIVE subordinates AS (
-      SELECT id, reporting_under
-      FROM users
-      WHERE id = ?
+  const startId = Number(userId);
+  const allIds = new Set([startId]);
+  let currentLevel = [startId];
 
-      UNION ALL
+  // Fetch one reporting level at a time until no new users are found
+  while (currentLevel.length > 0) {
+    const [rows] = await db.query(
+      `SELECT id FROM users WHERE reporting_under IN (?)`,
+      [currentLevel]
+    );
 
-      SELECT u.id, u.reporting_under
-      FROM users u
-      INNER JOIN subordinates s ON u.reporting_under = s.id
-    )
-    SELECT id FROM subordinates
-  `;
+    currentLevel = rows
+      .map((row) => row.id)
+      .filter((id) => !allIds.has(id));
 
-  const [rows] = await db.query(query, [userId]);
+    currentLevel.forEach((id) => allIds.add(id));
+  }
 
-  return rows.map((row) => row.id);
+  return [...allIds];
 };
+
+// const getSubordinateIds = async (userId) => {
+//   const query = `
+//     WITH RECURSIVE subordinates AS (
+//       SELECT id, reporting_under
+//       FROM users
+//       WHERE id = ?
+
+//       UNION ALL
+
+//       SELECT u.id, u.reporting_under
+//       FROM users u
+//       INNER JOIN subordinates s ON u.reporting_under = s.id
+//     )
+//     SELECT id FROM subordinates
+//   `;
+
+//   const [rows] = await db.query(query, [userId]);
+
+//   return rows.map((row) => row.id);
+// };
 
 const getPermissionsByUser = async (userId) => {
   const [rows] = await db.query(

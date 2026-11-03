@@ -373,6 +373,164 @@ exports.getVisitByIdAdmin = async (visitId) => {
   return rows[0];
 };
 
+// A follow-up visit is a visit with visit_outcome = 'follow_up_required'.
+// It is "completed" once the same employee submits any later visit
+// for the same customer (nv = that next visit).
+exports.getFollowUpVisits = async (filters) => {
+  // Date comparisons use the IST date passed in by the controller
+  const statusCase = `CASE
+      WHEN nv.id IS NOT NULL THEN 'completed'
+      WHEN v.reminder_date IS NULL THEN 'no_date'
+      WHEN v.reminder_date < ? THEN 'overdue'
+      WHEN v.reminder_date = ? THEN 'due_today'
+      ELSE 'upcoming'
+    END`;
+  const statusParams = [filters.today, filters.today];
+
+  let baseQuery = `
+    FROM visits v
+    LEFT JOIN customers c ON v.customer_id = c.id
+    LEFT JOIN users u ON v.user_id = u.id
+    LEFT JOIN visits nv ON nv.id = (
+      SELECT MIN(x.id)
+      FROM visits x
+      WHERE x.user_id = v.user_id
+        AND x.customer_id = v.customer_id
+        AND x.id > v.id
+    )
+    WHERE v.visit_outcome = 'follow_up_required'
+  `;
+
+  const params = [];
+
+  if (filters.user_ids && filters.user_ids.length > 0) {
+    baseQuery += ` AND v.user_id IN (${filters.user_ids.map(() => "?").join(",")})`;
+    params.push(...filters.user_ids);
+  }
+
+  if (filters.user_id) {
+    baseQuery += ` AND v.user_id = ?`;
+    params.push(filters.user_id);
+  }
+
+  if (filters.visit_type) {
+    baseQuery += ` AND v.visit_type = ?`;
+    params.push(filters.visit_type);
+  }
+
+  if (filters.priority) {
+    baseQuery += ` AND v.priority = ?`;
+    params.push(filters.priority);
+  }
+
+  if (filters.district) {
+    baseQuery += ` AND c.district = ?`;
+    params.push(filters.district);
+  }
+
+  // Date range applies to the follow-up (reminder) date
+  if (filters.from_date) {
+    baseQuery += ` AND v.reminder_date >= ?`;
+    params.push(filters.from_date);
+  }
+
+  if (filters.to_date) {
+    baseQuery += ` AND v.reminder_date <= ?`;
+    params.push(filters.to_date);
+  }
+
+  if (filters.search) {
+    baseQuery += `
+      AND (
+        c.name LIKE ?
+        OR c.firm_name LIKE ?
+        OR c.contact_number LIKE ?
+        OR c.district LIKE ?
+        OR u.name LIKE ?
+        OR v.comment LIKE ?
+      )
+    `;
+    const searchValue = `%${filters.search}%`;
+    params.push(searchValue, searchValue, searchValue, searchValue, searchValue, searchValue);
+  }
+
+  // Tab counts: run before the status filter so every tab keeps its count
+  const [summaryRows] = await db.query(
+    `SELECT s.follow_up_status, COUNT(*) AS total
+     FROM (SELECT ${statusCase} AS follow_up_status ${baseQuery}) s
+     GROUP BY s.follow_up_status`,
+    [...statusParams, ...params]
+  );
+
+  const summary = { overdue: 0, due_today: 0, upcoming: 0, no_date: 0, completed: 0 };
+  summaryRows.forEach((row) => {
+    summary[row.follow_up_status] = Number(row.total);
+  });
+
+  const allTotal = Object.values(summary).reduce((sum, count) => sum + count, 0);
+  const total = filters.status ? summary[filters.status] : allTotal;
+
+  const dataParams = [...statusParams, ...params];
+  if (filters.status) {
+    baseQuery += ` AND ${statusCase} = ?`;
+    dataParams.push(...statusParams, filters.status);
+  }
+
+  const limit = Math.min(parseInt(filters.limit) || 10, 50);
+  const page = Math.max(parseInt(filters.page) || 1, 1);
+  const offset = (page - 1) * limit;
+
+  // Completed: latest completion first. Others: nearest/oldest date first.
+  const orderBy = filters.status === "completed"
+    ? "nv.id DESC"
+    : "v.reminder_date IS NULL, v.reminder_date ASC, v.reminder_time ASC, v.id ASC";
+
+  const [rows] = await db.query(
+    `SELECT
+       v.id,
+       v.user_id,
+       u.name AS emp_name,
+       v.customer_id,
+       v.visit_type,
+       v.customer_type,
+       v.visit_purpose,
+       v.visit_outcome,
+       v.comment,
+       DATE_FORMAT(v.reminder_date, '%Y-%m-%d') AS reminder_date,
+       v.reminder_time,
+       v.reminder_reason,
+       v.priority,
+       v.image_path,
+       DATE_FORMAT(
+         CONVERT_TZ(v.created_at, @@session.time_zone, '+05:30'),
+         '%Y-%m-%dT%H:%i:%s+05:30'
+       ) AS created_at,
+
+       ${statusCase} AS follow_up_status,
+       nv.id AS completed_by_visit_id,
+       nv.visit_outcome AS completed_visit_outcome,
+       DATE_FORMAT(
+         CONVERT_TZ(nv.created_at, @@session.time_zone, '+05:30'),
+         '%Y-%m-%dT%H:%i:%s+05:30'
+       ) AS completed_at,
+
+       c.name AS customer_name,
+       c.firm_name,
+       c.contact_number,
+       c.address,
+       c.area,
+       c.district,
+       c.pincode
+
+     ${baseQuery}
+     ORDER BY ${orderBy}
+     LIMIT ? OFFSET ?`,
+    [...dataParams, limit, offset]
+  );
+
+  return { total, page, limit, totalPages: Math.ceil(total / limit), summary, data: rows };
+};
+
 
 // exports.getHierarchyVisitSummary = async (filters) => {
 //   const dateJoinClause = filters.date ? "AND DATE(v.created_at) = ?" : "";

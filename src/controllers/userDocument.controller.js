@@ -2,7 +2,7 @@ const { uploadFileToMinio } = require("../utils/fileUpload"); //  ADD THIS
 const UserDoc = require("../models/userDocument.model");
 const minioClient = require("../config/minio");
 
-const BUCKET = "jsc-crm";
+const BUCKET = process.env.MINIO_BUCKET;;
 
 exports.uploadUserDocument = async (req, res) => {
   try {

@@ -3,7 +3,7 @@ const router = express.Router();
 const {
   createVisit, getVisits, getMyVisits, getTodayVisit, getTodayVisitCount,
   getVisitReport, getHierarchyVisits, getUsersBySelectedLevel,
-  getUserVisitDetails, getMyVisitSummary, getMyVisitDetailsById
+  getUserVisitDetails, getMyVisitSummary, getMyVisitDetailsById, getFollowUpVisits
 } = require("../controllers/visit.controller");
 const upload = require("../middleware/upload.middleware");
 const auth = require("../middleware/auth.middleware");
@@ -30,5 +30,6 @@ router.get( "/get-hierarchy-visits/:userId", auth, getUserVisitDetails);
 
 router.get("/my-visit-summary", auth, getMyVisitSummary);
 router.get("/my-visits/:id", auth, getMyVisitDetailsById);
+router.get("/follow-up-visits", auth, getFollowUpVisits);
 
 module.exports = router;

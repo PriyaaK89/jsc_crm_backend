@@ -4,6 +4,7 @@ const { getPdfPageCount, getFileBufferFromMinio, normalizePhone, getDigioAuthHea
 const minioClient = require("../config/minio"); 
 const { getPresignedUrl } = require("../utils/fileUpload");
 
+const BUCKET = process.env.MINIO_BUCKET;
 exports.sendDistributorForESign = async (req, res) => {
   try {
     const { distributor_id } = req.body;
@@ -186,7 +187,7 @@ exports.downloadDistributorSignedPdf = async (req, res) => {
     const fileName = `distributor/signed_${doc.distributor_id}.pdf`;
 
     await minioClient.putObject(
-      "jsc-crm",
+      BUCKET,
       fileName,
       buffer,
       buffer.length

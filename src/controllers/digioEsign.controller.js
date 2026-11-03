@@ -4,7 +4,8 @@ const minioClient = require("../config/minio");
 const { PDFDocument } = require("pdf-lib");
 const { normalizePhone, getFileBufferFromMinio, getPdfPageCount, buildSignCoordinates, getDigioAuthHeader } = require("../utils/digio.helper");
 
-const BUCKET = "jsc-crm";
+const BUCKET = process.env.MINIO_BUCKET;
+
 
 function pretty(data) {
   try {

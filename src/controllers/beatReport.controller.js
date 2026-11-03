@@ -494,6 +494,11 @@ const mapRequest = (r) => ({
   details: r.details,
   status: r.status,
   beat_name: r.beat_name || "",
+  plan_id: r.plan_id || null,
+  plan_date: r.plan_date || "",
+  requested_beat_id: r.requested_beat_id || null,
+  requested_beat_name: r.requested_beat_name || "",
+  revision_status: r.revision_status || "",
   manager_remark: r.manager_remark || "",
   created_at: r.created_at,
   decided_at: r.decided_at || "",
@@ -511,16 +516,23 @@ exports.changeContext = wrap(async (req, res) => {
   const employee = await plan.getUserForPlan(me);
   const manager = await managerOf(employee);
   const todayRow = await plan.getTodayPlanDay(me, D.todayIST());
+  const days = await rpt.getChangeableDays(me, D.todayIST());
 
   return ok(res, {
     reasons: CHANGE_REASONS,
     current_beat: todayRow ? todayRow.beat_name : "",
     sent_to: manager ? manager.name : "",
     sent_to_role: manager ? manager.job_role || "" : "",
+    days: days.map((d) => ({
+      date: d.plan_date,
+      beat_id: d.beat_id,
+      beat_name: d.beat_name,
+    })),
   });
 });
 
-// POST /change-requests   body: { reason, details }
+// POST /change-requests   body: { reason, details, plan_date?, requested_beat_id? }
+//   plan_date defaults to today, so the current app keeps working
 exports.createChangeRequest = wrap(async (req, res) => {
   const me = req.user.id;
 
@@ -539,14 +551,65 @@ exports.createChangeRequest = wrap(async (req, res) => {
     throw new HttpError(400, "You have no reporting manager to send this request to");
   }
 
-  const todayRow = await plan.getTodayPlanDay(me, D.todayIST());
+  const today = D.todayIST();
+  const dateGiven = !!req.body.plan_date;
+  const date = dateGiven ? String(req.body.plan_date) : today;
+  if (!D.isValidDate(date)) throw new HttpError(400, "plan_date must be YYYY-MM-DD");
+  if (date < today) throw new HttpError(400, "You cannot change a past date");
+
+  const day = await rpt.getPlanDayForChange(me, date);
+  const isApprovedDay =
+    !!day &&
+    day.plan_status === "APPROVED" &&
+    (!day.amend_status || day.amend_status === "APPROVED");
+
+  if (day && (await rpt.getActiveChangeForDay(day.plan_id, date))) {
+    throw new HttpError(409, "This day already has an approved beat change");
+  }
+  if (dateGiven && !isApprovedDay) {
+    throw new HttpError(400, "There is no approved beat on this date");
+  }
+
+  let requestedBeatId = null;
+  if (req.body.requested_beat_id) {
+    requestedBeatId = toId(req.body.requested_beat_id, "requested_beat_id");
+    if (!(await plan.getBeatForUser(requestedBeatId, me))) {
+      throw new HttpError(400, "This beat is not assigned to you");
+    }
+    if (day && requestedBeatId === day.beat_id) {
+      throw new HttpError(400, "Select a different beat from the current one");
+    }
+  }
+
   const id = await rpt.createChangeRequest({
     userId: me,
-    beatId: todayRow ? todayRow.beat_id : null,
+    beatId: day ? day.beat_id : null,
     reason,
     details,
     approverId: manager.id,
+    planId: isApprovedDay ? day.plan_id : null,
+    planDate: isApprovedDay ? date : null,
+    dayId: isApprovedDay ? day.day_id : null,
+    requestedBeatId,
   });
+  if (!id) {
+    throw new HttpError(409, "A request for this day is already waiting for approval");
+  }
+
+  // a failed notification must never break the request itself
+  try {
+    await plan.addNotification([manager.id], {
+      planId: isApprovedDay ? day.plan_id : null,
+      refId: id,
+      type: "BEAT_CHANGE_REQUESTED",
+      title: "Beat change request",
+      message: `${employee.name} requested a beat change${
+        isApprovedDay ? ` for ${date}` : ""
+      }: ${reason}`,
+    });
+  } catch (err) {
+    console.error("BEAT CHANGE NOTIFY ERROR:", err);
+  }
 
   return ok(
     res,
@@ -595,12 +658,80 @@ exports.decideChangeRequest = wrap(async (req, res) => {
   }
   if (!allowed) throw new HttpError(403, "You are not allowed to decide this request");
 
-  const done = await rpt.decideChangeRequest(id, me, decision, remark);
-  if (!done) throw new HttpError(409, "This request has already been decided");
+  const result = await rpt.decideChangeRequest(id, me, decision, remark, D.todayIST());
+  if (!result.done) throw new HttpError(409, "This request has already been decided");
+
+  try {
+    await plan.clearChangeRequestNotifications(id);
+  } catch (err) {
+    console.error("BEAT CHANGE NOTIFY CLEAR ERROR:", err);
+  }
+
+  // only the one call that decided the request reaches this, so it notifies once
+  const approved = decision === "APPROVED";
+  const decider = await plan.getUserForPlan(me);
+  const deciderName = (decider && decider.name) || "Your manager";
+  const dateText = result.planDate ? ` for ${result.planDate}` : "";
+
+  let message = `${deciderName} rejected your beat change request${dateText}: ${remark}`;
+  if (approved) {
+    message = result.applied
+      ? `${deciderName} approved your beat change request${dateText}. Open your weekly plan and resubmit this day.`
+      : `${deciderName} approved your beat change request${dateText}`;
+  }
+
+  try {
+    await plan.addNotification([request.user_id], {
+      planId: result.planId || null,
+      type: approved ? "BEAT_CHANGE_APPROVED" : "BEAT_CHANGE_REJECTED",
+      title: approved ? "Beat change approved" : "Beat change rejected",
+      message,
+    });
+  } catch (err) {
+    console.error("BEAT CHANGE NOTIFY ERROR:", err);
+  }
 
   return ok(
     res,
     mapRequest(await rpt.getChangeRequestById(id)),
-    decision === "APPROVED" ? "Request approved" : "Request rejected",
+    approved ? "Request approved" : "Request rejected",
   );
+});
+
+// GET /change-requests/history   (admin)
+//   ?user_id=&status=&revision_status=&from_date=&to_date=&search=&page=&limit=
+exports.changeHistory = wrap(async (req, res) => {
+  if (!["ADMIN", "SUPER_ADMIN"].includes(req.user.role)) {
+    throw new HttpError(403, "Only admins can see this");
+  }
+
+  const { from_date: fromDate, to_date: toDate } = req.query;
+  if ((fromDate && !D.isValidDate(fromDate)) || (toDate && !D.isValidDate(toDate))) {
+    throw new HttpError(400, "Dates must be YYYY-MM-DD");
+  }
+
+  const statuses = ["PENDING", "APPROVED", "REJECTED"];
+  const revisionStatuses = ["AWAITING_RESUBMISSION", "RESUBMITTED", "APPROVED", "REJECTED"];
+  const status = String(req.query.status || "").toUpperCase();
+  const revisionStatus = String(req.query.revision_status || "").toUpperCase();
+  if (status && !statuses.includes(status)) throw new HttpError(400, "Invalid status");
+  if (revisionStatus && !revisionStatuses.includes(revisionStatus)) {
+    throw new HttpError(400, "Invalid revision_status");
+  }
+
+  const page = Math.max(Number(req.query.page) || 1, 1);
+  const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
+
+  const { rows, total } = await rpt.listChangeHistory({
+    userId: req.query.user_id ? toId(req.query.user_id, "user_id") : null,
+    status,
+    revisionStatus,
+    fromDate,
+    toDate,
+    search: clean(req.query.search, 100),
+    page,
+    limit,
+  });
+
+  return ok(res, { items: rows, total, page, limit, totalPages: Math.ceil(total / limit) });
 });

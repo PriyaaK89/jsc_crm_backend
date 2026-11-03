@@ -2,7 +2,7 @@ const  axios  = require("axios");
 const minioClient = require("../config/minio");
 const { v4: uuidv4 } = require("uuid");
 
-const BUCKET = "jsc-crm";
+const BUCKET = process.env.MINIO_BUCKET;
 
 const folderMap = {
   user_document: "users/documents",

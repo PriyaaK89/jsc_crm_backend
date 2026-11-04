@@ -1,5 +1,6 @@
 const plan = require("../models/beatPlan.model");
 const rpt = require("../models/beatReport.model");
+const hist = require("../models/beatHistory.model");
 const D = require("../utils/beatDates");
 const { HttpError, wrap, ok, toId, clean } = require("../utils/beatHttp");
 
@@ -386,6 +387,10 @@ exports.myKpis = wrap(async (req, res) => {
   });
 
   const sum = (m) => [...m.values()].reduce((t, x) => t + x, 0);
+  const newDealerTarget = days.reduce(
+    (t, d) => t + (Number(d.new_dealer_target) || 0),
+    0,
+  );
   const salesDone = sum(salesMap);
   const collectionDone = sum(collMap);
   const pct = (a, b) => (b > 0 ? Math.min(Math.round((a / b) * 100), 100) : 0);
@@ -401,6 +406,11 @@ exports.myKpis = wrap(async (req, res) => {
     sales: { done: salesDone, target: salesTarget },
     collection: { done: collectionDone, target: collectionTarget },
     abs: { done: 0, target: absTarget }, // TODO: what "ABS booking" means / where it is stored
+    // a new dealer = a ledger newly created under this employee
+    new_dealers: {
+      done: await hist.countNewDealers(me, weekStart, weekEnd),
+      target: newDealerTarget,
+    },
     visits: {
       planned: plannedWeek,
       completed,
@@ -698,12 +708,11 @@ exports.decideChangeRequest = wrap(async (req, res) => {
   );
 });
 
-// GET /change-requests/history   (admin)
+// GET /change-requests/history   (admin: everybody, others: own team)
 //   ?user_id=&status=&revision_status=&from_date=&to_date=&search=&page=&limit=
 exports.changeHistory = wrap(async (req, res) => {
-  if (!["ADMIN", "SUPER_ADMIN"].includes(req.user.role)) {
-    throw new HttpError(403, "Only admins can see this");
-  }
+  const isAdmin = ["ADMIN", "SUPER_ADMIN"].includes(req.user.role);
+  const scopeIds = isAdmin ? null : await myScope(req.user.id);
 
   const { from_date: fromDate, to_date: toDate } = req.query;
   if ((fromDate && !D.isValidDate(fromDate)) || (toDate && !D.isValidDate(toDate))) {
@@ -724,6 +733,7 @@ exports.changeHistory = wrap(async (req, res) => {
 
   const { rows, total } = await rpt.listChangeHistory({
     userId: req.query.user_id ? toId(req.query.user_id, "user_id") : null,
+    userIds: scopeIds,
     status,
     revisionStatus,
     fromDate,

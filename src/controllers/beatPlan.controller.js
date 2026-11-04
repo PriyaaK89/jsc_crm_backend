@@ -1,5 +1,6 @@
 const model = require("../models/beatPlan.model");
 const rpt = require("../models/beatReport.model");
+const hist = require("../models/beatHistory.model");
 const D = require("../utils/beatDates");
 
 // ------------------------------------------------------------------
@@ -721,12 +722,18 @@ exports.getPlan = wrap(async (req, res) => {
   const me = req.user.id;
   const plan = await loadPlan(toId(req.params.id, "plan id"));
 
-  if (!(await canViewPlan(me, plan))) {
+  const isAdmin = ["ADMIN", "SUPER_ADMIN"].includes(req.user.role);
+  if (!isAdmin && !(await canViewPlan(me, plan))) {
     throw new HttpError(403, "You cannot view this plan");
   }
 
   const payload = await buildPlanPayload(plan, me);
   payload.logs = await model.getLogs(plan.id);
+  payload.new_dealers_done = await hist.countNewDealers(
+    plan.user_id,
+    plan.week_start,
+    plan.week_end,
+  );
   return ok(res, payload);
 });
 

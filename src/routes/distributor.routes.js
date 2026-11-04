@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const { checkAnyPermission, checkPermission } = require("../middleware/permission.middleware");
 const controller = require("../controllers/distributor.controller");
 const upload = require("../middleware/upload.middleware");
 const auth = require("../middleware/auth.middleware");
@@ -33,17 +34,16 @@ const uploadFields = [
   { name: "partner_photo_4", maxCount: 1 },
 ];
 
-router.post( "/create-distributor", auth, upload.fields(uploadFields), controller.createDistributor);
-router.get("/get-distributor/:id", auth, controller.getDistributor);
+router.post( "/create-distributor", auth, checkPermission("CREATE_DISTRIBUTOR"), upload.fields(uploadFields), controller.createDistributor);
+router.get("/get-distributor/:id", auth, checkAnyPermission(["VIEW_DISTRIBUTOR", "UPDATE_DISTRIBUTOR"]), controller.getDistributor);
 router.put(
-  "/update-distributor/:id",
-  auth,
+  "/update-distributor/:id", auth, checkPermission("UPDATE_DISTRIBUTOR"),
   upload.fields(uploadFields),
   controller.updateDistributor
 );
-router.get("/get-distributorsList", auth, controller.getAllDistributors);
-router.delete( "/delete-distributor/:id", auth, controller.deleteDistributor);
-router.post("/upload-agreement",auth, upload.single("file"), controller.uploadAgreement);
+router.get("/get-distributorsList", auth, checkPermission("VIEW_DISTRIBUTOR"), controller.getAllDistributors);
+router.delete( "/delete-distributor/:id", auth, checkPermission("DELETE_DISTRIBUTOR"), controller.deleteDistributor);
+router.post("/upload-agreement", auth, checkPermission("UPDATE_DISTRIBUTOR"), upload.single("file"), controller.uploadAgreement);
 
 router.get("/get-distributor-agreement/:distributor_id", auth, controller.getDistributorDocument)
 

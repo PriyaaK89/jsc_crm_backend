@@ -24,7 +24,7 @@ router.get( "/get-notifications", auth, controller.getNotifications );
 router.get( "/get-notification-counts", auth, controller.getNotificationCounts );
 router.put("/mark-notifications-read", auth, controller.markNotificationsRead);
 router.get( "/get-order-approval/:approvalId", auth, controller.getApprovalById );
-router.get( "/approval-history/:approvalId", controller.getPayloadHistory );
+router.get( "/approval-history/:approvalId", auth, controller.getPayloadHistory );
 // router.post( "/approve-sale-order", auth, salesApprove.approveSalesOrder);
 router.post(
   "/approve-sale-order/:approvalId", auth,  upload.fields([

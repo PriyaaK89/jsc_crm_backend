@@ -5,6 +5,7 @@ const router = express.Router();
 const authMiddleware = require("../middleware/auth.middleware");
 const c = require("../controllers/beatPlan.controller");
 const r = require("../controllers/beatReport.controller");
+const h = require("../controllers/beatHistory.controller");
 
 router.use(authMiddleware);
 
@@ -43,6 +44,12 @@ router.get("/change-requests/pending", r.pendingChangeRequests); // manager
 router.get("/change-requests/history", r.changeHistory); //  admin
 router.post("/change-requests", r.createChangeRequest); //   SUBMIT REQUEST
 router.post("/change-requests/:id/decide", r.decideChangeRequest); // manager
+
+// ---------- view beats, plans and history (employee / manager / admin) ----------
+router.get("/beat-history/employees", h.employees); //  people I can view
+router.get("/beat-history/beats", h.beats); //          assigned beats + parties
+router.get("/beat-history/plan-day", h.planDay); //     plan of any date
+router.get("/beat-history/plans", h.plans); //          weekly plan history
 
 // ---------- manager: approvals ----------
 router.get("/approvals/pending", c.pendingApprovals);

@@ -99,6 +99,7 @@ const collectionAreaRoute = require("../src/routes/assign-area-to-emp/collection
 const teamOverviewRoute = require("../src/routes/teams/teamOverview.routes");
 const beatPlanRoute = require("../src/routes/beatPlan.routes");
 const chatRoute = require("../src/routes/chat.routes");
+const permissionRoute = require("../src/routes/permission.routes");
 const monthlySummaryofEmp = require("../src/routes/monthSummary.routes");
 
 
@@ -182,6 +183,7 @@ app.use(teamOverviewRoute);
 app.use(monthlySummaryofEmp);
 app.use("/beat-plan",beatPlanRoute);
 app.use("/chat",chatRoute);
+app.use("/permissions",permissionRoute);
 
 
 

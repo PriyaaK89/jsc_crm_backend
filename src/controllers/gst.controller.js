@@ -38,7 +38,15 @@ exports.verifyGST = async (req, res) => {
       }
     );
 
-    const data = response.data;
+const data = response.data;
+
+console.log("Digio GST verification result:", {
+  requestedGstin: gst_number,
+  returnedGstin: data.details?.gstin,
+  returnedStatus: data.details?.sts,
+  lastUpdated: data.details?.lstupdt,
+  responseKeys: Object.keys(data),
+});
 
     if (!data.details) {
       return res.status(400).json({

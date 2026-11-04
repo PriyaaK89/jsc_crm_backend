@@ -6,7 +6,6 @@ const auth = require('../middleware/auth.middleware');
 router.get("/getCustomers",auth, ctrl.getCustomersByType);
 router.get("/get_customer_details/:id",auth, ctrl.getCustomerById);
 router.get("/retailers-by-distributor", auth, ctrl.getRetailersByDistributor);
- 
 router.get("/assigned-distributors", auth, ctrl.getAssignedDistributors);
 router.get("/farmers-by-retailer", auth, ctrl.getFarmersByRetailer);
 router.get("/unmapped-farmers", auth, ctrl.getUnmappedFarmers);
@@ -25,5 +24,4 @@ router.delete("/remove-distributor-links/:ledgerId", auth, ctrl.removeDistributo
 router.get("/get-farmer-candidates/:retailerId", auth, ctrl.getFarmerCandidatesForRetailer);
 router.post("/add-farmers-to-retailer/:retailerId", auth, ctrl.addFarmersToRetailer);
 router.delete("/remove-farmers-from-retailer/:retailerId", auth, ctrl.removeFarmerFromRetailer);
- 
 module.exports = router;

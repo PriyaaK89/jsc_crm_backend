@@ -1,10 +1,11 @@
 const express = require("express");
 const router = express.Router();
+const { checkPermission } = require("../middleware/permission.middleware");
 const debitNoteController = require("../controllers/debitNote.controller");
 const auth = require("../middleware/auth.middleware");
 const upload = require("../middleware/upload.middleware");
 
-router.post( "/create-debit-note", auth , upload.fields([
+router.post( "/create-debit-note", auth, checkPermission("CREATE_TRANSACTION"), upload.fields([
     { name: "bill_t_image", maxCount: 1 },
     { name: "dispatch_doc_image", maxCount: 1 }
   ]), debitNoteController.createDebitNote);

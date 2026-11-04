@@ -196,11 +196,13 @@ const getApprovedDays = async ({ planOwnerIds = null, beatOwnerIds = null, start
             MAX(pd.sales_target) AS sales_target,
             MAX(pd.collection_target) AS collection_target,
             MAX(pd.abs_target) AS abs_target,
+            MAX(pd.new_dealer_target) AS new_dealer_target,
             COUNT(DISTINCT bp.customer_id) AS parties,
             COUNT(DISTINCT CASE WHEN v.id IS NOT NULL THEN bp.customer_id END) AS done
      FROM (
         SELECT d.beat_id, b.name AS beat_name, p.user_id, u.name AS user_name,
-               d.plan_date, d.sales_target, d.collection_target, d.abs_target
+               d.plan_date, d.sales_target, d.collection_target, d.abs_target,
+               d.new_dealer_target
         FROM beat_plan_days d
         JOIN beat_weekly_plans p ON p.id = d.plan_id
         JOIN beats b ON b.id = d.beat_id
@@ -612,6 +614,7 @@ const recordRevisionDecision = async (days, decision, actorId, remark) => {
 // ---------------------------------------------------------------------
 const listChangeHistory = async ({
   userId,
+  userIds = null,
   status,
   revisionStatus,
   fromDate,
@@ -626,6 +629,10 @@ const listChangeHistory = async ({
   if (userId) {
     where.push("r.user_id = ?");
     params.push(userId);
+  }
+  if (userIds) {
+    where.push("r.user_id IN (?)");
+    params.push(userIds);
   }
   if (status) {
     where.push("r.status = ?");

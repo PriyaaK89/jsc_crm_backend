@@ -94,10 +94,111 @@ const setUserPermissions = async (userId, permissionIds) => {
   }
 };
 
-module.exports = {
-  ADMIN_ROLES,
-  getUserAccess,
-  getAllPermissions,
-  getAllowedPermissionIds,
-  setUserPermissions,
+const USER_FROM = `
+  FROM users u
+  LEFT JOIN roles r ON r.id = u.role_id
+  LEFT JOIN job_roles jr ON jr.id = u.job_role_id
+  LEFT JOIN department d ON d.id = u.department_id`;
+
+const HAS_ANY_PERMISSION = `EXISTS (
+  SELECT 1 FROM user_permissions up
+  WHERE up.user_id = u.id AND up.is_allowed = 1
+)`;
+
+const ADMIN_ROLE_SQL = `r.name IN ('ADMIN', 'SUPER_ADMIN')`;
+
+// Super Admin page: users, their permissions and the totals for the header
+const listUsersWithPermissions = async ({
+  search,
+  role,
+  status,
+  departmentId,
+  access,
+  permissionCode,
+  page,
+  limit,
+}) => {
+  const where = ["1=1"];
+  const params = [];
+
+  if (search) {
+    where.push("(u.name LIKE ? OR u.email LIKE ? OR u.contact_no LIKE ?)");
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+  }
+  if (role) {
+    where.push("r.name = ?");
+    params.push(role);
+  }
+  if (status === "active") where.push("u.is_active = 1");
+  if (status === "inactive") where.push("u.is_active = 0");
+  if (departmentId) {
+    where.push("u.department_id = ?");
+    params.push(departmentId);
+  }
+  if (access === "granted") where.push(`(${ADMIN_ROLE_SQL} OR ${HAS_ANY_PERMISSION})`);
+  if (access === "none") {
+    where.push(`NOT (COALESCE(${ADMIN_ROLE_SQL}, 0) OR ${HAS_ANY_PERMISSION})`);
+  }
+  if (permissionCode) {
+    where.push(`(${ADMIN_ROLE_SQL} OR EXISTS (
+      SELECT 1 FROM user_permissions up2
+      JOIN permissions p2 ON p2.id = up2.permission_id
+      WHERE up2.user_id = u.id AND up2.is_allowed = 1 AND p2.code = ?
+    ))`);
+    params.push(permissionCode);
+  }
+
+  const whereSql = where.join(" AND ");
+
+  const [[summary]] = await db.query(
+    `SELECT COUNT(*) AS total,
+            COALESCE(SUM(CASE WHEN ${ADMIN_ROLE_SQL} THEN 1 ELSE 0 END), 0) AS full_access,
+            COALESCE(SUM(CASE WHEN ${HAS_ANY_PERMISSION} THEN 1 ELSE 0 END), 0) AS with_permissions
+     ${USER_FROM}
+     WHERE ${whereSql}`,
+    params,
+  );
+
+  const [users] = await db.query(
+    `SELECT u.id, u.name, u.email, u.contact_no, u.is_active,
+            r.name AS role, jr.name AS job_role, d.name AS department
+     ${USER_FROM}
+     WHERE ${whereSql}
+     ORDER BY u.is_active DESC, u.name ASC
+     LIMIT ? OFFSET ?`,
+    [...params, limit, (page - 1) * limit],
+  );
+
+  const granted = new Map();
+  if (users.length) {
+    const [rows] = await db.query(
+      `SELECT up.user_id, p.code
+       FROM user_permissions up
+       JOIN permissions p ON p.id = up.permission_id
+       WHERE up.is_allowed = 1 AND up.user_id IN (?)`,
+      [users.map((u) => u.id)],
+    );
+    rows.forEach((r) => {
+      granted.set(r.user_id, [...(granted.get(r.user_id) || []), r.code]);
+    });
+  }
+
+  return {
+    summary,
+    users: users.map((u) => ({ ...u, permissions: granted.get(u.id) || [] })),
+  };
 };
+
+const getUserSummary = async (userId) => {
+  const [rows] = await db.query(
+    `SELECT u.id, u.name, u.email, u.contact_no, u.is_active,
+            r.name AS role, jr.name AS job_role, d.name AS department
+     ${USER_FROM}
+     WHERE u.id = ?`,
+    [userId],
+  );
+  return rows[0] || null;
+};
+
+module.exports = { listUsersWithPermissions, getUserSummary,
+  ADMIN_ROLES, getUserAccess, getAllPermissions, getAllowedPermissionIds, setUserPermissions, };

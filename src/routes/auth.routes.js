@@ -65,12 +65,12 @@ router.put( "/upload-profile-image", authMiddleware,
 
 router.get( "/my-profile", authMiddleware, auth.getMyProfile);
 
-router.get("/get-notifications", authMiddleware, auth.getNotifications);
-router.get("/get-unreadCount", authMiddleware, auth.getUnreadCount)
-router.patch("/mark-notification-as-read/:id", authMiddleware, auth.markAsRead);
-router.patch("/mark-allAsRead", authMiddleware, auth.markAllAsRead);
-router.delete("/deleteAllNotifications", authMiddleware, auth.clearNotifications);
-router.delete("/delete-notification/:id", authMiddleware, auth.deleteNotification);
+router.get("/get-notifications", authMiddleware, checkPermission("VIEW_NOTIFICATION"), auth.getNotifications);
+router.get("/get-unreadCount", authMiddleware, checkPermission("VIEW_NOTIFICATION"), auth.getUnreadCount)
+router.patch("/mark-notification-as-read/:id", authMiddleware, checkPermission("VIEW_NOTIFICATION"), auth.markAsRead);
+router.patch("/mark-allAsRead", authMiddleware, checkPermission("VIEW_NOTIFICATION"), auth.markAllAsRead);
+router.delete("/deleteAllNotifications", authMiddleware, checkPermission("VIEW_NOTIFICATION"), auth.clearNotifications);
+router.delete("/delete-notification/:id", authMiddleware, checkPermission("VIEW_NOTIFICATION"), auth.deleteNotification);
 router.get('/user-permissions/:userId', authMiddleware, checkPermissionOrSelf(["MANAGE_USER_PERMISSIONS"], "userId"), permission.getLegacy);
 router.post('/user-permissions', authMiddleware, checkPermission("MANAGE_USER_PERMISSIONS"), permission.saveLegacy);
 

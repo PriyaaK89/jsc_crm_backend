@@ -1,5 +1,6 @@
 const Permission = require("../models/permission.model");
 const { isAuditMode } = require("../middleware/permission.middleware");
+const { getScope } = require("./employee-performance/task.controller");
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 
@@ -101,6 +102,11 @@ exports.getMine = handle(async (req, res) => {
     ? (await Permission.getAllPermissions()).map((p) => p.code)
     : [...access.codes];
 
+  // same rule the task APIs use: everyone, or a manager with a team to assign to
+  const scope = await getScope(access.id);
+  const canAssignTasks =
+    !!scope && (scope.hasAllAccess || (scope.canAssign && scope.teamIds.length > 0));
+
   return res.json({
     success: true,
     data: {
@@ -108,6 +114,7 @@ exports.getMine = handle(async (req, res) => {
       role: access.role,
       is_admin: access.isAdmin,
       audit_mode: isAuditMode(),
+      can_assign_tasks: canAssignTasks,
       permissions: codes,
     },
   });
@@ -157,6 +164,75 @@ exports.saveLegacy = handle(async (req, res) => {
 
   await saveChecked(req, [...allowed]);
   return res.status(200).json({ message: "Permissions updated successfully" });
+});
+
+// GET /permissions/super-admin/users
+//   ?search=&role=&status=&department_id=&access=&permission_code=&page=&limit=
+exports.listUsers = handle(async (req, res) => {
+  const page = Math.max(Number(req.query.page) || 1, 1);
+  const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 100);
+  const { summary, users } = await Permission.listUsersWithPermissions({
+    search: String(req.query.search || "").trim().slice(0, 100),
+    role: req.query.role || "",
+    status: req.query.status || "",
+    departmentId: Number(req.query.department_id) || null,
+    access: req.query.access || "",
+    permissionCode: req.query.permission_code || "",
+    page,
+    limit,
+  });
+
+  const allCount = (await Permission.getAllPermissions()).length;
+  const total = Number(summary.total) || 0;
+  const fullAccess = Number(summary.full_access) || 0;
+
+  return res.json({
+    success: true,
+    data: {
+      summary: {
+        total_users: total,
+        full_access: fullAccess,
+        with_permissions: Number(summary.with_permissions) || 0,
+        total_permissions: allCount,
+      },
+      users: users.map((u) => {
+        const isAdmin = Permission.ADMIN_ROLES.includes(u.role);
+        return {
+          ...u,
+          is_active: Number(u.is_active) !== 0,
+          is_admin: isAdmin,
+          granted_count: isAdmin ? allCount : u.permissions.length,
+        };
+      }),
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  });
+});
+
+// GET /permissions/super-admin/users/:userId
+exports.getUserDetails = handle(async (req, res) => {
+  const target = await loadTarget(req.params.userId);
+  const [user, rows, allowed] = await Promise.all([
+    Permission.getUserSummary(target.id),
+    Permission.getAllPermissions(),
+    Permission.getAllowedPermissionIds(target.id),
+  ]);
+
+  return res.json({
+    success: true,
+    data: {
+      user,
+      is_admin: target.isAdmin,
+      permission_ids: target.isAdmin ? rows.map((p) => p.id) : allowed,
+      modules: groupByModule(
+        rows,
+        target.isAdmin ? new Set(rows.map((p) => p.id)) : new Set(allowed),
+      ),
+    },
+  });
 });
 
 // GET /auth/user-permissions/:userId  (existing API, same response)

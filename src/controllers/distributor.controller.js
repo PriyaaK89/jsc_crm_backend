@@ -1,19 +1,8 @@
 const db = require("../config/db");
-const {
-  createDistributor,
-  insertPartners,
-  insertCompanies,
-  insertDocuments,
-  getDistributors,
-  getDistributorById,
-  getPartners,
-  getCompanies,
-  getDocuments,
-  updateDistributor,
-  deletePartners,
-  deleteCompanies,
-  getRelatedData, deleteDistributor
-} = require("../models/distributor.model");
+const { createDistributor, insertPartners, insertCompanies, insertDocuments,
+  getDistributors, getDistributorById, getPartners, getCompanies, getDocuments,
+  updateDistributor, deletePartners, deleteCompanies,
+  getRelatedData, deleteDistributor} = require("../models/distributor.model");
 const { uploadFileToMinio, getPresignedUrl } = require("../utils/fileUpload");
 
 
@@ -243,10 +232,14 @@ exports.createDistributor = async (req, res) => {
       await insertPartners(conn, distributorId, [owner]);
     }
 
-    if (distributorData.firm_type === "partnership") {
+    const isCompany = ["private_limited", "limited"].includes(
+      distributorData.firm_type,
+    );
+
+    if (distributorData.firm_type === "partnership" || isCompany) {
       let partners = [];
 
-      if (distributorData.firm_type === "partnership" && body.partners) {
+      if (body.partners) {
         try {
           partners = JSON.parse(body.partners);
         } catch {
@@ -254,7 +247,6 @@ exports.createDistributor = async (req, res) => {
         }
       }
 
-      //  IMPORTANT CHECK
       if (Array.isArray(partners) && partners.length > 0) {
         for (let i = 0; i < partners.length; i++) {
           const fileKey = `partner_photo_${i}`;
@@ -267,8 +259,8 @@ exports.createDistributor = async (req, res) => {
             partners[i].photo = uploaded.object_path;
           }
 
-          //  Ensure role is always partner
-          partners[i].role = "partner";
+          // directors for companies, partners for partnership
+          partners[i].role = isCompany ? "director" : "partner";
         }
         await insertPartners(conn, distributorId, partners);
       }

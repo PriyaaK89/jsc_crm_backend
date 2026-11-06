@@ -63,10 +63,26 @@ const checkPermissionOrSelf = (codes, key) =>
 // Admin and Super Admin only, using the role stored in the database
 const checkAdmin = guard([]);
 
+// Super Admin only, using the role stored in the database
+const checkSuperAdmin = async (req, res, next) => {
+  try {
+    const access = await loadAccess(req, res);
+    if (!access) return undefined;
+    if (access.role === "SUPER_ADMIN") return next();
+    return res.status(403).json({
+      success: false,
+      message: "Only Super Admin can do this",
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 module.exports = {
   checkPermission,
   checkAnyPermission,
   checkPermissionOrSelf,
   checkAdmin,
+  checkSuperAdmin,
   isAuditMode,
 };

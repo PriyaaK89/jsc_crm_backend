@@ -14,4 +14,4 @@ router.put("/reassign-ledger", auth, checkPermission("UPDATE_LEDGER"), reassignL
 router.get("/get-my-assigned-ledgers", auth, getMyAssignedLedgers);
 router.post( "/:ledgerId/send-whatsapp", auth, checkAnyPermission(["CREATE_LEDGER", "UPDATE_LEDGER"]), sendLedgerCreatedWhatsapp);
 
-module.exports = router;l
+module.exports = router;

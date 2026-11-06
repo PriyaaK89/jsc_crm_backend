@@ -5,6 +5,7 @@ const auth = require("../middleware/auth.middleware");
 const {
   checkPermission,
   checkPermissionOrSelf,
+  checkSuperAdmin,
 } = require("../middleware/permission.middleware");
 const { MANAGE_USER_PERMISSIONS } = require("../utils/permissionCodes");
 
@@ -22,5 +23,10 @@ router.put(
   checkPermission(MANAGE_USER_PERMISSIONS),
   c.saveForUser,
 );
+
+// Super Admin permission management page
+router.get("/super-admin/users", auth, checkSuperAdmin, c.listUsers);
+router.get("/super-admin/users/:userId", auth, checkSuperAdmin, c.getUserDetails);
+router.put("/super-admin/users/:userId", auth, checkSuperAdmin, c.saveForUser);
 
 module.exports = router;

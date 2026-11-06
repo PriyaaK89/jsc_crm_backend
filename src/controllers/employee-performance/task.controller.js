@@ -103,6 +103,8 @@ const actionsOf = (task) =>
 // ================= ASSIGNER SIDE =================
 
 // Step 1 of the form: role dropdown
+exports.getScope = getScope;
+
 exports.getAssignableRoles = async (req, res) => {
   try {
     const scope = await getScope(req.user.id);
@@ -110,7 +112,15 @@ exports.getAssignableRoles = async (req, res) => {
     if (!scope.canAssign)
       return res.status(403).json({ message: "You cannot assign tasks" });
 
-    const roles = await taskModel.getAssignableRoles(scope.teamIds, req.user.id);
+    // VIEW_JOB_ROLE widens this dropdown only. Who can receive a task stays limited
+    // by getAssignableUsers and createTask.
+    const seesAllRoles =
+      scope.teamIds !== null && (await taskModel.hasPermission(req.user.id, "VIEW_JOB_ROLE"));
+
+    const roles = await taskModel.getAssignableRoles(
+      seesAllRoles ? null : scope.teamIds,
+      req.user.id,
+    );
     return res.json({ roles });
   } catch (err) {
     console.error(err);

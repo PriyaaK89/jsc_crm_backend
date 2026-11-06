@@ -11,4 +11,3 @@ router.get( "/journal-invoice/print/:id", auth, journalController.getJournalVouc
 router.get( "/get-journal-invoice/:id", auth, journalController.getJournalInvoice);
 
 module.exports = router;
-l

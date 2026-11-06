@@ -97,6 +97,7 @@ const EmpPerformanceTrackerRoute = require("../src/routes/employee-performance/p
 const assignTaskRoute = require("../src/routes/employee-performance/task.routes");
 const collectionAreaRoute = require("../src/routes/assign-area-to-emp/collectionArea.routes");
 const teamOverviewRoute = require("../src/routes/teams/teamOverview.routes");
+const dashboardAnalyticsRoute = require("../src/routes/dashboardAnalytics.routes");
 const beatPlanRoute = require("../src/routes/beatPlan.routes");
 const chatRoute = require("../src/routes/chat.routes");
 const permissionRoute = require("../src/routes/permission.routes");
@@ -184,6 +185,7 @@ app.use(monthlySummaryofEmp);
 app.use("/beat-plan",beatPlanRoute);
 app.use("/chat",chatRoute);
 app.use("/permissions",permissionRoute);
+app.use("/dashboard-analytics",dashboardAnalyticsRoute);
 
 
 

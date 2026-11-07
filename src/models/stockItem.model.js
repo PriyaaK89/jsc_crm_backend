@@ -192,25 +192,27 @@ const createOpeningStock = async (stock_item_id, data) => {
 };
 
 
-const getStockItems = async ( search = "", page = 1, limit = 10 ) => {
-
+const getStockItems = async (search = "", page = 1, limit = 10, hiddenGroupIds = []) => {
     const offset = (page - 1) * limit;
+    const hiddenSql = hiddenGroupIds.length ? `AND si.stock_group_id NOT IN (?)` : ``;
+    const hiddenParam = hiddenGroupIds.length ? [hiddenGroupIds] : [];
 
     const [countRows] = await db.query(
         `
         SELECT COUNT(*) AS total
-        FROM stock_items
-        WHERE item_name LIKE ?
+        FROM stock_items si
+        WHERE si.item_name LIKE ? ${hiddenSql}
         `,
-        [`%${search}%`]
+        [`%${search}%`, ...hiddenParam]
     );
 
     const totalRecords = countRows[0].total;
 
     const [rows] = await db.query(
-        ` SELECT
+        `
+        SELECT
             si.id, si.item_name,
-             si.crop_id,
+            si.crop_id,
             cr.crop_name,
             si.type_of_supply, si.rate_of_duty,
             si.gst_applicable, si.set_gst_details,
@@ -253,22 +255,20 @@ const getStockItems = async ( search = "", page = 1, limit = 10 ) => {
         LEFT JOIN stock_item_opening_stock os ON si.id = os.stock_item_id
         LEFT JOIN units gu ON os.per_unit_id = gu.id
         LEFT JOIN godowns g ON os.godown_id = g.id
-        WHERE si.item_name LIKE ?
+        WHERE si.item_name LIKE ? ${hiddenSql}
 
         ORDER BY si.id DESC
 
         LIMIT ?
         OFFSET ?
-
         `,
         [
             `%${search}%`,
+            ...hiddenParam,
             Number(limit),
             Number(offset)
         ]
     );
-
-
 
     return {
         rows,
@@ -278,7 +278,7 @@ const getStockItems = async ( search = "", page = 1, limit = 10 ) => {
     };
 };
 
-const getStockItemById = async (id) => {
+const getStockItemById = async (id, hiddenGroupIds = []) => {
     const [rows] = await db.query(`
         SELECT
             si.*,
@@ -311,6 +311,7 @@ const getStockItemById = async (id) => {
     if (!item) return null;
     
     let calculated_alt_unit = null;
+     if (hiddenGroupIds.map(Number).includes(Number(item.stock_group_id))) return null;
     
     if (
         Number(item.base_unit_value) > 0 &&
@@ -478,13 +479,18 @@ const PRICE_LIST_FROM_SQL = `
         )
 `;
 
-const getPriceList = async ({ search = "", group_id = null, page = 1, limit = 20 }) => {
+const getPriceList = async ({ search = "", group_id = null, page = 1, limit = 20 ,  hiddenGroupIds = [] }) => {
     const pageNo = Math.max(Number(page) || 1, 1);
     const pageSize = Math.min(Math.max(Number(limit) || 20, 1), 100);
     const offset = (pageNo - 1) * pageSize;
 
     const where = ["si.is_active = 1", "si.item_name LIKE ?", "os.rate > 0"];
     const params = [`%${search}%`];
+
+      if (hiddenGroupIds.length) {
+    where.push("si.stock_group_id NOT IN (?)");
+    params.push(hiddenGroupIds);
+  }
 
     if (group_id) {
         where.push("si.stock_group_id = ?");
@@ -541,13 +547,15 @@ const getPriceList = async ({ search = "", group_id = null, page = 1, limit = 20
 };
 
 // filter chips (All / Seeds / Fertilizer / Pesticide)
-const getPriceListGroups = async () => {
-    const [rows] = await db.query(
-        `SELECT id, name FROM stock_groups ORDER BY name ASC`
-    );
-    return rows;
+const getPriceListGroups = async (hiddenGroupIds = []) => {
+  const [rows] = await db.query(
+    `SELECT id, name FROM stock_groups
+     ${hiddenGroupIds.length ? "WHERE id NOT IN (?)" : ""}
+     ORDER BY name ASC`,
+    hiddenGroupIds.length ? [hiddenGroupIds] : []
+  );
+  return rows;
 };
-
 
 module.exports = {
     createStockItem, createGSTDetails, createOpeningStock, getStockItems,

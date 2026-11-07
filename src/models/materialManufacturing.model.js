@@ -12,8 +12,13 @@ const db = require("../config/db");
 // =============================
 // GET STOCK ITEMS FOR DROPDOWN (id, name, rate, base/bulk unit info)
 // =============================
-const getStockItemsDropdown = async () => {
-  const [rows] = await db.query(`
+
+const getStockItemsDropdown = async (hiddenGroupIds = []) => {
+  const hiddenSql = hiddenGroupIds.length ? `WHERE si.stock_group_id NOT IN (?)` : ``;
+  const hiddenParam = hiddenGroupIds.length ? [hiddenGroupIds] : [];
+
+  const [rows] = await db.query(
+    `
         SELECT
             si.id,
             si.item_name,
@@ -42,11 +47,50 @@ const getStockItemsDropdown = async () => {
         ) os
             ON os.stock_item_id = si.id
 
+        ${hiddenSql}
+
         ORDER BY si.item_name ASC
-    `);
+    `,
+    hiddenParam
+  );
 
   return rows;
 };
+// const getStockItemsDropdown = async () => {
+//   const [rows] = await db.query(`
+//         SELECT
+//             si.id,
+//             si.item_name,
+//             si.crop_id, cr.crop_name,
+//             si.unit_id, u.symbol AS base_unit_name, si.base_unit_value,
+//             si.bulk_unit_id, bu.symbol AS bulk_unit_name, si.bulk_unit_value,
+//             sg.name AS stock_group_name,
+//             os.rate
+
+//         FROM stock_items si
+//         LEFT JOIN crops cr ON cr.id = si.crop_id 
+//         LEFT JOIN units u ON si.unit_id = u.id
+//         LEFT JOIN units bu ON si.bulk_unit_id = bu.id
+//         LEFT JOIN stock_groups sg ON si.stock_group_id = sg.id
+
+//         LEFT JOIN (
+//             SELECT t1.stock_item_id, t1.rate
+//             FROM stock_item_opening_stock t1
+//             INNER JOIN (
+//                 SELECT stock_item_id, MAX(id) AS max_id
+//                 FROM stock_item_opening_stock
+//                 GROUP BY stock_item_id
+//             ) latest
+//                 ON latest.stock_item_id = t1.stock_item_id
+//                 AND latest.max_id = t1.id
+//         ) os
+//             ON os.stock_item_id = si.id
+
+//         ORDER BY si.item_name ASC
+//     `);
+
+//   return rows;
+// };
 
 const getStockItemBatches = async (itemId, godownId) => {
   const [rows] = await db.query(

@@ -1,4 +1,5 @@
 const manufacturingModel = require("../models/materialManufacturing.model");
+const { getHiddenGroupIdsForRequest } = require("../utils/stockVisibility");
 
 const {
   createManufacturingSchema,
@@ -7,7 +8,8 @@ const {
 
 const getStockItemsDropdown = async (req, res) => {
   try {
-    const data = await manufacturingModel.getStockItemsDropdown();
+    const hiddenGroupIds = await getHiddenGroupIdsForRequest(req);
+    const data = await manufacturingModel.getStockItemsDropdown(hiddenGroupIds);
 
     return res.status(200).json({
       success: true,

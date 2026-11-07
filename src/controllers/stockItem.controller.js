@@ -1,5 +1,6 @@
 const db = require("../config/db");
 const stockItemModel = require("../models/stockItem.model");
+const { getHiddenGroupIdsForRequest } = require("../utils/stockVisibility");
 
 async function resolveCropId(connection, crop_id) {
   if (crop_id === undefined || crop_id === null || crop_id === "") {
@@ -374,8 +375,8 @@ exports.createStockItem = async (req, res) => {
 exports.getStockItems = async (req, res) => {
   try {
     const { search = "", page = 1, limit = 10 } = req.query;
-
-    const result = await stockItemModel.getStockItems(search, page, limit);
+    const hiddenGroupIds = await getHiddenGroupIdsForRequest(req);
+    const result = await stockItemModel.getStockItems(search, page, limit, hiddenGroupIds);
     return res.status(200).json({
       success: true,
       totalRecords: result.totalRecords,
@@ -392,12 +393,18 @@ exports.getStockItems = async (req, res) => {
       error: error.message,
     });
   }
-};
+}
 
 exports.getStockItemById = async (req, res) => {
   try {
     const { id } = req.params;
-    const stockItem = await stockItemModel.getStockItemById(id);
+
+    // CHANGED: get hidden groups for this user and pass to the model
+    const hiddenGroupIds = await getHiddenGroupIdsForRequest(req);
+    const stockItem = await stockItemModel.getStockItemById(id, hiddenGroupIds);
+
+    // returns null for missing items AND for items in a hidden group,
+    // so GST details / opening stock below are never fetched for hidden items
     if (!stockItem) {
       return res.status(404).json({
         success: false,
@@ -488,15 +495,15 @@ exports.updateStockItem = async (req, res) => {
     }
 
     if (is_returnable == 1) {
-  if (returnable_percentage == null || returnable_percentage === "" ||
-      Number(returnable_percentage) < 0 || Number(returnable_percentage) > 100) {
-    await connection.rollback();
-    return res.status(400).json({
-      success: false,
-      message: "Returnable percentage must be between 0 and 100",
-    });
-  }
-}
+      if (returnable_percentage == null || returnable_percentage === "" ||
+        Number(returnable_percentage) < 0 || Number(returnable_percentage) > 100) {
+        await connection.rollback();
+        return res.status(400).json({
+          success: false,
+          message: "Returnable percentage must be between 0 and 100",
+        });
+      }
+    }
 
     // in updateStockItem, replace the cropCheck block
     let cropCheck;
@@ -802,9 +809,12 @@ exports.getPriceList = async (req, res) => {
   try {
     const { search = "", group_id = null, page = 1, limit = 20 } = req.query;
 
+    // CHANGED: get hidden groups for this user and pass to both model calls
+    const hiddenGroupIds = await getHiddenGroupIdsForRequest(req);
+
     const [result, groups] = await Promise.all([
-      stockItemModel.getPriceList({ search, group_id, page, limit }),
-      stockItemModel.getPriceListGroups(),
+      stockItemModel.getPriceList({ search, group_id, page, limit, hiddenGroupIds }),
+      stockItemModel.getPriceListGroups(hiddenGroupIds),
     ]);
 
     const data = result.rows.map((r) => ({

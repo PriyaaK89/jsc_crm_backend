@@ -1,4 +1,5 @@
 const StockCategory = require("../models/stockCategory.model");
+const { getHiddenGroupIdsForRequest } = require("../utils/stockVisibility");
 
 exports.createStockCategory = async (req, res) => {
   try {
@@ -26,7 +27,9 @@ exports.createStockCategory = async (req, res) => {
 
 exports.getAllStockCategories = async (req, res) => {
   try {
-    const data = await StockCategory.getAllStockCategories();
+    const hiddenGroupIds = await getHiddenGroupIdsForRequest(req);
+
+    const data = await StockCategory.getAllStockCategories(hiddenGroupIds);
 
     res.status(200).json({
       success: true,
@@ -42,10 +45,11 @@ exports.getAllStockCategories = async (req, res) => {
 exports.getStockCategoryById = async (req, res) => {
   try {
     const { id } = req.params;
+    const hiddenGroupIds = await getHiddenGroupIdsForRequest(req);
 
     const data = await StockCategory.getStockCategoryById(id);
 
-    if (!data) {
+    if (!data || hiddenGroupIds.map(Number).includes(Number(data.stock_group_id))) {
       return res.status(404).json({ error: "Category not found" });
     }
 
@@ -122,8 +126,11 @@ exports.getCategoriesByStockGroup = async (req, res) => {
       });
     }
 
+    const hiddenGroupIds = await getHiddenGroupIdsForRequest(req);
+
     const data = await StockCategory.getCategoriesByStockGroup(
-      stock_group_id
+      stock_group_id,
+      hiddenGroupIds
     );
 
     res.status(200).json({

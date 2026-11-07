@@ -1,8 +1,9 @@
 const StockGroup = require("../models/stockGroup.model");
+const { getHiddenGroupIdsForRequest } = require("../utils/stockVisibility");
 
 exports.createStockGroup = async (req, res) => {
   try {
-    const { name, parent_id, add_quantity, gst_enabled, overdue_limit } = req.body;
+    const { name, parent_id, add_quantity, gst_enabled, overdue_limit, hide_from_marketing } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: "Name is required" });
@@ -13,7 +14,8 @@ exports.createStockGroup = async (req, res) => {
       parent_id: parent_id || null,
       add_quantity,
       gst_enabled,
-      overdue_limit
+      overdue_limit,
+      hide_from_marketing
     });
 
     res.status(201).json({
@@ -28,19 +30,20 @@ exports.createStockGroup = async (req, res) => {
 
 exports.getStockGroupsDropdown = async (req, res) => {
   try {
-    //  Call model
-    const rows = await StockGroup.getAllStockGroups();
+    const hiddenGroupIds = await getHiddenGroupIdsForRequest(req);
 
-    //  Add Primary at top
+    const rows = await StockGroup.getAllStockGroups(hiddenGroupIds);
+
     const data = [
       { id: null, name: "Primary" },
       ...rows
     ];
 
     res.status(200).json({
-        success: true,
-        message: "Data Fetched Successfully.",
-        data: data });
+      success: true,
+      message: "Data Fetched Successfully.",
+      data: data
+    });
 
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -50,9 +53,11 @@ exports.getStockGroupsDropdown = async (req, res) => {
 exports.getStockGroupById = async (req, res) => {
   try {
     const { id } = req.params;
+    const hiddenGroupIds = await getHiddenGroupIdsForRequest(req);
+
     const data = await StockGroup.getStockGroupById(id);
 
-    if (!data) {
+    if (!data || hiddenGroupIds.map(Number).includes(Number(data.id))) {
       return res.status(404).json({ error: "Stock group not found" });
     }
 
@@ -70,7 +75,7 @@ exports.getStockGroupById = async (req, res) => {
 exports.updateStockGroup = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, parent_id, add_quantity, gst_enabled, overdue_limit } = req.body;
+    const { name, parent_id, add_quantity, gst_enabled, overdue_limit, hide_from_marketing } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: "Name is required" });
@@ -88,7 +93,8 @@ exports.updateStockGroup = async (req, res) => {
       parent_id: parent_id || null,
       add_quantity,
       gst_enabled,
-      overdue_limit
+      overdue_limit,
+      hide_from_marketing
     });
 
     const updatedData = await StockGroup.getStockGroupById(id);
@@ -108,14 +114,12 @@ exports.deleteStockGroup = async (req, res) => {
   try {
     const { id } = req.params;
 
-    //  Step 1: Check if exists
     const existing = await StockGroup.getStockGroupById(id);
 
     if (!existing) {
       return res.status(404).json({ error: "Stock group not found" });
     }
 
-    //  Step 2: Delete
     await StockGroup.deleteStockGroup(id);
 
     res.status(200).json({

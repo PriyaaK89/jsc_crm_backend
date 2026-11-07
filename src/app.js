@@ -102,7 +102,7 @@ const beatPlanRoute = require("../src/routes/beatPlan.routes");
 const chatRoute = require("../src/routes/chat.routes");
 const permissionRoute = require("../src/routes/permission.routes");
 const monthlySummaryofEmp = require("../src/routes/monthSummary.routes");
-
+const groupLocationTracking = require("../src/routes/groupTracking.routes");
 
 // Health check
 app.get('/', (req, res) => {
@@ -186,6 +186,7 @@ app.use("/beat-plan",beatPlanRoute);
 app.use("/chat",chatRoute);
 app.use("/permissions",permissionRoute);
 app.use("/dashboard-analytics",dashboardAnalyticsRoute);
+app.use( groupLocationTracking),
 
 
 

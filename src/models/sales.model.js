@@ -840,6 +840,139 @@ exports.getEmployeeOrderHistory = async (employeeId, filter, limit, offset) => {
   return { rows, total };
 };
 
+// payload items may be an array, a JSON string, or double-encoded JSON
+const parseItems = (raw) => {
+  try {
+    let items = raw;
+    if (typeof items === "string") items = JSON.parse(items);
+    if (typeof items === "string") items = JSON.parse(items);
+    return Array.isArray(items) ? items : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+// Products inside one order request (only if it belongs to this employee)
+exports.getEmployeeOrderItems = async (employeeId, approvalId) => {
+  const [rows] = await db.query(
+    `
+    SELECT
+      ta.id,
+      ta.order_no,
+      ta.status,
+      ta.created_at,
+      ta.payload_json
+    FROM transaction_approvals ta
+    WHERE ta.id = ?
+      AND ta.transaction_type = 'SALES'
+      AND ta.created_by = ?
+    LIMIT 1
+    `,
+    [approvalId, employeeId]
+  );
+
+  if (!rows.length) return null;
+
+  const approval = rows[0];
+  const payload = parsePayload(approval.payload_json);
+  const rawItems = parseItems(payload.items);
+
+  // stock item names
+  const stockIds = [
+    ...new Set(
+      rawItems
+        .map((i) => Number(i.stock_item_id))
+        .filter((id) => Number.isInteger(id) && id > 0)
+    ),
+  ];
+  const stockNames = {};
+  if (stockIds.length) {
+    const [stocks] = await db.query(
+      `SELECT id, item_name FROM stock_items WHERE id IN (?)`,
+      [stockIds]
+    );
+    stocks.forEach((s) => (stockNames[s.id] = s.item_name));
+  }
+
+  // unit symbols
+  const unitIds = [
+    ...new Set(
+      rawItems
+        .map((i) => Number(i.unit_id))
+        .filter((id) => Number.isInteger(id) && id > 0)
+    ),
+  ];
+  const unitSymbols = {};
+  if (unitIds.length) {
+    const [units] = await db.query(
+      `SELECT id, symbol FROM units WHERE id IN (?)`,
+      [unitIds]
+    );
+    units.forEach((u) => (unitSymbols[u.id] = u.symbol));
+  }
+
+  // customer name
+  let customerName = payload.ledger_name || payload.customer_name || "-";
+  const customerLedgerId = Number(payload.customer_ledger_id);
+  if (Number.isInteger(customerLedgerId) && customerLedgerId > 0) {
+    const [ledgerRows] = await db.query(
+      `SELECT ledger_name FROM ledgers WHERE id = ?`,
+      [customerLedgerId]
+    );
+    if (ledgerRows.length) customerName = ledgerRows[0].ledger_name;
+  }
+
+  const items = rawItems.map((i) => {
+    const amount = Number(i.amount || 0);
+    const cgstAmount = Number(i.cgst_amount || 0);
+    const sgstAmount = Number(i.sgst_amount || 0);
+    const igstAmount = Number(i.igst_amount || 0);
+    const gstAmount = cgstAmount + sgstAmount + igstAmount;
+
+    return {
+      stock_item_id: Number(i.stock_item_id) || null,
+      item_name:
+        stockNames[Number(i.stock_item_id)] ||
+        i.item_name ||
+        `Item #${i.stock_item_id}`,
+      batch_no: i.batch_no || null,
+      qty: Number(i.billed_qty || 0),
+      unit: unitSymbols[Number(i.unit_id)] || "",
+      rate: Number(i.rate || 0),
+      amount,
+      cgst_percent: Number(i.cgst_percent || 0),
+      cgst_amount: cgstAmount,
+      sgst_percent: Number(i.sgst_percent || 0),
+      sgst_amount: sgstAmount,
+      igst_percent: Number(i.igst_percent || 0),
+      igst_amount: igstAmount,
+      gst_amount: gstAmount,
+      total_amount: Number(i.total_amount || amount + gstAmount),
+    };
+  });
+
+  const sum = (key) => items.reduce((s, it) => s + Number(it[key] || 0), 0);
+
+  const summary = {
+    subtotal: Number(payload.subtotal ?? sum("amount")),
+    cgst_total: Number(payload.cgst_total ?? sum("cgst_amount")),
+    sgst_total: Number(payload.sgst_total ?? sum("sgst_amount")),
+    igst_total: Number(payload.igst_total ?? sum("igst_amount")),
+    tax_total: Number(payload.tax_total ?? sum("gst_amount")),
+    total_amount: Number(payload.total_amount ?? sum("total_amount")),
+  };
+
+  return {
+    id: approval.id,
+    order_no: approval.order_no,
+    status: approval.status,
+    order_date: approval.created_at,
+    customer_name: customerName,
+    items,
+    summary,
+  };
+};
+
 // exports.enforceSalesRules = async (
 //   connection,
 //   customerLedger,

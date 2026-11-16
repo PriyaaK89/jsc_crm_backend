@@ -1,7 +1,7 @@
 const { getUserWithRole } = require("../models/rollingUser.model");
 const { getSubordinates } = require("./rollingUser.controller"); // adjust file name if different
 const GroupTracking = require("../models/groupTracking.model");
-const Location = require("../models/location.model");
+
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -132,7 +132,7 @@ exports.getGroupRoutes = async (req, res) => {
     const start = `${date} 00:00:00`;
     const end = `${date} 23:59:59`;
 
-    const rows = await Location.getLocationsForEmployees(targets.map((t) => t.id), start, end);
+    const rows = await GroupTracking.getLocationsForEmployees(targets.map((t) => t.id), start, end);
 
     const byEmployee = new Map();
     for (const r of rows) {

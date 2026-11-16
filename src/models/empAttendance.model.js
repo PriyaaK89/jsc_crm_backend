@@ -28,7 +28,22 @@ exports.getMyTodayAttendance = async (employeeId) => {
   return rows[0];
 };
 
-exports.createAttendance = async (data) => {
+// beat (optional): { beatId, scope } -> also saves emp_attendance.beat_id / beat_scope.
+// Without it the old 18-column insert runs unchanged.
+exports.createAttendance = async (data, beat = null) => {
+  if (beat && (beat.beatId || beat.scope)) {
+    const [res] = await db.query(
+      ` INSERT INTO emp_attendance (
+ employee_id, attendance_date, status, attendance_unit, work_type, field_work_type,
+ travel_mode, vehicle_type, public_transport, odometer_reading, visit_location,
+ district, route, check_in_time, check_in_latitude, check_in_longitude,
+ check_in_accuracy, check_in_device, leave_reason, beat_id, beat_scope )
+ VALUES (?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) `,
+      [...data, beat.beatId || null, beat.scope || null],
+    );
+    return res.insertId;
+  }
+
   const [result] = await db.query(
     ` INSERT INTO emp_attendance (
  employee_id,

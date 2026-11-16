@@ -14,5 +14,6 @@ router.get("/all-targets", auth, checkPermission("VIEW_TARGET"), controller.getA
 
 router.get("/my-employee-targets", auth, controller.getMyTargets);
 router.get("/team-employee-targets", auth, controller.getTeamTargets);
+router.get("/my-group-employee-targets", auth, controller.getMyGroupTargets);
 
 module.exports = router;

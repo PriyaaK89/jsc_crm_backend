@@ -6,6 +6,7 @@ const { getHierarchyIds } = require("../controllers/rollingUser.controller");
 const { uploadFileToMinio, getPresignedUrl } = require("../utils/fileUpload");
 const userModal = require("../models/user.model")
 const Holiday = require("../models/companyHoliday.model");
+const beatAttendance = require("./beatAttendance.controller");
 
 const generateDailySalaryInternal = async (employeeId, date) => {
   const user = await SalaryDaily.getUserSalaryInfo(employeeId);
@@ -452,6 +453,31 @@ exports.markAttendance = async (req, res) => {
         return res.status(400).json({ message: "Odometer reading required" });
       }
 
+      // ---- beat chosen in "Visit / Working Area" (field work only) ----
+      // beat_id sent      -> must be today's planned / assigned beat of this employee
+      // working_area_mode MANUAL -> typed area, saved as MANUAL
+      // nothing sent (old APK)    -> saved exactly as before
+      let beatToSave = null;
+      if (work_type === "field") {
+        const beatIdRaw = req.body.beat_id;
+        const areaMode = String(req.body.working_area_mode || "").toUpperCase();
+        if (beatIdRaw !== undefined && beatIdRaw !== null && beatIdRaw !== "") {
+          if (req.user && req.user.id && Number(req.user.id) !== Number(employee_id)) {
+            return res.status(403).json({ message: "You can select a beat only for your own attendance" });
+          }
+          try {
+            beatToSave = await beatAttendance.validateAttendanceBeat(Number(employee_id), beatIdRaw);
+          } catch (e) {
+            if (e instanceof beatAttendance.HttpError) {
+              return res.status(e.status).json({ message: e.message });
+            }
+            throw e;
+          }
+        } else if (areaMode === "MANUAL") {
+          beatToSave = { beatId: null, scope: "MANUAL" };
+        }
+      }
+
       const attendanceId = await Attendance.createAttendance([
          employee_id,
     "present",
@@ -471,7 +497,7 @@ exports.markAttendance = async (req, res) => {
     check_in_accuracy || null,
     check_in_device || null,
     null, 
-      ]);
+      ], beatToSave);
 
       if (req.files) {
         for (const field in req.files) {

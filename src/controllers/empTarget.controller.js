@@ -1,6 +1,7 @@
 const db = require("../config/db");
 const empTargetModel = require("../models/empTarget.model");
 const { getHierarchyIds } = require("./rollingUser.controller");
+const visitTargetModel = require("../models/visitTargetTemplate.model");
 
 const TARGET_TYPES = ["SALE", "COLLECTION", "NEW_DISTRIBUTOR"];
 const DURATION_MONTHS = { MONTHLY: 1, QUARTERLY: 3, HALF_YEARLY: 6, YEARLY: 12 };
@@ -437,5 +438,81 @@ exports.getAllTargets = async (req, res) => {
   } catch (error) {
     console.error("getAllTargets error:", error);
     return res.status(500).json({ success: false, message: "Failed to fetch targets" });
+  }
+};
+
+// ================= MY GROUP TARGETS (me + everyone below me, all levels) =================
+// GET /my-group-employee-targets?duration_type=MONTHLY&start_date=&end_date=
+exports.getMyGroupTargets = async (req, res) => {
+  try {
+    const { duration_type, start_date, end_date } = req.query;
+
+    const rangeError = validateRange(start_date, end_date);
+    if (rangeError) {
+      return res.status(400).json({ success: false, message: rangeError });
+    }
+
+    // getHierarchyIds returns [me, ...all subordinates at every level]
+    const ids = await getHierarchyIds(req.user.id);
+    const memberCount = ids.length - 1;
+
+    // Lowest level (nobody reports to this user): no group to show
+    if (memberCount <= 0) {
+      return res.status(200).json({
+        success: true,
+        has_group: false,
+        member_count: 0,
+        data: [],
+        summary: [],
+        visit: null
+      });
+    }
+
+    // ---- SALE / COLLECTION / NEW_DISTRIBUTOR ----
+    const rows = await empTargetModel.getTargetsByFilters({
+      userIds: ids,
+      durationType: duration_type || undefined,
+      startDate: start_date || undefined,
+      endDate: end_date || undefined
+    });
+
+    const targets = rows.map(toTargetItem);
+    const summary = buildSummary(targets); // summed per target_type + duration_type
+
+    // ---- VISIT (separate system: visit_target_assignments) ----
+    const visitRows = await visitTargetModel.getTeamProgress({
+      employeeIds: ids,
+      periodStart: start_date || undefined,
+      periodEnd: end_date || undefined
+    });
+
+    let visitTarget = 0;
+    let visitAchieved = 0;
+
+    visitRows.forEach((r) => {
+      r.breakdown.forEach((b) => {
+        visitTarget += Number(b.target_value) || 0;
+        visitAchieved += Number(b.achieved) || 0;
+      });
+    });
+
+    return res.status(200).json({
+      success: true,
+      has_group: true,
+      member_count: memberCount,
+      data: targets,
+      summary,
+      visit: {
+        total_target: visitTarget,
+        total_achieved: visitAchieved,
+        achievement_percent:
+          visitTarget > 0
+            ? Number(((visitAchieved / visitTarget) * 100).toFixed(2))
+            : 0
+      }
+    });
+  } catch (error) {
+    console.error("getMyGroupTargets error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch group targets" });
   }
 };

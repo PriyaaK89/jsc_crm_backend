@@ -375,3 +375,25 @@ exports.getMyOrderHistory = async (req, res) => {
     return res.status(500).json({ success: false, message: "Failed to fetch order history" });
   }
 };
+
+exports.getMyOrderItems = async (req, res) => {
+  try {
+    const employeeId = req.user.id;
+    const approvalId = parseInt(req.params.id, 10);
+
+    if (!Number.isInteger(approvalId) || approvalId <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid order id" });
+    }
+
+    const data = await salesModel.getEmployeeOrderItems(employeeId, approvalId);
+
+    if (!data) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error("getMyOrderItems error:", err);
+    return res.status(500).json({ success: false, message: "Failed to fetch order products" });
+  }
+};

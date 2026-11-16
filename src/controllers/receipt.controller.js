@@ -234,6 +234,50 @@ exports.sendReceiptWhatsapp = async (req, res) => {
   }
 };
 
+const ALLOWED_RECEIPT_FILTERS = ["today", "week", "month", "all"];
+
+exports.getMyReceiptHistory = async (req, res) => {
+  try {
+    const employeeId = req.user.id;
+
+    let filter = (req.query.filter || "week").toLowerCase();
+    if (!ALLOWED_RECEIPT_FILTERS.includes(filter)) filter = "week";
+
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
+    const offset = (page - 1) * limit;
+
+    const [stats, history] = await Promise.all([
+      receiptModel.getEmployeeReceiptStats(employeeId),
+      receiptModel.getEmployeeReceiptHistory(employeeId, filter, limit, offset),
+    ]);
+
+    return res.json({
+      success: true,
+      data: {
+        stats: {
+          receipts_this_month: Number(stats.total_receipts),
+          amount_this_month: Number(stats.total_amount),
+          today_amount: Number(stats.today_amount),
+        },
+        filter,
+        receipts: history.rows,
+        pagination: {
+          page,
+          limit,
+          total: history.total,
+          total_pages: Math.ceil(history.total / limit),
+        },
+      },
+    });
+  } catch (err) {
+    console.error("getMyReceiptHistory error:", err);
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch receipt history" });
+  }
+};
+
 // exports.sendReceiptWhatsapp = async (req, res) => {
 //   try {
 //     const { id } = req.params;

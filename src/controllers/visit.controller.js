@@ -7,6 +7,7 @@ const { getSubordinates, getHierarchyIds } = require("../controllers/rollingUser
 const { getUsersByLevelAndHierarchy } = require("../models/rollingUser.model");
 const whatsappService = require("../services/whatsapp.service");
 const attendanceModel = require("../models/empAttendance.model");
+const beatAttendance = require("./beatAttendance.controller");
 
 const validPurposes = [
   "new_dist_planning", "sales_order", "sales_return", "collection", "others",
@@ -76,7 +77,7 @@ exports.createVisit = async (req, res) => {
     const {
       user_id, visit_type, customer_type, customer_id,
       name, firm_name, firm_address, contact_number, alt_contact_number, gst_number,
-      address, area, town, state, district, pincode,
+      address, area, town, state, district, pincode, father_name,
       visit_purpose, visit_outcome, comment,
       reminder_date, reminder_time, reminder_reason, priority,
       latitude, longitude,
@@ -179,6 +180,30 @@ exports.createVisit = async (req, res) => {
     }
 
     // ============================================================
+    // 2b. BEAT CHECK: an existing party (or distributor) must be in the
+    //     beat chosen at today's attendance. New customers, manual
+    //     working area, ADHOC beats and beats without parties are not
+    //     restricted.
+    // ============================================================
+    const isExistingParty = visit_type === "distributor" || customer_type !== "new";
+    if (isExistingParty && finalCustomerId) {
+      const visitorId = Number((req.user && req.user.id) || user_id);
+      const beatCheck = await beatAttendance.checkVisitParty(visitorId, Number(finalCustomerId));
+      if (!beatCheck.allowed) {
+        return res.status(403).json({
+          success: false,
+          message: beatAttendance.PARTY_NOT_IN_BEAT_MSG,
+          data: {
+            code: "PARTY_NOT_IN_BEAT",
+            beat_id: beatCheck.beat_id,
+            beat_name: beatCheck.beat_name,
+            customer_id: Number(finalCustomerId),
+          },
+        });
+      }
+    }
+
+    // ============================================================
     // 3. NEW CUSTOMER FLOW: retailer or farmer
     // ============================================================
     if (customer_type === "new" && (visit_type === "retailer" || visit_type === "farmer")) {
@@ -227,6 +252,7 @@ exports.createVisit = async (req, res) => {
           return res.status(400).json({ message: "Selected retailer is invalid" });
         }
       }
+      const isFarmerVisit = visit_type === "farmer";
 
       finalCustomerId = await customerModel.createCustomer([
         visit_type, name, firm_name, firm_address, contact_number,
@@ -234,7 +260,8 @@ exports.createVisit = async (req, res) => {
         address, area, clean(town), clean(state), district, pincode,
         visit_type === "farmer" ? resolvedRetailerId : null,
         resolvedDistributorLedgerId,
-        user_id
+        user_id,
+        isFarmerVisit ? clean(father_name) : null
       ]);
 
       // ---- many-to-many links (idempotent) ----

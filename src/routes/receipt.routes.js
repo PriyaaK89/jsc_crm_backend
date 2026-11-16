@@ -10,5 +10,6 @@ router.get( "/getPendingBills/:ledgerId",auth, receiptController.getPendingBills
 router.get( "/get-receipt-invoice/:id",auth, receiptController.getReceiptInvoice);
 // routes/receipt.routes.js
 router.post("/:id/send-receipt-whatsapp",auth, receiptController.sendReceiptWhatsapp);
+router.get("/my-receipts", auth, receiptController.getMyReceiptHistory);
 
 module.exports = router;

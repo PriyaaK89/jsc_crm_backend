@@ -4,8 +4,8 @@ exports.createCustomer = async (data) => {
   const query = `INSERT INTO customers
     (type, name, firm_name, firm_address, contact_number, alt_contact_number,
      gst_number, address, area, town, state, district, pincode,
-     retailer_id, distributor_ledger_id, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+     retailer_id, distributor_ledger_id, created_by, father_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
   const [result] = await db.query(query, data);
   return result.insertId;

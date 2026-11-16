@@ -382,6 +382,120 @@ if (requested <= 0) continue;
   return allocations;
 };
 
+// ───────────── Employee receipt history ─────────────
+
+// Filter on receipt_date (the voucher date).
+const getReceiptDateCondition = (filter) => {
+  switch (filter) {
+    case "today":
+      return `AND r.receipt_date = CURDATE()`;
+    case "month":
+      return `AND r.receipt_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+              AND r.receipt_date < DATE_FORMAT(CURDATE(), '%Y-%m-01') + INTERVAL 1 MONTH`;
+    case "all":
+      return ``;
+    case "week":
+    default:
+      // Monday of this week up to today
+      return `AND r.receipt_date >= CURDATE() - INTERVAL WEEKDAY(CURDATE()) DAY
+              AND r.receipt_date <= CURDATE()`;
+  }
+};
+
+// Top 3 cards: always the current month, independent of the tab
+exports.getEmployeeReceiptStats = async (employeeId) => {
+  const [rows] = await db.query(
+    `
+    SELECT
+      COUNT(*) AS total_receipts,
+      COALESCE(SUM(r.total_amount), 0) AS total_amount,
+      COALESCE(SUM(CASE WHEN r.receipt_date = CURDATE() THEN r.total_amount ELSE 0 END), 0) AS today_amount
+    FROM receipts r
+    WHERE r.created_by = ?
+      AND r.receipt_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+      AND r.receipt_date < DATE_FORMAT(CURDATE(), '%Y-%m-01') + INTERVAL 1 MONTH
+    `,
+    [employeeId]
+  );
+  return rows[0];
+};
+
+// Receipt list with tab filter + pagination
+exports.getEmployeeReceiptHistory = async (employeeId, filter, limit, offset) => {
+  const dateCondition = getReceiptDateCondition(filter);
+
+  const [receipts] = await db.query(
+    `
+    SELECT
+      r.id,
+      r.voucher_no,
+      DATE_FORMAT(r.receipt_date, '%Y-%m-%d') AS receipt_date,
+      r.total_amount,
+      r.narration,
+      accountLedger.ledger_name AS account_name
+    FROM receipts r
+    LEFT JOIN ledgers accountLedger ON accountLedger.id = r.account_ledger_id
+    WHERE r.created_by = ?
+      ${dateCondition}
+    ORDER BY r.receipt_date DESC, r.id DESC
+    LIMIT ? OFFSET ?
+    `,
+    [employeeId, limit, offset]
+  );
+
+  const [[{ total }]] = await db.query(
+    `SELECT COUNT(*) AS total
+     FROM receipts r
+     WHERE r.created_by = ? ${dateCondition}`,
+    [employeeId]
+  );
+
+  // party names + payment mode come from the receipt entries
+  const entriesByReceipt = {};
+  if (receipts.length) {
+    const receiptIds = receipts.map((r) => r.id);
+    const [entries] = await db.query(
+      `
+      SELECT
+        re.receipt_id,
+        re.transaction_type,
+        l.ledger_name
+      FROM receipt_entries re
+      LEFT JOIN ledgers l ON l.id = re.ledger_id
+      WHERE re.receipt_id IN (?)
+      ORDER BY re.id ASC
+      `,
+      [receiptIds]
+    );
+    entries.forEach((e) => {
+      if (!entriesByReceipt[e.receipt_id]) entriesByReceipt[e.receipt_id] = [];
+      entriesByReceipt[e.receipt_id].push(e);
+    });
+  }
+
+  const rows = receipts.map((r) => {
+    const entries = entriesByReceipt[r.id] || [];
+    const names = [...new Set(entries.map((e) => e.ledger_name).filter(Boolean))];
+
+    let partyName = names[0] || "-";
+    if (names.length > 1) partyName = `${names[0]} +${names.length - 1} more`;
+
+    return {
+      id: r.id,
+      voucher_no: r.voucher_no,
+      receipt_date: r.receipt_date,
+      total_amount: Number(r.total_amount || 0),
+      narration: r.narration || "",
+      account_name: r.account_name || "",
+      party_name: partyName,
+      payment_mode: entries[0]?.transaction_type || "",
+      entries_count: entries.length,
+    };
+  });
+
+  return { rows, total };
+};
+
 // exports.allocateReceiptAgainstBills = async (
 //   connection,
 //   {

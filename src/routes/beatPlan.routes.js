@@ -6,6 +6,7 @@ const authMiddleware = require("../middleware/auth.middleware");
 const c = require("../controllers/beatPlan.controller");
 const r = require("../controllers/beatReport.controller");
 const h = require("../controllers/beatHistory.controller");
+const ba = require("../controllers/beatAttendance.controller");
 
 router.use(authMiddleware);
 
@@ -44,6 +45,17 @@ router.get("/change-requests/pending", r.pendingChangeRequests); // manager
 router.get("/change-requests/history", r.changeHistory); //  admin
 router.post("/change-requests", r.createChangeRequest); //   SUBMIT REQUEST
 router.post("/change-requests/:id/decide", r.decideChangeRequest); // manager
+
+// ---------- beat at attendance + party addition requests ----------
+//  fixed paths must stay ABOVE the ":id" routes
+router.get("/attendance-beats", ba.attendanceBeats); //           beats for the attendance dropdown
+router.get("/attendance-beat/today", ba.todayAttendanceBeat); //  beat chosen at today's attendance
+router.get("/party-requests/mine", ba.myPartyRequests); //        employee: my requests
+router.get("/party-requests/pending", ba.pendingPartyRequests); // manager: to decide
+router.get("/party-requests/history", ba.partyRequestHistory); // manager: all decided / pending
+router.post("/party-requests", ba.createPartyRequest); //         employee: request to add party
+router.get("/party-requests/:id", ba.getPartyRequest);
+router.post("/party-requests/:id/decide", ba.decidePartyRequest); // manager: approve / reject
 
 // ---------- view beats, plans and history (employee / manager / admin) ----------
 router.get("/beat-history/employees", h.employees); //  people I can view

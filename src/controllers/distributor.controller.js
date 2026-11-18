@@ -122,12 +122,27 @@ exports.createDistributor = async (req, res) => {
       distributorData.source_of_funds =
         distributorData.source_of_funds.toLowerCase();
 
-    const formatDate = (date) => {
-      if (!date) return null;
-      const d = new Date(date);
-      if (isNaN(d)) throw new Error(`Invalid date: ${date}`);
-      return d.toISOString().split("T")[0];
-    };
+const formatDate = (date) => {
+  if (!date) return null;
+  const str = String(date).trim();
+
+  // DD/MM/YYYY or DD-MM-YYYY (GST format)
+  let m = str.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (m) {
+    const [, dd, mm, yyyy] = m;
+    const day = Number(dd), month = Number(mm);
+    if (month < 1 || month > 12 || day < 1 || day > 31) {
+      throw new Error(`Invalid date: ${date}`);
+    }
+    return `${yyyy}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+
+  // YYYY-MM-DD (already correct), also handles ISO strings
+  m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+
+  throw new Error(`Invalid date: ${date}`);
+};
 
     distributorData.customer_dob = formatDate(distributorData.customer_dob);
     distributorData.firm_since = formatDate(distributorData.firm_since);

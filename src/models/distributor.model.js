@@ -28,13 +28,28 @@ const insertPartners = async (conn, distributorId, partners) => {
   }
 };
 
+// "" / undefined / "5,00,000" -> null / null / 500000
+const toDecimalOrNull = (v) => {
+  if (v === undefined || v === null) return null;
+  const s = String(v).replace(/[₹,\s]/g, "");
+  if (s === "") return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+};
+
 // Insert Other Companies
 const insertCompanies = async (conn, distributorId, companies) => {
   for (let c of companies) {
+    const name = String(c.company_name ?? "").trim();
+    const turnover = toDecimalOrNull(c.turnover);
+
+    // skip the empty default row the app always sends
+    if (!name && turnover === null) continue;
+
     await conn.query("INSERT INTO distributor_other_companies SET ?", {
       distributor_id: distributorId,
-      company_name: c.company_name,
-      turnover: c.turnover,
+      company_name: name || null,
+      turnover,
     });
   }
 };

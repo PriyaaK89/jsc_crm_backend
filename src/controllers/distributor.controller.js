@@ -125,21 +125,32 @@ exports.createDistributor = async (req, res) => {
 const formatDate = (date) => {
   if (!date) return null;
   const str = String(date).trim();
+  if (!str) return null;
 
-  // DD/MM/YYYY or DD-MM-YYYY (GST format)
-  let m = str.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
-  if (m) {
-    const [, dd, mm, yyyy] = m;
-    const day = Number(dd), month = Number(mm);
-    if (month < 1 || month > 12 || day < 1 || day > 31) {
+  // Builds YYYY-MM-DD only if the date really exists on the calendar
+  const toIso = (y, m, d) => {
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    if (
+      dt.getUTCFullYear() !== y ||
+      dt.getUTCMonth() !== m - 1 ||
+      dt.getUTCDate() !== d
+    ) {
       throw new Error(`Invalid date: ${date}`);
     }
-    return `${yyyy}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-  }
+    return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  };
 
-  // YYYY-MM-DD (already correct), also handles ISO strings
-  m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  // DD/MM/YYYY or DD-MM-YYYY  (GST / Aadhaar format, e.g. 31/10/2023)
+  let m = str.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (m) return toIso(Number(m[3]), Number(m[2]), Number(m[1]));
+
+  // YYYY-MM-DD (date pickers), tolerates a trailing time part
+  m = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return toIso(Number(m[1]), Number(m[2]), Number(m[3]));
+
+  // Year only (manual entry in "Firm Since (Year)")
+  m = str.match(/^(\d{4})$/);
+  if (m) return `${m[1]}-01-01`;
 
   throw new Error(`Invalid date: ${date}`);
 };

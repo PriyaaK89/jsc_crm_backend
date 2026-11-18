@@ -218,13 +218,9 @@ const listPlans = wrap(async (req, res) => {
 const createPlan = wrap(async (req, res) => {
   await H.assertNotLocked(req);
   const data = await readHeader(req, req.body || {}, null);
-  // own plan: any active employee. A plan for somebody else needs CREATE_BUSINESS_PLAN.
-  if (data.assigned_user_id !== req.user.id) {
-    const access = await H.getAccess(req);
-    if (!H.hasCode(access, "CREATE_BUSINESS_PLAN")) {
-      throw new HttpError(403, "You can create a business plan only for yourself");
-    }
-  }
+  // own plan, a plan for an employee in my reporting team (reporting manager / above), or any
+  // employee for Admin / Super Admin. readHeader already refused employees outside the team.
+  await H.assertCanPlanFor(req, data.assigned_user_id);
   if (data.territory_id === undefined) data.territory_id = null;
   await assertNoDuplicate({ assignedUserId: data.assigned_user_id, financialYear: data.financial_year, season: data.season });
   const state = await s.getState(data.state_id);

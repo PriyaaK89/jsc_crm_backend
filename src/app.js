@@ -104,6 +104,8 @@ const permissionRoute = require("../src/routes/permission.routes");
 const monthlySummaryofEmp = require("../src/routes/monthSummary.routes");
 const groupLocationTracking = require("../src/routes/groupTracking.routes");
 const businessPlanRoute = require("../src/routes/business-plan/businessPlan.routes");
+// const AdvanceBookingRoute = require("../src/routes/abs/abs.routes");
+
 
 // Health check
 app.get('/', (req, res) => {
@@ -188,9 +190,8 @@ app.use("/chat",chatRoute);
 app.use("/permissions",permissionRoute);
 app.use("/dashboard-analytics",dashboardAnalyticsRoute);
 app.use("/business-plan", businessPlanRoute);
+// app.use("/abs", AdvanceBookingRoute);
 app.use( groupLocationTracking),
-
-
 
 // 404 handler
 app.use((req, res) => {

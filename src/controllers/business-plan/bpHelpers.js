@@ -147,6 +147,27 @@ const visibleIds = async (req) => {
 
 const canSeeUser = (visible, userId) => visible === null || visible.includes(Number(userId));
 
+// Who may prepare (create / assign) a Business Plan for an employee:
+//   - the employee himself (own plan)
+//   - his reporting manager, or anybody above him in the reporting line (the employee is in
+//     the caller's reporting team: userModel.getSubordinateIds)
+//   - Admin / Super Admin: any employee
+// No permission code is needed for this: the reporting hierarchy is the rule. (Before, a plan
+// for somebody else also needed CREATE_BUSINESS_PLAN, so a reporting manager without that code
+// got "You can create a business plan only for yourself" although his reportee was listed.)
+const canPlanFor = async (req, userId) => {
+  const access = await getAccess(req);
+  if (access.isAdmin) return true;
+  if (Number(userId) === req.user.id) return true;
+  return canSeeUser(await visibleIds(req), userId);
+};
+
+const assertCanPlanFor = async (req, userId) => {
+  if (!(await canPlanFor(req, userId))) {
+    throw new HttpError(403, "You can create a business plan only for yourself or an employee in your reporting team");
+  }
+};
+
 const canViewPlan = (visible, plan) =>
   visible === null || visible.includes(plan.assigned_user_id) || visible.includes(plan.created_by);
 
@@ -232,6 +253,9 @@ const canEditPlanOf = async (req, plan) => {
   const access = await getAccess(req);
   if (access.isAdmin) return true;
   if (plan.assigned_user_id === me || plan.created_by === me) return true;
+  // the employee's reporting manager manages his team member's plan (also one an admin prepared)
+  const emp = await settingsModel.getEmployee(plan.assigned_user_id);
+  if (emp && Number(emp.reporting_under) === me) return true;
   if (!access.codes.has("CREATE_BUSINESS_PLAN")) return false;
   const visible = await visibleIds(req);
   return canSeeUser(visible, plan.assigned_user_id);
@@ -251,7 +275,8 @@ const meBlock = async (req) => {
     role: access.role || null,
     is_admin: !!access.isAdmin,
     can_manage_settings: hasCode(access, "MANAGE_BUSINESS_PLAN_SETTINGS"),
-    can_create_for_others: hasCode(access, "CREATE_BUSINESS_PLAN"),
+    // admin, or anybody with at least one employee in his reporting team
+    can_create_for_others: !!access.isAdmin || (await visibleIds(req)).length > 1,
     can_approve_all_levels: !!access.isAdmin,
     can_view_all: !!access.isAdmin,
   };
@@ -329,6 +354,8 @@ module.exports = {
   scopedFilters,
   canEditPlanOf,
   assertCanEditPlan,
+  canPlanFor,
+  assertCanPlanFor,
   meBlock,
   QUARTER_LABEL,
   fyStartYear,

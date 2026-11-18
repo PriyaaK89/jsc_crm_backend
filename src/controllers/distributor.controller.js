@@ -122,38 +122,38 @@ exports.createDistributor = async (req, res) => {
       distributorData.source_of_funds =
         distributorData.source_of_funds.toLowerCase();
 
-const formatDate = (date) => {
-  if (!date) return null;
-  const str = String(date).trim();
-  if (!str) return null;
+    const formatDate = (date) => {
+      if (!date) return null;
+      const str = String(date).trim();
+      if (!str) return null;
 
-  // Builds YYYY-MM-DD only if the date really exists on the calendar
-  const toIso = (y, m, d) => {
-    const dt = new Date(Date.UTC(y, m - 1, d));
-    if (
-      dt.getUTCFullYear() !== y ||
-      dt.getUTCMonth() !== m - 1 ||
-      dt.getUTCDate() !== d
-    ) {
+      // Builds YYYY-MM-DD only if the date really exists on the calendar
+      const toIso = (y, m, d) => {
+        const dt = new Date(Date.UTC(y, m - 1, d));
+        if (
+          dt.getUTCFullYear() !== y ||
+          dt.getUTCMonth() !== m - 1 ||
+          dt.getUTCDate() !== d
+        ) {
+          throw new Error(`Invalid date: ${date}`);
+        }
+        return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      };
+
+      // DD/MM/YYYY or DD-MM-YYYY  (GST / Aadhaar format, e.g. 31/10/2023)
+      let m = str.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+      if (m) return toIso(Number(m[3]), Number(m[2]), Number(m[1]));
+
+      // YYYY-MM-DD (date pickers), tolerates a trailing time part
+      m = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+      if (m) return toIso(Number(m[1]), Number(m[2]), Number(m[3]));
+
+      // Year only (manual entry in "Firm Since (Year)")
+      m = str.match(/^(\d{4})$/);
+      if (m) return `${m[1]}-01-01`;
+
       throw new Error(`Invalid date: ${date}`);
-    }
-    return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-  };
-
-  // DD/MM/YYYY or DD-MM-YYYY  (GST / Aadhaar format, e.g. 31/10/2023)
-  let m = str.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
-  if (m) return toIso(Number(m[3]), Number(m[2]), Number(m[1]));
-
-  // YYYY-MM-DD (date pickers), tolerates a trailing time part
-  m = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-  if (m) return toIso(Number(m[1]), Number(m[2]), Number(m[3]));
-
-  // Year only (manual entry in "Firm Since (Year)")
-  m = str.match(/^(\d{4})$/);
-  if (m) return `${m[1]}-01-01`;
-
-  throw new Error(`Invalid date: ${date}`);
-};
+    };
 
     distributorData.customer_dob = formatDate(distributorData.customer_dob);
     distributorData.firm_since = formatDate(distributorData.firm_since);
@@ -162,12 +162,21 @@ const formatDate = (date) => {
     );
     distributorData.approving_date = formatDate(distributorData.approving_date);
 
-    const toNumber = (val) => (val ? Number(val) : null);
-    distributorData.security_amount = toNumber(distributorData.security_amount);
-    distributorData.annual_turnover = toNumber(distributorData.annual_turnover);
-    distributorData.expected_sale = toNumber(distributorData.expected_sale);
-    distributorData.credit_duration = toNumber(distributorData.credit_duration);
-    distributorData.credit_amount = toNumber(distributorData.credit_amount);
+    const toNumber = (val, fieldName) => {
+      if (val === undefined || val === null) return null;
+      const cleaned = String(val).replace(/[₹,\s]/g, "").replace(/^rs\.?/i, "");
+      if (cleaned === "") return null;
+      if (!/^-?\d+(\.\d+)?$/.test(cleaned)) {
+        throw new Error(`${fieldName} must be a valid number (got "${val}")`);
+      }
+      return Number(cleaned);
+    };
+
+    distributorData.security_amount = toNumber(distributorData.security_amount, "Security Amount");
+    distributorData.annual_turnover = toNumber(distributorData.annual_turnover, "Annual Turnover");
+    distributorData.expected_sale = toNumber(distributorData.expected_sale, "Expected Sale");
+    distributorData.credit_duration = toNumber(distributorData.credit_duration, "Credit Duration");
+    distributorData.credit_amount = toNumber(distributorData.credit_amount, "CC/OD Amount");
 
     const uploadedDocs = {};
 
@@ -239,6 +248,13 @@ const formatDate = (date) => {
     }
 
     distributorData.approver_image = approverImagePath;
+    console.log("NUM FIELDS:", {
+      security_amount: body.security_amount,
+      annual_turnover: body.annual_turnover,
+      expected_sale: body.expected_sale,
+      credit_duration: body.credit_duration,
+      credit_amount: body.credit_amount,
+    });
     const distributorId = await createDistributor(conn, distributorData);
     // HANDLE PROPRIETORSHIP (OWNER)
     if (distributorData.firm_type === "proprietorship") {

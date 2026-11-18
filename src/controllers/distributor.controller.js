@@ -125,12 +125,21 @@ exports.createDistributor = async (req, res) => {
     );
     distributorData.approving_date = formatDate(distributorData.approving_date);
 
-    const toNumber = (val) => (val ? Number(val) : null);
-    distributorData.security_amount = toNumber(distributorData.security_amount);
-    distributorData.annual_turnover = toNumber(distributorData.annual_turnover);
-    distributorData.expected_sale = toNumber(distributorData.expected_sale);
-    distributorData.credit_duration = toNumber(distributorData.credit_duration);
-    distributorData.credit_amount = toNumber(distributorData.credit_amount);
+const toNumber = (val, fieldName) => {
+  if (val === undefined || val === null) return null;
+  const cleaned = String(val).replace(/[₹,\s]/g, "").replace(/^rs\.?/i, "");
+  if (cleaned === "") return null;
+  if (!/^-?\d+(\.\d+)?$/.test(cleaned)) {
+    throw new Error(`${fieldName} must be a valid number (got "${val}")`);
+  }
+  return Number(cleaned);
+};
+
+distributorData.security_amount = toNumber(distributorData.security_amount, "Security Amount");
+distributorData.annual_turnover = toNumber(distributorData.annual_turnover, "Annual Turnover");
+distributorData.expected_sale   = toNumber(distributorData.expected_sale, "Expected Sale");
+distributorData.credit_duration = toNumber(distributorData.credit_duration, "Credit Duration");
+distributorData.credit_amount   = toNumber(distributorData.credit_amount, "CC/OD Amount");
 
     const uploadedDocs = {};
 
@@ -202,6 +211,13 @@ exports.createDistributor = async (req, res) => {
     }
 
     distributorData.approver_image = approverImagePath;
+    console.log("NUM FIELDS:", {
+  security_amount: body.security_amount,
+  annual_turnover: body.annual_turnover,
+  expected_sale: body.expected_sale,
+  credit_duration: body.credit_duration,
+  credit_amount: body.credit_amount,
+});
     const distributorId = await createDistributor(conn, distributorData);
     // HANDLE PROPRIETORSHIP (OWNER)
     if (distributorData.firm_type === "proprietorship") {
@@ -266,17 +282,31 @@ exports.createDistributor = async (req, res) => {
       }
     }
 
-    if (body.other_companies) {
-      let companies = [];
+  if (body.other_companies) {
+  let companies = [];
 
-      try {
-        companies = JSON.parse(body.other_companies);
-      } catch {
-        throw new Error("Invalid companies JSON");
-      }
+  try {
+    companies = JSON.parse(body.other_companies);
+  } catch {
+    throw new Error("Invalid companies JSON");
+  }
 
-      await insertCompanies(conn, distributorId, companies);
-    }
+  if (!Array.isArray(companies)) {
+    throw new Error("Invalid companies JSON");
+  }
+
+  companies = companies
+    .map((c) => ({
+      ...c,
+      company_name: String(c.company_name ?? c.name ?? "").trim(),
+      turnover: toNumber(c.turnover, "Other Company Turnover"), // "" -> null
+    }))
+    .filter((c) => c.company_name !== "" || c.turnover !== null);
+
+  if (companies.length > 0) {
+    await insertCompanies(conn, distributorId, companies);
+  }
+}
 
     await insertDocuments(conn, distributorId, uploadedDocs);
 

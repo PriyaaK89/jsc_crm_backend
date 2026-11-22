@@ -3,6 +3,8 @@ const s = require("../../models/business-plan/bpSettings.model");
 const actuals = require("../../models/business-plan/bpActuals.model");
 const plan = require("../../models/business-plan/bpPlan.model");
 const ABS = require("../../models/business-plan/bpAbs.model");
+const TER = require("../../models/business-plan/bpTerritory.model");
+const territoryCtl = require("./bpTerritory.controller");
 const H = require("./bpHelpers");
 
 const { HttpError, wrap, ok } = H;
@@ -19,11 +21,12 @@ const previousFy = (today) => {
 // ---------------------------------------------------------------------
 const getMasters = wrap(async (req, res) => {
   const visible = await H.visibleIds(req);
-  const [options, settings, states, territories, employees, crops, me, abs] = await Promise.all([
+  const [options, settings, states, territories, employees, crops, me, abs, territoryAccess] = await Promise.all([
     s.listOptions(),
     s.getSettings(),
     s.listStates(),
-    s.listTerritories(),
+    // only what a plan may select: active territories with at least one district
+    TER.listTerritories({ selectableOnly: true }),
     s.listEmployees({ userIds: visible }),
     s.listCrops().catch((err) => {
       console.error("BUSINESS PLAN CROPS ERROR:", err.message);
@@ -31,6 +34,7 @@ const getMasters = wrap(async (req, res) => {
     }),
     H.meBlock(req),
     ABS.status(),
+    territoryCtl.accessBlock(req),
   ]);
   const grouped = s.groupOptions(options);
   return ok(res, {
@@ -65,7 +69,8 @@ const getMasters = wrap(async (req, res) => {
     abs: { installed: !!abs.installed, missing: abs.installed ? [] : abs.missing || [] },
     revision_request_areas: ["SALES", "COLLECTION", "ABS", "PRODUCT", "DISTRIBUTOR", "RETAILER", "DEVELOPMENT", "OTHER"],
     settings,
-    me,
+    // territory_access: who may open Settings -> Territories and manage which states
+    me: { ...me, territory_access: territoryAccess },
   });
 });
 
@@ -184,67 +189,7 @@ const deleteOption = wrap(async (req, res) => {
   return ok(res, { id, used_by: used }, used ? `Removed from the list. ${used} existing record(s) keep the value.` : "Removed");
 });
 
-// ---------------------------------------------------------------------
-//  TERRITORIES
-// ---------------------------------------------------------------------
-const listTerritories = wrap(async (req, res) => {
-  const stateId = H.optId(req.query.state_id, "state_id");
-  return ok(res, await s.listTerritories({ stateId, includeInactive: req.query.include_inactive === "1" }));
-});
-
-const readTerritoryBody = async (body, existing) => {
-  const name = H.text(body.name, "Territory name", { required: !existing, max: 120 });
-  const stateId = body.state_id === undefined && existing ? existing.state_id : H.toId(body.state_id, "state_id");
-  if (!(await s.getState(stateId))) throw new HttpError(400, "State not found");
-  let districtIds = [];
-  if (Array.isArray(body.district_ids)) {
-    districtIds = [...new Set(body.district_ids.map((d) => H.toId(d, "district_id")))];
-    const valid = await s.validDistrictIds(stateId, districtIds);
-    if (valid.length !== districtIds.length) throw new HttpError(400, "Some districts do not belong to this state");
-  }
-  return { name: name === undefined ? existing.name : name, stateId, districtIds, hasDistricts: Array.isArray(body.district_ids) };
-};
-
-const createTerritory = wrap(async (req, res) => {
-  const t = await readTerritoryBody(req.body || {}, null);
-  if (await s.findTerritoryByName(t.stateId, t.name)) throw new HttpError(409, "This territory already exists in the state");
-  const id = await s.saveTerritory({ ...t, isActive: true, userId: req.user.id });
-  const list = await s.listTerritories({ includeInactive: true });
-  return ok(res, list.find((x) => x.id === id), "Territory created", 201);
-});
-
-const updateTerritory = wrap(async (req, res) => {
-  const id = H.toId(req.params.id);
-  const existing = await s.getTerritory(id);
-  if (!existing) throw new HttpError(404, "Territory not found");
-  const body = req.body || {};
-  const t = await readTerritoryBody(body, existing);
-  if (await s.findTerritoryByName(t.stateId, t.name, id)) throw new HttpError(409, "This territory already exists in the state");
-  if (t.stateId !== existing.state_id && (await s.countTerritoryUsage(id))) {
-    throw new HttpError(409, "This territory is used by business plans; its state cannot change");
-  }
-  if (!t.hasDistricts) {
-    const current = (await s.listTerritories({ includeInactive: true })).find((x) => x.id === id);
-    t.districtIds = current ? current.district_ids : [];
-  }
-  const isActive = body.is_active === undefined ? Number(existing.is_active) === 1 : Boolean(Number(body.is_active) || body.is_active === true);
-  await s.saveTerritory({ id, ...t, isActive, userId: req.user.id });
-  const list = await s.listTerritories({ includeInactive: true });
-  return ok(res, list.find((x) => x.id === id), "Territory updated");
-});
-
-// used territories are only deactivated
-const deleteTerritory = wrap(async (req, res) => {
-  const id = H.toId(req.params.id);
-  if (!(await s.getTerritory(id))) throw new HttpError(404, "Territory not found");
-  const used = await s.countTerritoryUsage(id);
-  if (used) {
-    await s.deactivateTerritory(id);
-    return ok(res, { id, deactivated: true }, `Territory is used by ${used} plan(s), so it was deactivated instead of deleted`);
-  }
-  await s.deleteTerritory(id);
-  return ok(res, { id, deleted: true }, "Territory deleted");
-});
+// TERRITORIES: see bpTerritory.controller.js (versions, state scopes, territory managers)
 
 // ---------------------------------------------------------------------
 //  LOOKUPS (editor dropdowns)
@@ -364,10 +309,6 @@ module.exports = {
   addOption,
   updateOption,
   deleteOption,
-  listTerritories,
-  createTerritory,
-  updateTerritory,
-  deleteTerritory,
   lookupEmployees,
   lookupDistributors,
   distributorProfile,

@@ -245,6 +245,16 @@ const resolveQuarter = async (form, existing) => {
   return { financialYear, quarter, bounds };
 };
 
+// District(s) suggested from the territories of the approved plans of the quarter
+// (prefill only: the field stays editable on the sheet)
+const planDistricts = (qt) => {
+  const names = [];
+  for (const p of (qt && qt.plans) || []) {
+    for (const n of p.territory_district_names || []) if (n && !names.includes(n)) names.push(n);
+  }
+  return names.join(", ");
+};
+
 // territory facts from the CRM (section 2): read-only on a PLAN sheet
 const territoryValues = async (userId, financialYear) => {
   const fyStart = fyStartOf(financialYear);
@@ -305,6 +315,8 @@ const buildRecord = async (userId, rawForm, { existing = null, source = "PLAN" }
     Object.assign(values, bounds ? await territoryValues(userId, financialYear) : {});
     const planState = qt && qt.plans.map((p) => p.state_name).filter(Boolean)[0];
     if (planState && !String(values.state || "").trim()) values.state = planState;
+    const districts = planDistricts(qt);
+    if (districts && !String(values.districts || "").trim()) values.districts = districts.slice(0, 1000);
   } else {
     normalizeRows(form.tables, await loadDropdowns());
     t = totals(form.tables);
@@ -538,6 +550,8 @@ const prefill = wrap(async (req, res) => {
     hq: emp.headquarter || "",
     doj: emp.date_of_joining ? appDate(String(emp.date_of_joining).slice(0, 10)) : "",
     state: (qt.plans.map((p) => p.state_name).filter(Boolean)[0]) || emp.state || "",
+    // only when a plan territory gives districts (an empty value never clears what was typed)
+    ...(planDistricts(qt) ? { districts: planDistricts(qt) } : {}),
     reportingManager: emp.reporting_manager || "",
     signName: emp.name,
     financialYear,

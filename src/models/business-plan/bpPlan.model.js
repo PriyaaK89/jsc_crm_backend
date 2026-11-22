@@ -16,6 +16,19 @@ const num = (v) => Number(v) || 0;
 
 // bpTargets.model requires this file: load it lazily (no circular import at start-up)
 const targets = () => require("./bpTargets.model");
+const territories = () => require("./bpTerritory.model");
+
+// statuses whose territory coverage is frozen (the snapshot taken at approval)
+const TERRITORY_FROZEN = ["ACTIVE", "CLOSED", "REJECTED"];
+const parseSnapshot = (v) => {
+  if (v === null || v === undefined || v === "") return null;
+  if (typeof v === "object") return v;
+  try {
+    return JSON.parse(v);
+  } catch (_) {
+    return null;
+  }
+};
 
 // a plan being revised: its last approved targets stay official until the revision is approved
 const REVISION_OPEN = "IN_REVISION";
@@ -29,6 +42,9 @@ const PLAN_SELECT = `
          DATE_FORMAT(p.start_date, '%Y-%m-%d') AS start_date,
          DATE_FORMAT(p.end_date, '%Y-%m-%d') AS end_date,
          p.state_id, gs.state_name, p.territory_id, t.name AS territory_name,
+         p.territory_version_no, p.territory_snapshot,
+         DATE_FORMAT(p.territory_snapshot_at, '%Y-%m-%d %H:%i:%s') AS territory_snapshot_at,
+         t.current_version_no AS territory_current_version_no, t.is_active AS territory_is_active,
          p.assigned_user_id, au.name AS assigned_user_name, jr.name AS assigned_job_role,
          au.reporting_under AS reporting_manager_id, rm.name AS reporting_manager_name,
          p.plan_type, p.status, p.sales_target, p.collection_target,
@@ -81,8 +97,21 @@ const SORT_COLUMNS = {
 // proposed_* = the working values of the lines (differ only while a revision is open)
 const shapePlan = (r) => {
   const inRevision = r.revision_status === REVISION_OPEN && r.approved_sales_target !== null && r.approved_sales_target !== undefined;
+  const snap = parseSnapshot(r.territory_snapshot);
+  const snapFits = !!(snap && r.territory_id && Number(snap.territory_id) === Number(r.territory_id));
+  // approved / closed / rejected plans and open revisions show the coverage they were approved with
+  const territoryFrozen = snapFits && (TERRITORY_FROZEN.includes(r.status) || inRevision);
   return {
   ...r,
+  territory_snapshot: snap,
+  territory_version_no: r.territory_version_no === null || r.territory_version_no === undefined ? null : num(r.territory_version_no),
+  territory_current_name: r.territory_name || null,
+  territory_name: territoryFrozen ? snap.name : r.territory_name || (snapFits ? snap.name : null),
+  territory_district_ids: snapFits ? (snap.district_ids || []).map(Number) : [],
+  territory_district_names: snapFits ? (snap.district_names || []).map(String) : [],
+  territory_frozen: territoryFrozen,
+  territory_current_version_no: r.territory_current_version_no === null || r.territory_current_version_no === undefined ? null : num(r.territory_current_version_no),
+  territory_is_active: r.territory_id ? num(r.territory_is_active) === 1 : null,
   status_label: inRevision ? `${STATUS_LABEL[r.status] || r.status} (revision)` : STATUS_LABEL[r.status] || r.status,
   in_revision: inRevision,
   revision_no: num(r.revision_no),
@@ -259,6 +288,8 @@ const createPlan = async (data, userId, codePrefix) => {
           data.abs_booking_target || 0, data.abs_advance_target || 0,
         ],
       );
+      // territory coverage of the draft = the territory's latest version
+      await territories().refreshPlanTerritory(conn, res.insertId);
       await addActivity(conn, {
         planId: res.insertId,
         action: "PLAN_CREATED",
@@ -297,6 +328,9 @@ const updatePlanHeader = async (id, data, userId) => {
     );
     // the dates decide the season targets (D1)
     if (keys.includes("start_date") || keys.includes("end_date")) await targets().recalcTotals(conn, id);
+    // open plans follow the territory's latest version; a revision keeps its approved coverage
+    // while the territory is unchanged; frozen plans are never touched (bpTerritory.model)
+    await territories().refreshPlanTerritory(conn, id);
     await addActivity(conn, { planId: id, action: "PLAN_UPDATED", detail: keys.join(", "), userId });
     await conn.commit();
   } catch (err) {
@@ -1124,21 +1158,12 @@ module.exports = {
   deleteDistributorLine,
   listRetailerLines,
   getRetailerLine,
-  findRetailerLine,
-  saveRetailerLine,
-  deleteRetailerLine,
-  listProductLines,
-  getProductLine,
-  findProductLine,
-  saveProductLine,
-  deleteProductLine,
-  getMonthlyOverrides,
-  saveMonthlyTargets,
-  resetMonthlyTargets,
-  listCorrectiveActions,
-  getCorrectiveAction,
-  saveCorrectiveAction,
-  deleteCorrectiveAction,
-  countOpenActions,
-  listActivity,
+  findRetailerLine,saveRetailerLine,
+  deleteRetailerLine,listProductLines,
+  getProductLine,findProductLine,
+  saveProductLine,deleteProductLine,
+  getMonthlyOverrides,saveMonthlyTargets,
+  resetMonthlyTargets, listCorrectiveActions, getCorrectiveAction,
+  saveCorrectiveAction, deleteCorrectiveAction,
+  countOpenActions, listActivity,
 };

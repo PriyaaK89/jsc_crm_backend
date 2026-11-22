@@ -32,15 +32,26 @@ const dashboard = wrap(async (req, res) => {
   return ok(res, { season, totals, statuses, varieties, employees, parties });
 });
 
-// GET /abs/reports/:kind?season_id   kind = varieties | employees | parties
+// GET /abs/reports/:kind?season_id
+//   varieties         product-wise booked / confirmed / allocated / dispatched / delivered
+//   plan              product production plan vs booked / confirmed / dispatched, by crop
+//   employees         bookings and advance by field officer
+//   parties           bookings, advance and invoices by distributor / dealer
+//   pending_payments  bookings with minimum advance short, unverified payments or invoices not covered
+const KINDS = ["varieties", "plan", "employees", "parties", "pending_payments"];
 const report = wrap(async (req, res) => {
   const kind = String(req.params.kind || "");
-  if (!["varieties", "employees", "parties"].includes(kind)) throw new HttpError(400, "Report must be varieties, employees or parties");
+  if (!KINDS.includes(kind)) throw new HttpError(400, `Report must be one of: ${KINDS.join(", ")}`);
   const season = await pickSeason(req);
   if (!season) throw new HttpError(404, "No booking season yet");
   const scope = await A.scopeIds(req);
-  const rows = kind === "varieties" ? await R.varieties(season.id, scope) : kind === "employees" ? await R.employees(season.id, scope) : await R.parties(season.id, scope, 1000);
-  return ok(res, { season, rows });
+  let rows;
+  if (kind === "varieties") rows = await R.varieties(season.id, scope);
+  else if (kind === "plan") rows = await R.plan(season.id);
+  else if (kind === "employees") rows = await R.employees(season.id, scope);
+  else if (kind === "parties") rows = await R.parties(season.id, scope, 1000);
+  else rows = await R.pendingPayments(season.id, scope, A.todayIST());
+  return ok(res, { season, kind, rows });
 });
 
 module.exports = { dashboard, report };

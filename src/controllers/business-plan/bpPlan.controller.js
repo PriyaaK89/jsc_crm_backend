@@ -10,6 +10,7 @@ const T = require("../../models/business-plan/bpTargets.model");
 const REV = require("../../models/business-plan/bpRevision.model");
 const SP = require("../../models/business-plan/bpSheetPlan.model");
 const ABS = require("../../models/business-plan/bpAbs.model");
+const TER = require("../../models/business-plan/bpTerritory.model");
 
 const { HttpError, wrap, ok } = H;
 
@@ -135,17 +136,33 @@ const readHeader = async (req, body, existing) => {
   }
   const stateId = out.state_id || (existing && existing.state_id);
 
+  // Territory (one per plan, of the plan's state):
+  //   - a NEW selection must be active and cover at least one district
+  //   - the plan's current territory may be kept even if it was deactivated / emptied later
+  //   - required when the state has at least one selectable territory, except that a plan
+  //     saved without a territory (legacy) keeps working while its state is unchanged
+  const stateChanged = !!(existing && out.state_id && out.state_id !== existing.state_id);
   if (body.territory_id !== undefined) {
     out.territory_id = H.optId(body.territory_id, "territory");
     if (out.territory_id) {
-      const t = await s.getTerritory(out.territory_id);
-      if (!t || (Number(t.is_active) !== 1 && !(existing && existing.territory_id === t.id))) {
-        throw new HttpError(400, "Territory not found");
-      }
+      const t = await TER.getTerritory(out.territory_id);
+      if (!t) throw new HttpError(400, "Territory not found");
       if (t.state_id !== stateId) throw new HttpError(400, "Territory does not belong to the selected state");
+      const keeping = existing && Number(existing.territory_id) === t.id && !stateChanged;
+      if (!keeping && !t.selectable) {
+        throw new HttpError(400, t.is_active
+          ? "This territory has no districts yet and cannot be selected"
+          : "This territory is inactive and cannot be selected");
+      }
     }
-  } else if (existing && out.state_id && existing.territory_id && out.state_id !== existing.state_id) {
+  } else if (stateChanged && existing.territory_id) {
     out.territory_id = null; // state changed: old territory no longer fits
+  }
+  const finalTerritory = out.territory_id !== undefined ? out.territory_id : existing ? existing.territory_id : null;
+  const mustCheck = !existing || stateChanged || (out.territory_id === null && existing && existing.territory_id);
+  if (!finalTerritory && mustCheck && stateId) {
+    const eligible = await TER.listTerritories({ stateId, selectableOnly: true });
+    if (eligible.length) throw new HttpError(400, "Select a territory for this state");
   }
 
   // ABS targets: only when the Advance Booking module is installed (D4)
@@ -227,7 +244,7 @@ const createPlan = wrap(async (req, res) => {
   const prefix = `BP-${data.financial_year.slice(0, 4)}-${plan.stateCode(state.name)}-`;
   const id = await plan.createPlan(data, req.user.id, prefix);
   const p = await plan.getPlan(id);
-  return ok(res, { ...p, actions: await allowedActions(req, p) }, "Business plan created", 201);
+  return ok(res, { ...p, territory: await TER.planTerritoryView(p), actions: await allowedActions(req, p) }, "Business plan created", 201);
 });
 
 // GET /plans/:id  -> header + overview tab + allowed actions
@@ -238,9 +255,17 @@ const getPlan = wrap(async (req, res) => {
   const settings = await s.getSettings();
   const overview = await analytics.planOverview(p, settings, H.todayIST());
   const approval = await planApproval(req, p);
-  const [revisions, sheets] = await Promise.all([REV.listRevisions(p.id), REV.linkedSheets(p.id)]);
+  const [revisions, sheets, territory] = await Promise.all([
+    REV.listRevisions(p.id),
+    REV.linkedSheets(p.id),
+    TER.planTerritoryView(p),
+  ]);
+  // territory: the frozen snapshot for approved / closed / rejected plans and open revisions,
+  // otherwise the territory's latest version
+  if (overview.plan) overview.plan.territory = territory;
   return ok(res, {
     ...overview,
+    territory,
     revisions,
     linked_sheets: sheets,
     actions: await allowedActions(req, p, approval),
@@ -296,7 +321,7 @@ const updatePlan = wrap(async (req, res) => {
   }
   await plan.updatePlanHeader(p.id, data, req.user.id);
   const updated = await plan.getPlan(p.id);
-  return ok(res, { ...updated, actions: await allowedActions(req, updated) }, "Business plan updated");
+  return ok(res, { ...updated, territory: await TER.planTerritoryView(updated), actions: await allowedActions(req, updated) }, "Business plan updated");
 });
 
 // PUT /plans/:id/development — the "Edit" buttons of New Distributor Acquisition /
@@ -379,7 +404,11 @@ const submitPlan = wrap(async (req, res) => {
     detail: `Approval levels: ${levels.map((l) => `L${l.level_no} ${l.approver_name || l.approver_role}`).join(" → ")}`,
     approverId: first && first.approver_id ? first.approver_id : null,
     userId: req.user.id,
-    extra: (conn) => AP.createRound(conn, "PLAN", p.id, levels),
+    extra: async (conn) => {
+      // the territory version submitted for approval (latest version; a revision keeps its approved one)
+      await TER.refreshPlanTerritory(conn, p.id, { wasInRevision: !!p.in_revision });
+      return AP.createRound(conn, "PLAN", p.id, levels);
+    },
   });
   if (!result.ok) {
     throw new HttpError(409, result.current ? `This plan is already ${plan.STATUS_LABEL[result.current] || result.current}` : "Business plan not found");
@@ -466,8 +495,10 @@ const decide = (decision, remarkRequired) =>
           await conn.query(`UPDATE business_plans SET approver_id = ? WHERE id = ?`, [nextApprover, p.id]);
         }
         if (final) {
+          // freeze the territory the plan is approved with (name, state, district ids + names, version)
+          const territorySnapshot = await TER.refreshPlanTerritory(conn, p.id, { atApproval: true, wasInRevision: !!p.in_revision });
           // immutable copy of the approved targets + consequences for target sheets
-          await REV.insertRevision(conn, p, newRevision, { approvedBy: req.user.id, remark });
+          await REV.insertRevision(conn, { ...p, territory_snapshot: territorySnapshot }, newRevision, { approvedBy: req.user.id, remark });
           r.resolvedRequests = await SP.resolveAccepted(conn, p.id, newRevision);
           const cq = H.currentQuarter();
           r.flaggedSheets = newRevision > 1

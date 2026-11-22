@@ -9,6 +9,7 @@ const settings = require("../../controllers/business-plan/bpSettings.controller"
 const plans = require("../../controllers/business-plan/bpPlan.controller");
 const views = require("../../controllers/business-plan/bpAnalytics.controller");
 const sheets = require("../../controllers/business-plan/bpTargetSheet.controller");
+const territories = require("../../controllers/business-plan/bpTerritory.controller");
 
 const SETTINGS = "MANAGE_BUSINESS_PLAN_SETTINGS";
 
@@ -18,7 +19,11 @@ const SETTINGS = "MANAGE_BUSINESS_PLAN_SETTINGS";
 //   - a plan / sheet is changed by its owner, a CREATE_BUSINESS_PLAN holder above the
 //     employee, or an admin — bpHelpers.canEditPlanOf
 //   - approvals follow the approval steps (reporting line -> RSM / Admin) — bpWorkflow.authority
-//   - settings and territories still need MANAGE_BUSINESS_PLAN_SETTINGS
+//   - settings still need MANAGE_BUSINESS_PLAN_SETTINGS
+//   - territories: every active user reads the selectable ones; managing them needs Admin /
+//     Super Admin, or MANAGE_BP_TERRITORIES + a state scope (checked in bpTerritory.controller
+//     for every call, so a direct API call cannot bypass it). MANAGE_BUSINESS_PLAN_SETTINGS
+//     does NOT give territory management.
 // VIEW_BUSINESS_PLAN is no longer needed to see one's own data (it was the cause of
 // "You do not have permission to perform this action" for employees).
 const activeUser = async (req, res, next) => {
@@ -48,10 +53,26 @@ router.post("/settings/reset", checkPermission(SETTINGS), settings.resetSettings
 router.post("/settings/options", checkPermission(SETTINGS), settings.addOption);
 router.put("/settings/options/:id", checkPermission(SETTINGS), settings.updateOption);
 router.delete("/settings/options/:id", checkPermission(SETTINGS), settings.deleteOption);
-router.get("/territories", canView, settings.listTerritories);
-router.post("/territories", checkPermission(SETTINGS), settings.createTerritory);
-router.put("/territories/:id", checkPermission(SETTINGS), settings.updateTerritory);
-router.delete("/territories/:id", checkPermission(SETTINGS), settings.deleteTerritory);
+
+// ---------- territories (authorization per call in the controller) ----------
+router.get("/territories", activeUser, territories.listTerritories);
+router.get("/territories/access", activeUser, territories.getAccess);
+router.get("/territories/overlaps", activeUser, territories.listOverlaps);
+router.get("/territories/:id", activeUser, territories.getTerritory);
+router.get("/territories/:id/versions", activeUser, territories.listVersions);
+router.get("/territories/:id/versions/:versionNo", activeUser, territories.getVersion);
+router.post("/territories", activeUser, territories.createTerritory);
+router.put("/territories/:id", activeUser, territories.updateTerritory);
+router.post("/territories/:id/status", activeUser, territories.setStatus);
+router.delete("/territories/:id", activeUser, territories.deactivateTerritory); // deactivates; never deletes
+
+// ---------- territory managers (Admin / Super Admin only, checked in the controller) ----------
+router.get("/territory-managers", activeUser, territories.listManagers);
+router.get("/territory-managers/candidates", activeUser, territories.listCandidates);
+router.get("/territory-managers/:userId", activeUser, territories.getManager);
+router.post("/territory-managers/:userId/permission", activeUser, territories.setPermission);
+router.post("/territory-managers/:userId/states", activeUser, territories.grantStates);
+router.post("/territory-managers/:userId/states/:stateId/revoke", activeUser, territories.revokeState);
 
 // ---------- lookups for the editors ----------
 router.get("/lookups/states", canView, settings.lookupStates);

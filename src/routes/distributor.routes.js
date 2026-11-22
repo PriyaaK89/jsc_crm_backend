@@ -4,6 +4,7 @@ const { checkAnyPermission, checkPermission } = require("../middleware/permissio
 const controller = require("../controllers/distributor.controller");
 const upload = require("../middleware/upload.middleware");
 const auth = require("../middleware/auth.middleware");
+const draftController = require("../controllers/distributorDraft.controller");
 
 // UPDATED FILE FIELDS (IMPORTANT )
 const uploadFields = [
@@ -45,6 +46,14 @@ router.get("/get-distributorsList", auth, checkPermission("VIEW_DISTRIBUTOR"), c
 router.delete( "/delete-distributor/:id", auth, checkPermission("DELETE_DISTRIBUTOR"), controller.deleteDistributor);
 router.post("/upload-agreement", auth, checkPermission("UPDATE_DISTRIBUTOR"), upload.single("file"), controller.uploadAgreement);
 
-router.get("/get-distributor-agreement/:distributor_id", auth, controller.getDistributorDocument)
+router.get("/get-distributor-agreement/:distributor_id", auth, controller.getDistributorDocument);
+
+// ---------------- DRAFTS ----------------
+// ---------------- DRAFTS ----------------
+router.post("/distributor-drafts", auth, checkPermission("CREATE_DISTRIBUTOR"), upload.fields(uploadFields), draftController.createDraft);
+router.put("/distributor-drafts/:id", auth, checkPermission("CREATE_DISTRIBUTOR"), upload.fields(uploadFields), draftController.updateDraft);
+router.get("/distributor-drafts", auth, checkPermission("CREATE_DISTRIBUTOR"), draftController.getDrafts);
+router.get("/distributor-drafts/:id", auth, checkPermission("CREATE_DISTRIBUTOR"), draftController.getDraft);
+router.delete("/distributor-drafts/:id", auth, checkPermission("CREATE_DISTRIBUTOR"), draftController.deleteDraft);
 
 module.exports = router;

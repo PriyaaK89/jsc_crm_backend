@@ -11,12 +11,16 @@ const { executeApprovedReceipt } = require("../../services/sales/createReceiptTr
 const { uploadFileToMinio } = require("../../utils/fileUpload");
 const AP = require("../../models/business-plan/bpApproval.model");
 const BC = require("./absBooking.controller");
+const setup = require("../../models/abs/absSetup.model");
 const A = require("./absHelpers");
 
 const { HttpError, wrap, ok } = A;
 const r2 = (v) => Math.round(Number(v) * 100) / 100;
 
-const NO_PAYMENT_STATUSES = ["DRAFT", "REJECTED", "CANCELLED", "CLOSED"];
+// a draft takes the advance only when Settings → "Advance with the booking" is on
+const NO_PAYMENT_STATUSES = ["REJECTED", "CANCELLED", "CLOSED"];
+// booking that will not be supplied any more: money posted on it later is refunded at once
+const ENDED_STATUSES = ["REJECTED", "CANCELLED", "CLOSED"];
 
 // estimated invoice value of what is still to be supplied + already invoiced (GST included)
 const maxReceivable = (b) => {
@@ -59,6 +63,7 @@ const postReceipt = async (conn, { payment, booking, accountLedgerId, receiptDat
 const recordPayment = wrap(async (req, res) => {
   const b = await BC.loadBooking(req);
   if (NO_PAYMENT_STATUSES.includes(b.status)) throw new HttpError(409, `Payments cannot be recorded on a ${b.status_label} booking`);
+  if (b.status === "DRAFT" && !(await setup.getSettings()).advance_at_booking) throw new HttpError(409, "Submit the booking first; the advance is collected after confirmation (Settings)");
   const body = req.body || {};
   const amount = A.money(body.amount, "Amount", { required: true, positive: true });
   const mode = P.PAYMENT_MODES.find((m) => m.toLowerCase() === String(body.payment_mode || "").trim().toLowerCase());
@@ -126,6 +131,14 @@ const verify = async (req, res, { fromRecord = false } = {}) => {
     posted = await postReceipt(conn, { payment: { ...pay, amount: Number(locked.amount) }, booking, accountLedgerId, receiptDate, userId: req.user.id });
     await P.markPosted(conn, id, { accountLedgerId, receiptId: posted.receiptId, voucherNo: posted.voucher_no, receiptDate, userId: req.user.id });
     await B.addEvent(conn, { bookingId: booking.id, event: "PAYMENT_POSTED", detail: `${A.fmtMoney(pay.amount)} — Receipt ${posted.voucher_no || posted.receiptId}`, userId: req.user.id });
+    // the booking was rejected / cancelled / closed while this payment waited: the money
+    // is in the party ledger now, so it becomes a refund (or carry-forward) right away
+    const [[now]] = await conn.query(`SELECT status FROM abs_bookings WHERE id = ? FOR UPDATE`, [booking.id]);
+    if (now && ENDED_STATUSES.includes(now.status)) {
+      const rule = (await setup.getSettings()).cancellation_refund_rule;
+      await P.createRefund(conn, { bookingId: booking.id, amount: Number(locked.amount), reason: `Advance received after the booking was ${now.status.toLowerCase()}`, status: rule === "CARRY_FORWARD" ? "CARRIED_FORWARD" : "DUE", userId: req.user.id });
+      await B.addEvent(conn, { bookingId: booking.id, event: "REFUND_CREATED", detail: `${A.fmtMoney(locked.amount)} (${rule === "CARRY_FORWARD" ? "carried forward" : "refund due"})`, userId: req.user.id });
+    }
     await conn.commit();
   } catch (err) {
     await conn.rollback();

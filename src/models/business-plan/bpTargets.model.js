@@ -182,6 +182,28 @@ const loadMonthly = async (p, distLines = null) => {
 // ---------------------------------------------------------------------
 //  SNAPSHOT of a plan's targets (stored with every approved revision)
 // ---------------------------------------------------------------------
+// the plan's territory snapshot (business_plans.territory_snapshot) when it fits the plan's territory
+const territoryOf = (p) => {
+  let t = p.territory_snapshot;
+  if (typeof t === "string") {
+    try {
+      t = JSON.parse(t);
+    } catch (_) {
+      t = null;
+    }
+  }
+  if (!t || !p.territory_id || Number(t.territory_id) !== Number(p.territory_id)) return null;
+  return {
+    territory_id: Number(t.territory_id),
+    version_no: Number(t.version_no) || null,
+    name: t.name || null,
+    state_id: Number(t.state_id) || null,
+    state_name: t.state_name || null,
+    district_ids: (t.district_ids || []).map(Number),
+    district_names: (t.district_names || []).map(String),
+  };
+};
+
 const buildSnapshot = async (p) => {
   const [dist, products, retailers] = await Promise.all([
     plan.listDistributorLines(p.id),
@@ -205,7 +227,9 @@ const buildSnapshot = async (p) => {
       state_id: p.state_id,
       state_name: p.state_name || null,
       territory_id: p.territory_id || null,
-      territory_name: p.territory_name || null,
+      territory_name: territoryOf(p) ? territoryOf(p).name : p.territory_name || null,
+      // frozen territory coverage at approval (name, state, district ids + names, version)
+      territory: territoryOf(p),
       assigned_user_id: p.assigned_user_id,
       assigned_user_name: p.assigned_user_name || null,
       plan_type: p.plan_type,

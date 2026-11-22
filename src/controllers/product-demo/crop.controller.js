@@ -21,7 +21,7 @@ exports.createCrop = (req, res) => run(res, async () => {
 
 exports.updateCrop = (req, res) => run(res, async () => {
   await crop.requireCropAccess(req.user);
-  await crop.updateCrop(req.params.id, req.body);
+  await crop.updateCrop(req.params.id, req.body, req.user.id);
   res.json({ success: true, message: 'Crop updated' });
 });
 

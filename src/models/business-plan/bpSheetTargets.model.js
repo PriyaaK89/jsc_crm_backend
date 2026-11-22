@@ -102,6 +102,9 @@ const quarterTargets = async (userId, financialYear, quarter, bounds) => {
       approved_by_name: rev.approved_by_name,
       in_revision: !!p.in_revision,
       territory_name: sp.territory_name,
+      // districts of the territory as approved (revision snapshot; plans approved before the
+      // territory versions existed: the plan's frozen territory snapshot)
+      territory_district_names: (sp.territory && sp.territory.district_names) || p.territory_district_names || [],
       state_name: sp.state_name,
     });
 

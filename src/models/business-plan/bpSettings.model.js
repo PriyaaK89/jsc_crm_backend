@@ -215,39 +215,8 @@ const validDistrictIds = async (stateId, districtIds) => {
   return rows.map((r) => r.id);
 };
 
-const saveTerritory = async ({ id, name, stateId, districtIds, isActive, userId }) => {
-  const conn = await db.getConnection();
-  try {
-    await conn.beginTransaction();
-    let territoryId = id;
-    if (id) {
-      await conn.query(
-        `UPDATE bp_territories SET name = ?, state_id = ?, is_active = ? WHERE id = ?`,
-        [name, stateId, isActive ? 1 : 0, id],
-      );
-      await conn.query(`DELETE FROM bp_territory_districts WHERE territory_id = ?`, [id]);
-    } else {
-      const [res] = await conn.query(
-        `INSERT INTO bp_territories (name, state_id, is_active, created_by) VALUES (?, ?, 1, ?)`,
-        [name, stateId, userId],
-      );
-      territoryId = res.insertId;
-    }
-    if (districtIds.length) {
-      await conn.query(
-        `INSERT INTO bp_territory_districts (territory_id, district_id) VALUES ?`,
-        [districtIds.map((d) => [territoryId, d])],
-      );
-    }
-    await conn.commit();
-    return territoryId;
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
-};
+// Territory writes (create / edit / activate / deactivate, each with a version) are in
+// bpTerritory.model.js. Territories are never deleted.
 
 const countTerritoryUsage = async (id) => {
   const [[r]] = await db.query(
@@ -255,14 +224,6 @@ const countTerritoryUsage = async (id) => {
     [id],
   );
   return Number(r.c) || 0;
-};
-
-const deactivateTerritory = async (id) => {
-  await db.query(`UPDATE bp_territories SET is_active = 0 WHERE id = ?`, [id]);
-};
-
-const deleteTerritory = async (id) => {
-  await db.query(`DELETE FROM bp_territories WHERE id = ?`, [id]);
 };
 
 // ---------------------------------------------------------------------
@@ -344,8 +305,9 @@ const listDistributors = async ({ userIds, search, page, limit }) => {
   const lim = Math.min(Math.max(Number(limit) || 30, 1), 100);
   const off = (Math.max(Number(page) || 1, 1) - 1) * lim;
   const [rows] = await db.query(
-    `SELECT l.id AS ledger_id, l.ledger_name AS name, l.location, l.status,
-            gd.district_name_english AS district, gs.state_name AS state,
+    `SELECT l.id AS ledger_id, l.ledger_name AS name, l.location, 'ACTIVE' AS status, l.credit_limit,
+        l.employee_under, l.state_id, gd.district_name_english AS district,
+        gs.state_name AS state,
             u.name AS employee_name
      FROM ledgers l
      INNER JOIN account_groups ag ON ag.id = l.group_id
@@ -362,7 +324,7 @@ const listDistributors = async ({ userIds, search, page, limit }) => {
 
 const getDistributorLedger = async (ledgerId) => {
   const [rows] = await db.query(
-    `SELECT l.id AS ledger_id, l.ledger_name AS name, l.location, l.status, l.credit_limit,
+    `SELECT l.id AS ledger_id, l.ledger_name AS name, l.location, 'ACTIVE' AS status, l.credit_limit,
             l.employee_under, l.state_id, gd.district_name_english AS district,
             gs.state_name AS state,
             (SELECT c.contact_number FROM customers c
@@ -488,10 +450,7 @@ module.exports = {
   getTerritory,
   findTerritoryByName,
   validDistrictIds,
-  saveTerritory,
   countTerritoryUsage,
-  deactivateTerritory,
-  deleteTerritory,
   listStates,
   getState,
   statesExist,

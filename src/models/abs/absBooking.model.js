@@ -132,7 +132,7 @@ const listBookings = async (f) => {
 };
 
 const ITEM_SELECT = `
-  SELECT bi.id, bi.booking_id, bi.stock_item_id, si.item_name, si.unit_id, u.symbol AS unit, cr.crop_name,
+  SELECT bi.id, bi.booking_id, bi.stock_item_id, si.item_name, si.unit_id, u.symbol AS unit, si.crop_id, cr.crop_name,
          bi.qty, bi.confirmed_qty, bi.allocated_qty, bi.dispatched_qty, bi.delivered_qty, bi.cancelled_qty,
          bi.rate, bi.mrp, bi.gst_percent, bi.amount, bi.discount_per_unit, bi.remarks
   FROM abs_booking_items bi
@@ -150,6 +150,7 @@ const shapeItem = (r) => {
   out.to_allocate = Math.max(Math.round((out.supply_qty - out.allocated_qty) * 1000) / 1000, 0);
   out.to_dispatch = Math.max(Math.round((out.allocated_qty - out.dispatched_qty) * 1000) / 1000, 0);
   out.net_rate = Math.round((out.rate - out.discount_per_unit) * 100) / 100;
+  out.crop_id = r.crop_id === null || r.crop_id === undefined ? null : num(r.crop_id);
   return out;
 };
 
@@ -263,6 +264,12 @@ const moveBooking = async (id, { allowedFrom, to, sets = [], params = [], event,
   }
 };
 
+// money recorded on a booking that is not rejected / bounced (blocks deleting a draft)
+const livePaymentCount = async (bookingId) => {
+  const [[r]] = await db.query(`SELECT COUNT(*) AS n FROM abs_payments WHERE booking_id = ? AND status IN ('PENDING_VERIFICATION','POSTED')`, [bookingId]);
+  return num(r && r.n);
+};
+
 const softDelete = async (id) => {
   await db.query(`UPDATE abs_bookings SET is_deleted = 1 WHERE id = ? AND status = 'DRAFT'`, [id]);
 };
@@ -306,6 +313,7 @@ module.exports = {
   updateBooking,
   moveBooking,
   softDelete,
+  livePaymentCount,
   addEvent,
   listEvents,
   partyBookedQty,

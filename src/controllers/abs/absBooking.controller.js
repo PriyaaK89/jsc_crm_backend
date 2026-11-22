@@ -4,6 +4,21 @@
 //   DRAFT → SUBMITTED → APPROVED → CONFIRMED → PARTIALLY_DISPATCHED → DISPATCHED → DELIVERED → CLOSED
 //                 ↘ RETURNED (edit, resubmit)   ↘ REJECTED
 //   any open status → CANCELLED (allocations released, unadjusted advance → refund / carry forward)
+//
+// Minimum advance (Settings → "Advance with the booking", default on): the field officer
+// records the party's advance on the draft (cash / cheque / NEFT / UPI with proof). The
+// booking can be submitted only when the advance recorded (pending verification + posted)
+// covers the minimum advance; the office confirms it only after accounts have verified it
+// (Receipt voucher posted). Minimum advance = the higher of (booking value before GST × the
+// season's minimum advance %, else the default % in Settings) and the season's minimum advance
+// amount (₹ per booking) — never more than the booking value (absSetup.advanceRequired).
+//
+// Products: a booking line is a stock item in the season's price list whose crop
+// (stock_items.crop_id) is linked to the season's crop season (crop_season_map).
+//
+// Production plan: submitting reserves the booked quantity against the product's production
+// plan (abs_season_products.production_qty) under a row lock; a booking that would go over is
+// refused with the quantity still available.
 const db = require("../../config/db");
 const B = require("../../models/abs/absBooking.model");
 const setup = require("../../models/abs/absSetup.model");
@@ -73,7 +88,14 @@ const actionsFor = async (req, b, auth) => {
   const c = (code) => A.hasCode(access, code);
   const owner = isOwner(req, b);
   const openSupply = SUPPLY_STATUSES.includes(b.status);
+  const settings = await setup.getSettings();
+  const recorded = advanceRecorded(b);
   return {
+    advance_at_booking: settings.advance_at_booking,
+    // advance still to record before the booking can be submitted
+    advance_to_record_before_submit: settings.advance_at_booking && EDITABLE.includes(b.status) ? Math.max(r2(b.advance_required - recorded), 0) : 0,
+    // advance still to be verified by accounts before the office can confirm
+    advance_to_verify_before_confirm: settings.advance_at_booking && ["SUBMITTED", "APPROVED"].includes(b.status) ? Math.max(r2(b.advance_required - b.advance_received), 0) : 0,
     can_edit: owner && EDITABLE.includes(b.status),
     can_submit: owner && EDITABLE.includes(b.status),
     can_delete: owner && b.status === "DRAFT",
@@ -83,7 +105,9 @@ const actionsFor = async (req, b, auth) => {
     approval_level: auth && auth.can ? b.pending_level : null,
     final_if_approved: !!(auth && auth.can && auth.final),
     can_confirm: b.status === "APPROVED" && c(A.CODES.CONFIRM),
-    can_record_payment: !["DRAFT", "REJECTED", "CANCELLED", "CLOSED"].includes(b.status) && (owner || c(A.CODES.VERIFY) || A.inScope(await A.scopeIds(req), b)),
+    // Admin / Super Admin may confirm before accounts verify the advance (remark required)
+    can_override_advance: !!(settings.advance_at_booking && access.isAdmin && b.status === "APPROVED" && c(A.CODES.CONFIRM)),
+    can_record_payment: !["REJECTED", "CANCELLED", "CLOSED"].includes(b.status) && (b.status !== "DRAFT" || settings.advance_at_booking) && (owner || c(A.CODES.VERIFY) || A.inScope(await A.scopeIds(req), b)),
     can_allocate: openSupply && c(A.CODES.ALLOCATE) && b.pending_allocation > 0,
     can_dispatch: openSupply && c(A.CODES.DISPATCH) && b.ready_to_dispatch > 0,
     can_short_close: openSupply && c(A.CODES.CONFIRM),
@@ -105,6 +129,19 @@ const respond = async (req, res, id, message, status = 200) => {
   return ok(res, { ...b, payments, allocations, dispatches, refunds, events, actions: await actionsFor(req, b, auth), approval: WF.approvalBlock(state, auth) }, message, status);
 };
 
+// minimum advance of booking lines (season % / default %, and the season's minimum amount)
+const advanceFor = (lines, rule) => setup.advanceRequired(lines, rule);
+
+const capacityError = (problems) => {
+  const parts = problems.map(
+    (p) => `${p.name}: production plan ${A.fmtQty(p.limit)} ${p.unit}, already booked ${A.fmtQty(p.held)} — only ${A.fmtQty(p.available)} ${p.unit} left (this booking needs ${A.fmtQty(p.requested)})`,
+  );
+  return new HttpError(409, `Not enough quantity left for booking. ${parts.join(". ")}.`, { capacity: problems });
+};
+
+// advance recorded so far (posted + waiting for verification)
+const advanceRecorded = (b) => r2(b.advance_received + b.advance_pending_verification);
+
 // ---------------------------------------------------------------------
 //  READ THE BOOKING FORM
 // ---------------------------------------------------------------------
@@ -116,7 +153,7 @@ const readBooking = async (req, body, existing = null) => {
   const seasonId = A.toId(body.season_id ?? existing?.season_id, "booking season");
   const season = await setup.getSeason(seasonId);
   if (!season) throw new HttpError(400, "Booking season not found");
-  if (season.status !== "OPEN") throw new HttpError(400, `Bookings for ${season.name} are not open`);
+  if (season.status !== "OPEN") throw new HttpError(400, `Bookings for ${season.name} are not open (season is ${season.display_label})`);
   // booking date = the day it is entered (kept when a draft is edited)
   const bookingDate = existing ? existing.booking_date : today;
   if (!access.isAdmin && (today < season.booking_start || today > season.booking_end)) {
@@ -140,42 +177,54 @@ const readBooking = async (req, body, existing = null) => {
   if (godownId && !(await setup.godownExists(godownId))) throw new HttpError(400, "Godown not found");
 
   const rawItems = Array.isArray(body.items) ? body.items : [];
-  if (!rawItems.length) throw new HttpError(400, "Add at least one variety to the booking");
+  if (!rawItems.length) throw new HttpError(400, "Add at least one product to the booking");
   if (rawItems.length > 100) throw new HttpError(400, "Too many lines in one booking");
   const seen = new Set();
-  const [products, schemes] = await Promise.all([setup.listSeasonProducts(seasonId, { activeOnly: true }), setup.listSchemes(seasonId, { activeOnly: true })]);
+  const [products, schemes, advRule] = await Promise.all([
+    setup.listSeasonProducts(seasonId, { bookableOnly: true }),
+    setup.listSchemes(seasonId, { activeOnly: true }),
+    setup.advanceRule(seasonId),
+  ]);
   const byItem = new Map(products.map((p) => [Number(p.stock_item_id), p]));
   const items = [];
   for (let i = 0; i < rawItems.length; i++) {
     const it = rawItems[i] || {};
     const label = `Line ${i + 1}`;
-    const stockItemId = A.toId(it.stock_item_id, `${label}: variety`);
-    if (seen.has(stockItemId)) throw new HttpError(400, `${label}: this variety is already in the booking`);
+    const stockItemId = A.toId(it.stock_item_id, `${label}: product`);
+    if (seen.has(stockItemId)) throw new HttpError(400, `${label}: this product is already in the booking`);
     seen.add(stockItemId);
     const p = byItem.get(stockItemId);
-    if (!p) throw new HttpError(400, `${label}: this variety is not open for booking in ${season.name}`);
+    if (!p) throw new HttpError(400, `${label}: this product is not open for booking in ${season.name} (not in its price list, switched off, or its crop is not a ${season.season} crop)`);
+    const unit = p.unit || "units";
     const q = A.qty(it.qty, `${label} (${p.item_name}): quantity`, { required: true, positive: true });
-    if (p.min_qty > 0 && q < p.min_qty) throw new HttpError(400, `${label} (${p.item_name}): minimum booking is ${p.min_qty} ${p.unit || ""}`.trim());
+    if (p.min_qty > 0 && q < p.min_qty) throw new HttpError(400, `${label} (${p.item_name}): minimum per booking is ${A.fmtQty(p.min_qty)} ${unit}`);
     if (p.max_qty_per_party) {
       const already = await B.partyBookedQty(seasonId, partyId, stockItemId, existing ? existing.id : 0);
       if (already + q > p.max_qty_per_party) {
-        throw new HttpError(400, `${label} (${p.item_name}): ${party.name} can book at most ${p.max_qty_per_party} ${p.unit || ""} this season (already booked ${already})`);
+        throw new HttpError(400, `${label} (${p.item_name}): ${party.name} can book at most ${A.fmtQty(p.max_qty_per_party)} ${unit} this season (already booked ${A.fmtQty(already)}, so at most ${A.fmtQty(Math.max(p.max_qty_per_party - already, 0))} more)`);
       }
     }
-    const disc = pricing.lineDiscount(schemes, { stock_item_id: stockItemId, qty: q, rate: p.booking_rate }, { bookingDate });
     items.push({
       stock_item_id: stockItemId,
+      crop_id: p.crop_id,
+      item_name: p.item_name,
       qty: q,
       rate: p.booking_rate,
       mrp: p.mrp,
       gst_percent: p.gst_percent,
       amount: r2(q * p.booking_rate),
-      discount_per_unit: disc.discount_per_unit,
+      discount_per_unit: 0,
       remarks: A.text(it.remarks, `${label}: remarks`, { max: 255 }) || null,
     });
   }
+  for (const it of items) {
+    const disc = pricing.lineDiscount(schemes, { stock_item_id: it.stock_item_id, qty: it.qty, rate: it.rate }, { bookingDate });
+    it.discount_per_unit = disc.discount_per_unit;
+  }
+  // production plan (early, without a lock; checked again under a lock at submit)
+  const problems = await setup.capacityProblems(db, seasonId, existing ? existing.id : 0, items);
+  if (problems.length) throw capacityError(problems);
   const totals = pricing.bookingTotals(items);
-  const pct = season.min_advance_pct ?? (await setup.getSettings()).min_advance_pct;
   return {
     header: {
       season_id: seasonId,
@@ -187,7 +236,7 @@ const readBooking = async (req, body, existing = null) => {
       delivery_address: A.text(body.delivery_address, "Delivery address", { max: 500 }) || null,
       preferred_godown_id: godownId,
       ...totals,
-      advance_required: r2((totals.net_value * pct) / 100),
+      advance_required: advanceFor(items, advRule),
       remarks: A.text(body.remarks, "Remarks", { max: 1000 }) || null,
     },
     items,
@@ -258,6 +307,7 @@ const updateBooking = wrap(async (req, res) => {
 const deleteBooking = wrap(async (req, res) => {
   const b = await loadBooking(req);
   if (!isOwner(req, b) || b.status !== "DRAFT") throw new HttpError(409, "Only your own draft booking can be deleted");
+  if ((await B.livePaymentCount(b.id)) > 0) throw new HttpError(409, "An advance is recorded on this booking; cancel the booking instead so the advance is refunded or carried forward");
   await B.softDelete(b.id);
   return ok(res, { id: b.id }, "Draft deleted");
 });
@@ -273,13 +323,35 @@ const submitBooking = wrap(async (req, res) => {
   const b = await loadBooking(req);
   if (!isOwner(req, b)) throw new HttpError(403, "Only the person who made the booking can submit it");
   if (!EDITABLE.includes(b.status)) throw new HttpError(409, `This booking is already ${b.status_label}`);
-  if (!b.items.length) throw new HttpError(400, "Add at least one variety before submitting");
+  if (!b.items.length) throw new HttpError(400, "Add at least one product before submitting");
   const season = await setup.getSeason(b.season_id);
   if (!season || season.status !== "OPEN") throw new HttpError(400, "This booking season is not open any more");
+  const access = await A.getAccess(req);
+  if (!access.isAdmin && !season.accepting_bookings) throw new HttpError(400, `${season.name}: ${season.display_label}`);
   const settings = await setup.getSettings();
+  // the season's minimum advance (% / amount) may have changed since the draft was saved
+  const required = advanceFor(b.items.map((it) => ({ qty: it.qty, rate: it.rate, discount_per_unit: it.discount_per_unit })), await setup.advanceRule(b.season_id));
+  if (Math.abs(required - b.advance_required) > 0.005) {
+    await db.query(`UPDATE abs_bookings SET advance_required = ? WHERE id = ? AND status IN ('DRAFT','RETURNED')`, [required, b.id]);
+    b.advance_required = required;
+  }
+  if (settings.advance_at_booking) {
+    const recorded = advanceRecorded(b);
+    if (recorded + 0.005 < required) {
+      throw new HttpError(400, `Collect the minimum advance before submitting: required ${A.fmtMoney(required)}, recorded ${A.fmtMoney(recorded)} — record ${A.fmtMoney(r2(required - recorded))} more`, {
+        advance_required: required,
+        advance_recorded: recorded,
+      });
+    }
+  }
+  // reserve the quantity against the production plan (under a lock, in the status change)
+  const reserve = async (conn) => {
+    const problems = await setup.capacityProblems(conn, b.season_id, b.id, b.items.map((it) => ({ stock_item_id: it.stock_item_id, qty: it.qty, item_name: it.item_name })));
+    if (problems.length) throw capacityError(problems);
+  };
 
   if (!settings.require_booking_approval) {
-    const r = await B.moveBooking(b.id, { allowedFrom: EDITABLE, to: "APPROVED", sets: ["submitted_at = NOW()", "approved_at = NOW()", "return_remark = NULL"], event: "SUBMITTED", detail: "No approval needed (Settings)", userId: req.user.id });
+    const r = await B.moveBooking(b.id, { allowedFrom: EDITABLE, to: "APPROVED", sets: ["submitted_at = NOW()", "approved_at = NOW()", "return_remark = NULL"], event: "SUBMITTED", detail: "No approval needed (Settings)", userId: req.user.id, extra: reserve });
     if (!r.ok) throw new HttpError(409, "This booking was already submitted");
     await notifyConfirmers(b, "Advance booking to confirm", `${b.booked_by_name}'s booking ${b.booking_no} for ${b.party_name} (${A.fmtMoney(b.net_value)}) is ready for order confirmation.`);
     return respond(req, res, b.id, "Submitted — waiting for order confirmation");
@@ -293,7 +365,10 @@ const submitBooking = wrap(async (req, res) => {
     event: "SUBMITTED",
     detail: `Approval levels: ${levels.map((l) => `L${l.level_no} ${l.approver_name || l.approver_role}`).join(" → ")}`,
     userId: req.user.id,
-    extra: (conn) => AP.createRound(conn, ENTITY, b.id, levels),
+    extra: async (conn) => {
+      await reserve(conn);
+      return AP.createRound(conn, ENTITY, b.id, levels);
+    },
   });
   if (!r.ok) throw new HttpError(409, "This booking was already submitted");
   const state = await WF.getState(ENTITY, b.id);
@@ -321,6 +396,7 @@ const decide = (decision) =>
     const final = decision === "APPROVE" && auth.final;
     const level = `Level ${step.level_no} of ${state.total_levels}${auth.as === "ADMIN" && step.approver_kind !== "ADMIN" ? " (admin approval)" : ""}`;
     const to = decision === "APPROVE" ? (final ? "APPROVED" : "SUBMITTED") : decision === "RETURN" ? "RETURNED" : "REJECTED";
+    let refunded = 0;
     const sets = [];
     const params = [];
     if (final) sets.push("approved_at = NOW()");
@@ -337,7 +413,12 @@ const decide = (decision) =>
       detail: level,
       remark,
       userId: req.user.id,
-      extra: (conn) => WF.applyDecision(conn, ENTITY, b.id, { expectedStepId: step.id, decision, actorId: req.user.id, actedAs: auth.as, remark, final }),
+      extra: async (conn) => {
+        const out = await WF.applyDecision(conn, ENTITY, b.id, { expectedStepId: step.id, decision, actorId: req.user.id, actedAs: auth.as, remark, final });
+        // a rejected booking will not be supplied: its posted advance is refunded / carried forward
+        if (decision === "REJECT") refunded = await settleAdvance(conn, b, { rule: (await setup.getSettings()).cancellation_refund_rule, reason: `Booking rejected: ${remark}`, userId: req.user.id });
+        return out;
+      },
     });
     if (!r.ok) throw new HttpError(409, "This booking was already decided");
     const actorName = (await userName(req.user.id)) || "the approver";
@@ -364,17 +445,19 @@ const decide = (decision) =>
         message: `${b.booking_no} (${b.party_name}) was ${decision === "RETURN" ? "returned" : "rejected"} by ${actorName}: ${remark}`,
       });
     }
-    const message = decision === "APPROVE" ? (final ? "Booking approved — sent for order confirmation" : `Approved at Level ${step.level_no}. Sent to the next approver.`) : decision === "RETURN" ? "Returned for changes" : "Booking rejected";
+    const message = decision === "APPROVE" ? (final ? "Booking approved — sent for order confirmation" : `Approved at Level ${step.level_no}. Sent to the next approver.`) : decision === "RETURN" ? "Returned for changes" : `Booking rejected${refunded > 0 ? `; advance ${A.fmtMoney(refunded)} marked for refund / carry forward` : ""}`;
     return respond(req, res, b.id, message);
   });
 
 // recompute booking value on the quantity the company will supply
-const recalcValues = async (conn, bookingId, pct) => {
-  const [rows] = await conn.query(`SELECT qty, confirmed_qty, cancelled_qty, rate, discount_per_unit FROM abs_booking_items WHERE booking_id = ?`, [bookingId]);
-  const lines = rows.map((r) => ({ qty: (r.confirmed_qty === null ? Number(r.qty) : Number(r.confirmed_qty)) - Number(r.cancelled_qty), rate: r.rate, discount_per_unit: r.discount_per_unit }));
+// (minimum advance: season % / minimum amount — see advanceFor)
+const recalcValues = async (conn, bookingId, advRule) => {
+  const [rows] = await conn.query(`SELECT stock_item_id, qty, confirmed_qty, cancelled_qty, rate, discount_per_unit FROM abs_booking_items WHERE booking_id = ?`, [bookingId]);
+  const lines = rows.map((r) => ({ stock_item_id: r.stock_item_id, qty: (r.confirmed_qty === null ? Number(r.qty) : Number(r.confirmed_qty)) - Number(r.cancelled_qty), rate: r.rate, discount_per_unit: r.discount_per_unit }));
   const t = pricing.bookingTotals(lines);
-  await conn.query(`UPDATE abs_bookings SET gross_value = ?, scheme_discount = ?, net_value = ?, advance_required = ? WHERE id = ?`, [t.gross_value, t.scheme_discount, t.net_value, r2((t.net_value * pct) / 100), bookingId]);
-  return t;
+  const advance = advanceFor(lines, advRule);
+  await conn.query(`UPDATE abs_bookings SET gross_value = ?, scheme_discount = ?, net_value = ?, advance_required = ? WHERE id = ?`, [t.gross_value, t.scheme_discount, t.net_value, advance, bookingId]);
+  return { ...t, advance_required: advance };
 };
 
 // POST /abs/bookings/:id/confirm { items: [{ id, confirmed_qty }], advance_due_date, remark }
@@ -394,25 +477,39 @@ const confirmBooking = wrap(async (req, res) => {
     if (q > it.qty) throw new HttpError(400, `${it.item_name}: confirmed qty cannot be more than booked (${it.qty})`);
     return { id: it.id, item_name: it.item_name, qty: it.qty, confirmed: q };
   });
-  if (!lines.some((l) => l.confirmed > 0)) throw new HttpError(400, "Confirm at least one variety, or reject / cancel the booking");
+  if (!lines.some((l) => l.confirmed > 0)) throw new HttpError(400, "Confirm at least one product, or reject / cancel the booking");
   const settings = await setup.getSettings();
-  const season = await setup.getSeason(b.season_id);
-  const pct = season && season.min_advance_pct !== null ? season.min_advance_pct : settings.min_advance_pct;
-  const dueDate = A.date(body.advance_due_date, "Advance due date") || A.addDays(A.todayIST(), settings.advance_due_days);
+  const advRule = await setup.advanceRule(b.season_id);
+  const dueDate = A.date(body.advance_due_date, "Advance due date") || (settings.advance_at_booking ? A.todayIST() : A.addDays(A.todayIST(), settings.advance_due_days));
   const remark = A.text(body.remark, "Remark", { max: 500 }) || null;
   const short = lines.filter((l) => l.confirmed < l.qty);
+  const access = await A.getAccess(req);
+  // advance with the booking: confirm only after accounts verified it (Admin may override with a remark)
+  const override = !!(body.override_advance === true || body.override_advance === "1" || body.override_advance === "true");
+  if (override && !access.isAdmin) throw new HttpError(403, "Only Admin / Super Admin can confirm without the verified advance");
+  if (override && (!remark || remark.length < 3)) throw new HttpError(400, "Give the reason for confirming without the verified advance");
   const r = await B.moveBooking(b.id, {
     allowedFrom: ["APPROVED"],
     to: "CONFIRMED",
     sets: ["confirmed_by = ?", "confirmed_at = NOW()", "confirmation_remark = ?", "advance_due_date = ?"],
     params: [req.user.id, remark, dueDate],
     event: "CONFIRMED",
-    detail: short.length ? `Short supply: ${short.map((l) => `${l.item_name} ${l.confirmed}/${l.qty}`).join(", ")}` : "Confirmed in full",
+    detail: `${short.length ? `Short supply: ${short.map((l) => `${l.item_name} ${l.confirmed}/${l.qty}`).join(", ")}` : "Confirmed in full"}${override ? " — confirmed WITHOUT the verified advance (admin)" : ""}`,
     remark,
     userId: req.user.id,
     extra: async (conn) => {
       for (const l of lines) await conn.query(`UPDATE abs_booking_items SET confirmed_qty = ? WHERE id = ? AND booking_id = ?`, [l.confirmed, l.id, b.id]);
-      return recalcValues(conn, b.id, pct);
+      const t = await recalcValues(conn, b.id, advRule);
+      if (settings.advance_at_booking && !override) {
+        const posted = await P.postedTotal(b.id, { runner: conn });
+        if (posted + 0.005 < t.advance_required) {
+          throw new HttpError(409, `The minimum advance is not verified yet: required ${A.fmtMoney(t.advance_required)}, posted by accounts ${A.fmtMoney(posted)}${b.advance_pending_verification > 0 ? ` (${A.fmtMoney(b.advance_pending_verification)} waiting for verification)` : ""}`, {
+            advance_required: t.advance_required,
+            advance_received: posted,
+          });
+        }
+      }
+      return t;
     },
   });
   if (!r.ok) throw new HttpError(409, "This booking was already confirmed");
@@ -517,9 +614,7 @@ const shortCloseItem = wrap(async (req, res) => {
   const reason = A.text(body.reason, "Reason", { required: true, max: 255 });
   const notDispatched = r3(item.supply_qty - item.dispatched_qty);
   if (q > notDispatched) throw new HttpError(400, `Only ${notDispatched} of ${item.item_name} is not yet dispatched`);
-  const settings = await setup.getSettings();
-  const season = await setup.getSeason(b.season_id);
-  const pct = season && season.min_advance_pct !== null ? season.min_advance_pct : settings.min_advance_pct;
+  const advRule = await setup.advanceRule(b.season_id);
   const r = await B.moveBooking(b.id, {
     allowedFrom: SUPPLY_STATUSES,
     event: "LINE_SHORT_CLOSED",
@@ -545,7 +640,7 @@ const shortCloseItem = wrap(async (req, res) => {
         }
       }
       await conn.query(`UPDATE abs_booking_items SET cancelled_qty = cancelled_qty + ? WHERE id = ?`, [q, item.id]);
-      await recalcValues(conn, b.id, pct);
+      await recalcValues(conn, b.id, advRule);
       await recalcStatus(conn, b.id);
     },
   });
@@ -577,6 +672,30 @@ const closeBooking = wrap(async (req, res) => {
   return respond(req, res, b.id, advance > 0 ? `Booking closed; ${A.fmtMoney(advance)} advance left over (${settings.cancellation_refund_rule === "CARRY_FORWARD" ? "carried forward" : "refund due"})` : "Booking closed");
 });
 
+// GET /abs/seasons/:id/availability — per product: production plan, booked, still available
+// (the booking form shows it; figures come from the live bookings)
+const getAvailability = wrap(async (req, res) => {
+  const s = await setup.getSeason(A.toId(req.params.id, "season id"));
+  const me = await A.meBlock(req);
+  if (!s || (s.status === "DRAFT" && !me.can_view_all)) throw new HttpError(404, "Booking season not found");
+  const [products, rule] = await Promise.all([setup.listSeasonProducts(s.id, { bookableOnly: true }), setup.advanceRule(s.id)]);
+  return ok(res, {
+    season_id: s.id,
+    accepting_bookings: s.accepting_bookings,
+    min_advance_pct: rule.pct,
+    min_advance_amount: rule.min_amount,
+    products: products.map((p) => ({
+      stock_item_id: p.stock_item_id,
+      item_name: p.item_name,
+      crop_id: p.crop_id,
+      crop_name: p.crop_name,
+      production_qty: p.production_qty,
+      booked_qty: p.booked_qty,
+      available_qty: p.available_qty,
+    })),
+  });
+});
+
 const getHistory = wrap(async (req, res) => {
   const b = await loadBooking(req);
   const { state, auth } = await approvalOf(req, b);
@@ -603,4 +722,6 @@ module.exports = {
   shortCloseItem,
   closeBooking,
   getHistory,
+  getAvailability,
+  advanceFor,
 };

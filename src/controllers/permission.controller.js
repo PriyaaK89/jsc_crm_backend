@@ -4,6 +4,9 @@ const { getScope } = require("./employee-performance/task.controller");
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 
+// permissions only Admin / Super Admin may grant or revoke (also on the general permission page)
+const ADMIN_ONLY_CODES = new Set(["MANAGE_BP_TERRITORIES"]);
+
 const handle = (fn) => async (req, res) => {
   try {
     await fn(req, res);
@@ -78,6 +81,9 @@ const saveChecked = async (req, permissionIds) => {
     const was = new Set(current);
     const now = new Set(requested);
     const changed = [...requested.filter((id) => !was.has(id)), ...current.filter((id) => !now.has(id))];
+    if (changed.some((id) => ADMIN_ONLY_CODES.has(byId.get(id).code))) {
+      throw fail(403, "Only Admin or Super Admin can grant or revoke territory-management permission");
+    }
     if (changed.some((id) => !actor.codes.has(byId.get(id).code))) {
       throw fail(403, "You can only assign permissions that you have yourself");
     }

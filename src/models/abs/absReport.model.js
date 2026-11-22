@@ -62,7 +62,7 @@ const totals = async (seasonId, userIds, today) => {
   return out;
 };
 
-// demand vs production plan vs supply per variety
+// demand vs production plan vs supply per product (stock item)
 const varieties = async (seasonId, userIds) => {
   const sc = scopeSql(userIds);
   const [rows] = await db.query(
@@ -124,4 +124,72 @@ const parties = async (seasonId, userIds, limit = 50) => {
   return rows.map((r) => ({ ...r, bookings: num(r.bookings), booking_value: num(r.booking_value), advance_received: num(r.advance_received), invoiced_value: num(r.invoiced_value) }));
 };
 
-module.exports = { statusSummary, totals, varieties, employees, parties };
+// production plan vs bookings per product of the season price list (company-wide), by crop.
+// booked = submitted and later bookings at the quantity to be supplied (as the capacity check)
+const plan = async (seasonId) => {
+  const [rows] = await db.query(
+    `SELECT sp.stock_item_id, si.item_name, si.crop_id, c.crop_name, u.symbol AS unit, sp.production_qty, sp.is_active,
+            COALESCE(SUM(CASE WHEN b.id IS NOT NULL THEN COALESCE(bi.confirmed_qty, bi.qty) - bi.cancelled_qty ELSE 0 END), 0) AS held_qty,
+            COALESCE(SUM(CASE WHEN b.id IS NOT NULL AND b.status NOT IN ('SUBMITTED','RETURNED','APPROVED')
+                              THEN COALESCE(bi.confirmed_qty, bi.qty) - bi.cancelled_qty ELSE 0 END), 0) AS confirmed_qty,
+            COALESCE(SUM(CASE WHEN b.id IS NOT NULL THEN bi.allocated_qty ELSE 0 END), 0) AS allocated_qty,
+            COALESCE(SUM(CASE WHEN b.id IS NOT NULL THEN bi.dispatched_qty ELSE 0 END), 0) AS dispatched_qty,
+            COALESCE(SUM(CASE WHEN b.id IS NOT NULL THEN bi.delivered_qty ELSE 0 END), 0) AS delivered_qty,
+            COUNT(DISTINCT b.id) AS bookings
+     FROM abs_season_products sp
+     INNER JOIN stock_items si ON si.id = sp.stock_item_id
+     LEFT JOIN crops c ON c.id = si.crop_id
+     LEFT JOIN units u ON u.id = si.unit_id
+     LEFT JOIN abs_booking_items bi ON bi.stock_item_id = sp.stock_item_id
+       AND bi.booking_id IN (SELECT b2.id FROM abs_bookings b2 WHERE b2.season_id = sp.season_id)
+     LEFT JOIN abs_bookings b ON b.id = bi.booking_id AND b.is_deleted = 0 AND ${LIVE}
+     WHERE sp.season_id = ?
+     GROUP BY sp.stock_item_id, si.item_name, si.crop_id, c.crop_name, u.symbol, sp.production_qty, sp.is_active
+     ORDER BY c.crop_name ASC, si.item_name ASC`,
+    [seasonId],
+  );
+  return rows.map((r) => {
+    const out = { ...r };
+    for (const k of ["held_qty", "confirmed_qty", "allocated_qty", "dispatched_qty", "delivered_qty", "bookings"]) out[k] = Math.round(num(r[k]) * 1000) / 1000;
+    out.stock_item_id = num(r.stock_item_id);
+    out.crop_id = r.crop_id === null || r.crop_id === undefined ? null : num(r.crop_id);
+    out.production_qty = r.production_qty === null || r.production_qty === undefined ? null : num(r.production_qty);
+    out.is_active = num(r.is_active) === 1;
+    out.available_qty = out.production_qty === null ? null : Math.max(Math.round((out.production_qty - out.held_qty) * 1000) / 1000, 0);
+    out.booked_pct = out.production_qty ? Math.round((out.held_qty / out.production_qty) * 1000) / 10 : null;
+    return out;
+  });
+};
+
+// bookings with money still to collect: minimum advance short, or invoices more than the advance
+const pendingPayments = async (seasonId, userIds, today) => {
+  const sc = scopeSql(userIds);
+  const [rows] = await db.query(
+    `SELECT b.id, b.booking_no, b.status, b.party_ledger_id, pl.ledger_name AS party_name, pl.location,
+            b.booked_by, u.name AS booked_by_name, b.net_value, b.advance_required,
+            DATE_FORMAT(b.advance_due_date, '%Y-%m-%d') AS advance_due_date,
+            (SELECT COALESCE(SUM(p.amount), 0) FROM abs_payments p WHERE p.booking_id = b.id AND p.status = 'POSTED') AS advance_received,
+            (SELECT COALESCE(SUM(p.amount), 0) FROM abs_payments p WHERE p.booking_id = b.id AND p.status = 'PENDING_VERIFICATION') AS pending_verification,
+            (SELECT COALESCE(SUM(d.invoice_amount), 0) FROM abs_dispatches d WHERE d.booking_id = b.id) AS invoiced_value,
+            (SELECT COALESCE(SUM(a.amount), 0) FROM abs_advance_adjustments a WHERE a.booking_id = b.id) AS advance_adjusted
+     ${FROM} LEFT JOIN users u ON u.id = b.booked_by
+     WHERE b.is_deleted = 0 AND b.season_id = ? AND b.status NOT IN ('DRAFT','REJECTED','CANCELLED')${sc.sql}
+     ORDER BY b.advance_due_date IS NULL, b.advance_due_date ASC, b.id ASC`,
+    [seasonId, ...sc.params],
+  );
+  const out = [];
+  for (const r of rows) {
+    const x = { ...r };
+    for (const k of ["net_value", "advance_required", "advance_received", "pending_verification", "invoiced_value", "advance_adjusted"]) x[k] = num(r[k]);
+    x.advance_shortfall = Math.max(Math.round((x.advance_required - x.advance_received) * 100) / 100, 0);
+    // invoiced but not covered by the adjusted advance = billed amount the party still owes
+    x.invoice_balance = Math.max(Math.round((x.invoiced_value - x.advance_adjusted) * 100) / 100, 0);
+    x.overdue_days = x.advance_shortfall > 0 && x.advance_due_date && today && x.advance_due_date < today
+      ? Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${x.advance_due_date}T00:00:00Z`)) / 86400000)
+      : 0;
+    if (x.advance_shortfall > 0 || x.invoice_balance > 0 || x.pending_verification > 0) out.push(x);
+  }
+  return out;
+};
+
+module.exports = { statusSummary, totals, varieties, employees, parties, plan, pendingPayments };

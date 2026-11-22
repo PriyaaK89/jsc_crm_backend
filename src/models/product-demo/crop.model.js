@@ -28,23 +28,98 @@ async function requireCropAccess(user) {
   if (!(await canManageCrops(user))) throw new HttpError(403, 'You do not have access to manage crops');
 }
 
-// ============================================================ crops
-async function createCrop({ crop_name, description }, userId) {
-  const name = (crop_name || '').trim();
-  if (!name) throw new HttpError(400, 'crop_name is required');
-  try {
-    const [r] = await db.query(
-      'INSERT INTO crops (crop_name, description, created_by) VALUES (?,?,?)',
-      [name, description || null, userId]
+// ============================================================ crop seasons
+// The season of a crop (Kharif / Rabi / Zaid …) comes from the one season list
+// (bp_setting_options, list_key SEASON — the list Business Plans use). A crop may grow in more
+// than one season (e.g. Maize: Kharif and Rabi); the link is crop_season_map (crop_id, season).
+// Stock items belong to a crop (stock_items.crop_id), so "products of a crop in a season" =
+// stock items whose crop is linked to that season. Advance Booking uses exactly that.
+
+// -> list of season names as stored in the season list, or undefined when not sent
+async function readSeasons(list, { required }) {
+  if (list === undefined || list === null) {
+    if (required) throw new HttpError(400, 'Select the season(s) of the crop');
+    return undefined;
+  }
+  if (!Array.isArray(list)) throw new HttpError(400, 'seasons must be a list of season names');
+  const wanted = [...new Set(list.map((s) => String(s || '').trim()).filter(Boolean))];
+  if (required && !wanted.length) throw new HttpError(400, 'Select the season(s) of the crop');
+  if (!wanted.length) return [];
+  const [rows] = await db.query(
+    `SELECT value FROM bp_setting_options WHERE list_key = 'SEASON' AND is_active = 1`
+  );
+  const byLower = new Map(rows.map((r) => [String(r.value).toLowerCase(), r.value]));
+  const bad = wanted.filter((s) => !byLower.has(s.toLowerCase()));
+  if (bad.length) throw new HttpError(400, `Not in the season list: ${bad.join(', ')}`);
+  return [...new Set(wanted.map((s) => byLower.get(s.toLowerCase())))];
+}
+
+// seasons in which the crop's products are in a Draft / Open advance booking season — these
+// cannot be taken off the crop while that booking season runs
+async function seasonsInUseByBooking(cropId) {
+  const [rows] = await db.query(
+    `SELECT DISTINCT s.season, s.name
+       FROM abs_season_products sp
+       JOIN abs_seasons s ON s.id = sp.season_id
+       JOIN stock_items si ON si.id = sp.stock_item_id
+      WHERE si.crop_id = ? AND s.status IN ('DRAFT', 'OPEN')`,
+    [cropId]
+  );
+  return rows;
+}
+
+async function writeSeasons(conn, cropId, seasons, userId) {
+  await conn.query('DELETE FROM crop_season_map WHERE crop_id = ?', [cropId]);
+  if (seasons.length) {
+    await conn.query(
+      'INSERT INTO crop_season_map (crop_id, season, created_by) VALUES ?',
+      [seasons.map((s) => [cropId, s, userId || null])]
     );
-    return r.insertId;
-  } catch (e) {
-    if (e.code === 'ER_DUP_ENTRY') throw new HttpError(400, 'A crop with this name already exists');
-    throw e;
   }
 }
 
-async function updateCrop(id, { crop_name, description }) {
+async function getCropSeasons(cropIds) {
+  const out = new Map();
+  if (!cropIds.length) return out;
+  const [rows] = await db.query(
+    'SELECT crop_id, season FROM crop_season_map WHERE crop_id IN (?) ORDER BY season ASC',
+    [cropIds]
+  );
+  for (const r of rows) {
+    const id = Number(r.crop_id);
+    if (!out.has(id)) out.set(id, []);
+    out.get(id).push(r.season);
+  }
+  return out;
+}
+
+// ============================================================ crops
+// body: { crop_name, description, seasons: ['Kharif', 'Rabi'] }  (seasons required)
+async function createCrop({ crop_name, description, seasons }, userId) {
+  const name = (crop_name || '').trim();
+  if (!name) throw new HttpError(400, 'crop_name is required');
+  const list = await readSeasons(seasons, { required: true });
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [r] = await conn.query(
+      'INSERT INTO crops (crop_name, description, created_by) VALUES (?,?,?)',
+      [name, description || null, userId]
+    );
+    await writeSeasons(conn, r.insertId, list, userId);
+    await conn.commit();
+    return r.insertId;
+  } catch (e) {
+    await conn.rollback();
+    if (e.code === 'ER_DUP_ENTRY') throw new HttpError(400, 'A crop with this name already exists');
+    throw e;
+  } finally {
+    conn.release();
+  }
+}
+
+// body: { crop_name, description, seasons }  — seasons left out = unchanged
+async function updateCrop(id, { crop_name, description, seasons }, userId) {
   const sets = [];
   const vals = [];
   if (crop_name !== undefined) {
@@ -54,12 +129,32 @@ async function updateCrop(id, { crop_name, description }) {
     vals.push(name);
   }
   if (description !== undefined) { sets.push('description = ?'); vals.push(description || null); }
-  if (!sets.length) return;
+  const list = await readSeasons(seasons, { required: seasons !== undefined });
+  if (list !== undefined) {
+    const [[exists]] = await db.query('SELECT id FROM crops WHERE id = ?', [id]);
+    if (!exists) throw new HttpError(404, 'Crop not found');
+    const removed = (await seasonsInUseByBooking(id)).filter((u) => !list.includes(u.season));
+    if (removed.length) {
+      throw new HttpError(
+        409,
+        `Products of this crop are in the advance booking season ${removed.map((u) => `${u.name} (${u.season})`).join(', ')}; ` +
+        `${[...new Set(removed.map((u) => u.season))].join(', ')} cannot be removed from the crop until that booking season is closed`
+      );
+    }
+  }
+  if (!sets.length && list === undefined) return;
+  const conn = await db.getConnection();
   try {
-    await db.query(`UPDATE crops SET ${sets.join(', ')} WHERE id = ?`, [...vals, id]);
+    await conn.beginTransaction();
+    if (sets.length) await conn.query(`UPDATE crops SET ${sets.join(', ')} WHERE id = ?`, [...vals, id]);
+    if (list !== undefined) await writeSeasons(conn, Number(id), list, userId);
+    await conn.commit();
   } catch (e) {
+    await conn.rollback();
     if (e.code === 'ER_DUP_ENTRY') throw new HttpError(400, 'A crop with this name already exists');
     throw e;
+  } finally {
+    conn.release();
   }
 }
 
@@ -68,19 +163,24 @@ async function setCropActive(id, isActive) {
   if (!r.affectedRows) throw new HttpError(404, 'Crop not found');
 }
 
+// each crop also carries seasons: ['Kharif', …] and product_count (its stock items)
 async function listCrops({ includeInactive = false } = {}) {
   const [rows] = await db.query(
-    `SELECT id, crop_name, description, is_active, created_at
-       FROM crops
-      ${includeInactive ? '' : 'WHERE is_active = 1'}
-      ORDER BY crop_name ASC`
+    `SELECT c.id, c.crop_name, c.description, c.is_active, c.created_at,
+            (SELECT COUNT(*) FROM stock_items si WHERE si.crop_id = c.id) AS product_count
+       FROM crops c
+      ${includeInactive ? '' : 'WHERE c.is_active = 1'}
+      ORDER BY c.crop_name ASC`
   );
-  return rows;
+  const seasons = await getCropSeasons(rows.map((r) => r.id));
+  return rows.map((r) => ({ ...r, product_count: Number(r.product_count) || 0, seasons: seasons.get(Number(r.id)) || [] }));
 }
 
 async function getCrop(id) {
   const [[row]] = await db.query('SELECT * FROM crops WHERE id = ?', [id]);
-  return row || null;
+  if (!row) return null;
+  const seasons = await getCropSeasons([Number(row.id)]);
+  return { ...row, seasons: seasons.get(Number(row.id)) || [] };
 }
 
 // ============================================================ growth field catalog
@@ -425,6 +525,7 @@ async function getCropIdByStockItem(stockItemId) {
 module.exports = {
   HttpError, INPUT_TYPES, canManageCrops, requireCropAccess,
   createCrop, updateCrop, setCropActive, listCrops, getCrop,
+  readSeasons, getCropSeasons, seasonsInUseByBooking,
   createGrowthField, updateGrowthField, setGrowthFieldActive, listGrowthFields,
   addFieldOption, setFieldOptionActive, listFieldOptions,
   mapFieldToCrop, unmapFieldFromCrop, getCropGrowthForm, listUnmappedFieldsForCrop,getCropIdByStockItem

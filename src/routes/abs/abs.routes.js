@@ -7,7 +7,7 @@
 //   ALLOCATE_ABS_STOCK   stock allocation
 //   VERIFY_ABS_PAYMENT   verify advances (post Receipt vouchers), refunds
 //   DISPATCH_ABS         dispatch (Sales invoice)
-//   MANAGE_ABS_SETTINGS  seasons, booking price list, schemes, settings
+//   MANAGE_ABS_SETTINGS  seasons (price list by crop, production plan, schemes, status), settings
 //   VIEW_ALL_ABS         see every booking
 const express = require("express");
 const router = express.Router();
@@ -49,7 +49,12 @@ router.post("/seasons", settingsOnly, setup.createSeason);
 router.get("/seasons/:id", setup.getSeason);
 router.put("/seasons/:id", settingsOnly, setup.updateSeason);
 router.post("/seasons/:id/status", settingsOnly, setup.setSeasonStatus);
+router.get("/seasons/:id/checklist", settingsOnly, setup.getChecklist);
+// price list: crops of the season's crop season → stock items of the chosen crop
+router.get("/seasons/:id/crops", settingsOnly, setup.getSeasonCropList);
+router.get("/seasons/:id/crop-products", settingsOnly, setup.getSeasonCropProducts);
 router.put("/seasons/:id/products", settingsOnly, setup.saveSeasonProducts);
+router.delete("/seasons/:id/products/:stockItemId", settingsOnly, setup.deleteSeasonProduct);
 router.post("/seasons/:id/schemes", settingsOnly, setup.createScheme);
 router.put("/seasons/:id/schemes/:schemeId", settingsOnly, setup.updateScheme);
 router.delete("/seasons/:id/schemes/:schemeId", settingsOnly, setup.deleteScheme);
@@ -57,6 +62,7 @@ router.delete("/seasons/:id/schemes/:schemeId", settingsOnly, setup.deleteScheme
 // dashboard, reports
 router.get("/dashboard", reports.dashboard);
 router.get("/reports/:kind", reports.report);
+router.get("/seasons/:id/availability", bookings.getAvailability);
 
 // bookings
 router.get("/bookings", bookings.listBookings);

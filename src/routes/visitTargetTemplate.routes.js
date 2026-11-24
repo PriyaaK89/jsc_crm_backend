@@ -6,9 +6,9 @@ const auth = require('../middleware/auth.middleware');
 
 /** * Templates*/
 router.post("/visit-targets/templates", auth, checkPermission("CREATE_TARGET"), visitTargetController.createTemplate);
-router.get("/visit-targets/templates", auth, checkPermission("VIEW_TARGET"), visitTargetController.listTemplates);
+router.get("/visit-targets/templates", auth,  visitTargetController.listTemplates);
 router.get("/visit-targets/templates/dropdown", auth, visitTargetController.templateDropdown);
-router.get("/visit-targets/templates/:id", auth, checkAnyPermission(["VIEW_TARGET", "UPDATE_TARGET"]), visitTargetController.getTemplate);
+router.get("/visit-targets/templates/:id", auth, checkAnyPermission([ "UPDATE_TARGET"]), visitTargetController.getTemplate);
 router.put("/visit-targets/templates/:id", auth, checkPermission("UPDATE_TARGET"), visitTargetController.updateTemplate);
 router.delete("/visit-targets/templates/:id", auth, checkPermission("DELETE_TARGET"), visitTargetController.deleteTemplate);
 router.patch("/visit-targets/templates/:id/reactivate", auth, checkPermission("UPDATE_TARGET"), visitTargetController.reactivateTemplate);
@@ -24,8 +24,8 @@ router.patch("/visit-targets/assignments/:id/expire", auth, checkPermission("UPD
 
 /* * Progress / reporting */
 router.get("/visit-targets/progress/employee/:employeeId", auth, visitTargetController.getEmployeeProgress);
-router.get("/visit-targets/progress/admin", auth, checkPermission("VIEW_TARGET"), visitTargetController.getAdminProgress);
-router.get("/visit-targets/progress/history", auth, checkPermission("VIEW_TARGET"), visitTargetController.getAssignmentHistory);
+router.get("/visit-targets/progress/admin", auth,  visitTargetController.getAdminProgress);
+router.get("/visit-targets/progress/history", auth,  visitTargetController.getAssignmentHistory);
 
 router.get("/get-teamwise-visit-target-template", auth, visitTargetController.getTeamProgress);
 router.get("/visit-targets/progress/me", auth, visitTargetController.getMyActiveProgress);

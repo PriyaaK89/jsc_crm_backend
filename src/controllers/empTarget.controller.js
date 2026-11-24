@@ -2,7 +2,8 @@ const db = require("../config/db");
 const empTargetModel = require("../models/empTarget.model");
 const { getHierarchyIds } = require("./rollingUser.controller");
 const visitTargetModel = require("../models/visitTargetTemplate.model");
-
+const { getUserWithRole } = require("../models/rollingUser.model");
+const { getSubordinates } = require("./rollingUser.controller");
 const TARGET_TYPES = ["SALE", "COLLECTION", "NEW_DISTRIBUTOR"];
 const DURATION_MONTHS = { MONTHLY: 1, QUARTERLY: 3, HALF_YEARLY: 6, YEARLY: 12 };
 const ADMIN_ROLES = ["SUPER_ADMIN", "ADMIN"];
@@ -514,5 +515,135 @@ exports.getMyGroupTargets = async (req, res) => {
   } catch (error) {
     console.error("getMyGroupTargets error:", error);
     return res.status(500).json({ success: false, message: "Failed to fetch group targets" });
+  }
+
+};
+// ================= GROUP SUMMARY (dashboard rings + filters + per-member breakdown) =================
+// GET /my-group-summary?duration_type=MONTHLY&levels=2,3&user_ids=10,11&start_date=&end_date=
+// ================= GROUP SUMMARY (dashboard rings + filters + per-member breakdown) =================
+// GET /my-group-summary?duration_type=MONTHLY&levels=2,3&user_ids=10,11&start_date=&end_date=
+exports.getMyGroupSummary = async (req, res) => {
+  try {
+    const { duration_type, start_date, end_date } = req.query;
+
+    const rangeError = validateRange(start_date, end_date);
+    if (rangeError) {
+      return res.status(400).json({ success: false, message: rangeError });
+    }
+
+    const parseIds = (v) =>
+      String(v || "")
+        .split(",")
+        .map((x) => Number(x.trim()))
+        .filter((x) => Number.isInteger(x) && x > 0);
+
+    const levels = parseIds(req.query.levels);
+    const userIds = parseIds(req.query.user_ids);
+
+    const me = await getUserWithRole(req.user.id);
+    if (!me) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const subs = await getSubordinates(me.id);
+
+    // Nobody reports to this user (FA / lowest level): no group section
+    if (!subs.length) {
+      return res.status(200).json({ success: true, can_view_team: false });
+    }
+
+    // me + everyone below, de-duplicated
+    const everyone = [];
+    const seen = new Set();
+    for (const u of [me, ...subs]) {
+      if (seen.has(u.id)) continue;
+      seen.add(u.id);
+      everyone.push({
+        id: u.id,
+        name: u.name,
+        role_name: u.job_role,
+        level: u.level,
+        is_self: u.id === me.id
+      });
+    }
+
+    // filter options (always the full, unfiltered list)
+    const levelMap = new Map();
+    everyone.forEach((u) => {
+      const k = String(u.level);
+      if (!levelMap.has(k)) {
+        levelMap.set(k, { level: u.level, role_name: u.role_name, count: 0 });
+      }
+      levelMap.get(k).count += 1;
+    });
+
+    // filters are applied only inside the caller's own hierarchy,
+    // so ids outside the team are simply ignored
+    let selected = everyone;
+    if (levels.length) selected = selected.filter((u) => levels.includes(Number(u.level)));
+    if (userIds.length) selected = selected.filter((u) => userIds.includes(u.id));
+
+    const rows = selected.length
+      ? await empTargetModel.getTargetsByFilters({
+          userIds: selected.map((u) => u.id),
+          durationType: duration_type || "MONTHLY",
+          startDate: start_date || undefined,
+          endDate: end_date || undefined
+        })
+      : [];
+
+    // ---- aggregate ----
+    const summary = {};
+    TARGET_TYPES.forEach((t) => {
+      summary[t] = { target_amount: 0, achieved_amount: 0, member_count: 0, percent: 0 };
+    });
+
+    const memberMap = new Map();
+    selected.forEach((u) => {
+      const targets = {};
+      TARGET_TYPES.forEach((t) => {
+        targets[t] = { target_amount: 0, achieved_amount: 0 };
+      });
+      memberMap.set(u.id, { ...u, targets });
+    });
+
+    rows.forEach((r) => {
+      const m = memberMap.get(r.user_id);
+      if (!m || !summary[r.target_type]) return;
+
+      const tgt = Number(r.target_amount) || 0;
+      const ach = Number(r.achieved_amount) || 0;
+
+      m.targets[r.target_type].target_amount += tgt;
+      m.targets[r.target_type].achieved_amount += ach;
+      summary[r.target_type].target_amount += tgt;
+      summary[r.target_type].achieved_amount += ach;
+    });
+
+    const members = Array.from(memberMap.values());
+
+    TARGET_TYPES.forEach((t) => {
+      const s = summary[t];
+      s.member_count = members.filter((m) => m.targets[t].target_amount > 0).length;
+      s.percent =
+        s.target_amount > 0
+          ? Number(((s.achieved_amount / s.target_amount) * 100).toFixed(2))
+          : 0;
+    });
+
+    return res.status(200).json({
+      success: true,
+      can_view_team: true,
+      duration_type: duration_type || "MONTHLY",
+      summary,
+      members,
+      filters: {
+        levels: Array.from(levelMap.values()),
+        members: everyone
+      }
+    });
+  } catch (error) {
+    console.error("getMyGroupSummary error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch group summary" });
   }
 };

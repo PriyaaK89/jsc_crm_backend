@@ -20,14 +20,14 @@ router.post(
   ]),
   createVisit
 );
-router.get("/get-emp-visit", auth, checkPermission("VIEW_VISIT_REPORT"), getVisits);
+router.get("/get-emp-visit", auth,  getVisits);
 router.get("/my-visits", auth, getMyVisits);
 router.get("/my-today-visit", auth, getTodayVisit);
 router.get("/get-my-todayVisitCount", auth, getTodayVisitCount);
-router.get( "/get-visit-report-summary", auth, checkPermission("VIEW_VISIT_REPORT"), getVisitReport );
-router.get("/hierarchy-visits", auth, checkPermission("VIEW_VISIT_REPORT"), getHierarchyVisits );
+router.get( "/get-visit-report-summary", auth,  getVisitReport );
+router.get("/hierarchy-visits", auth,  getHierarchyVisits );
 router.get( "/users-by-level", auth, getUsersBySelectedLevel);
-router.get( "/get-hierarchy-visits/:userId", auth, checkPermissionOrSelf(["VIEW_VISIT_REPORT"], "userId"), getUserVisitDetails);
+router.get( "/get-hierarchy-visits/:userId", auth,   getUserVisitDetails);
 
 router.get("/my-visit-summary", auth, getMyVisitSummary);
 router.get("/my-visits/:id", auth, getMyVisitDetailsById);

@@ -6,7 +6,7 @@ const auth = require("../middleware/auth.middleware");
 
 router.post( "/create-ledger", auth, checkPermission("CREATE_LEDGER"), createLedgerController);
 router.get("/get-ledgers", auth, checkAnyPermission(["VIEW_LEDGER", "VIEW_TRANSACTION", "CREATE_TRANSACTION", "VIEW_FINANCIAL_REPORT", "VIEW_DISTRIBUTOR"]), getLedgers);
-router.get("/getLedgerDetailsById/:id", auth, checkAnyPermission(["VIEW_LEDGER", "UPDATE_LEDGER", "VIEW_TRANSACTION", "CREATE_TRANSACTION", "VIEW_FINANCIAL_REPORT"]), getLedgerByIdController);
+router.get("/getLedgerDetailsById/:id", auth,  getLedgerByIdController);
 router.put("/update_ledger/:id", auth, checkPermission("UPDATE_LEDGER"), updateLedgerController);
 router.delete("/delete_ledger/:id", auth, checkPermission("DELETE_LEDGER"), deleteLedgerController);
 router.get( "/ledger-dropdown",auth, getLedgerDropdown );

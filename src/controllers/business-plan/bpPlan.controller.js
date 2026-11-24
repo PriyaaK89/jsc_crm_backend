@@ -99,12 +99,13 @@ const readHeader = async (req, body, existing) => {
     out.name = name;
   }
 
-  // dropdown values must be active options from Settings
+  // financial year: one of the dropdown years (generated + Settings); the other dropdowns must
+  // be active options from Settings
   const fy = H.text(body.financial_year, "Financial year", { required, max: 20 });
   if (fy !== undefined) {
     const value = fy.replace(/^FY\s*/i, "");
     if (existing && value === existing.financial_year) out.financial_year = value;
-    else if (!(await s.isActiveOption("FINANCIAL_YEAR", value))) throw new HttpError(400, "Select a valid financial year");
+    else if (!(await s.isValidFinancialYear(value))) throw new HttpError(400, "Select a valid financial year");
     else out.financial_year = value;
   }
   for (const [key, label, listKey] of [
@@ -128,6 +129,14 @@ const readHeader = async (req, body, existing) => {
     if (finalStart > finalEnd) throw new HttpError(400, "Start date cannot be after end date");
     const days = (new Date(`${finalEnd}T00:00:00Z`) - new Date(`${finalStart}T00:00:00Z`)) / 86400000 + 1;
     if (days > MAX_PLAN_DAYS) throw new HttpError(400, "A plan period cannot be longer than two years");
+    // the period must touch the selected financial year (1 Apr – 31 Mar); checked when the year
+    // or the dates change, so plans saved earlier stay editable
+    const finalFy = out.financial_year || (existing && existing.financial_year);
+    const fyY = s.fyStart(finalFy);
+    const changed = out.financial_year !== undefined || out.start_date !== undefined || out.end_date !== undefined;
+    if (fyY && changed && (finalStart > `${fyY + 1}-03-31` || finalEnd < `${fyY}-04-01`)) {
+      throw new HttpError(400, `The plan period must fall at least partly within FY ${finalFy} (01 Apr ${fyY} – 31 Mar ${fyY + 1})`);
+    }
   }
 
   if (body.state_id !== undefined || required) {
@@ -682,6 +691,12 @@ const addDistributor = wrap(async (req, res) => {
   const ledgerId = H.toId(body.ledger_id ?? body.distributor_id, "distributor");
   const ledger = await s.getDistributorLedger(ledgerId);
   if (!ledger) throw new HttpError(400, "Distributor not found in the distributor master");
+  // only the distributors assigned to the plan's employee or his reporting team (same list as
+  // GET /lookups/distributors?plan_id=)
+  const owners = await H.planPartyOwners(p.assigned_user_id);
+  if (!ledger.employee_under || !owners.includes(Number(ledger.employee_under))) {
+    throw new HttpError(400, `${ledger.name} is not assigned to ${p.assigned_user_name || "this plan's employee"} or his reporting team`);
+  }
   if (await plan.findDistributorLine(p.id, ledgerId)) throw new HttpError(409, `${ledger.name} is already in this plan`);
 
   const settings = await s.getSettings();
@@ -764,6 +779,10 @@ const addRetailer = wrap(async (req, res) => {
   const retailerId = H.toId(body.retailer_id, "retailer");
   const retailer = await s.getRetailer(retailerId);
   if (!retailer) throw new HttpError(400, "Retailer not found");
+  // only retailers created by the plan's employee (same list as GET /lookups/retailers?plan_id=)
+  if (Number(retailer.created_by) !== Number(p.assigned_user_id)) {
+    throw new HttpError(400, `${retailer.name} was not created by ${p.assigned_user_name || "this plan's employee"}`);
+  }
   if (await plan.findRetailerLine(p.id, retailerId)) throw new HttpError(409, `${retailer.name} is already in this plan`);
   const r = await readRetailerBody(body, null);
   if (r.parent_ledger_id === undefined) r.parent_ledger_id = retailer.mapped_ledger_id || null;

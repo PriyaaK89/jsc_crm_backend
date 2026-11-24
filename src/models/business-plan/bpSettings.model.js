@@ -13,7 +13,12 @@ const DEFAULT_SETTINGS = {
   // job roles (users.job_role_id -> job_roles.name) that give the final approval
   // when found in the employee's reporting line. Comma separated, case-insensitive.
   final_approver_roles: "RSM,Regional Sales Manager",
+  // Financial Year dropdown: generated from today's FY — this many FYs ahead (and the previous
+  // one) are always offered, besides the years an admin added in Settings → Financial Years
+  future_financial_years: "5",
 };
+
+const MAX_FUTURE_FYS = 20;
 
 const DEBTOR_GROUP = "Sundry Debtors";
 
@@ -44,6 +49,54 @@ const isActiveOption = async (listKey, value) => {
     [listKey, value],
   );
   return rows.length > 0;
+};
+
+// ---------------------------------------------------------------------
+//  FINANCIAL YEARS (April - March) — generated, not a fixed list
+// ---------------------------------------------------------------------
+// 2026 -> "2026-27"
+const fyLabel = (startYear) => `${startYear}-${String((startYear + 1) % 100).padStart(2, "0")}`;
+const FY_PATTERN = /^(\d{4})-(\d{2})$/;
+// "2026-27" -> 2026 when it is two consecutive years, else null
+const fyStart = (value) => {
+  const m = FY_PATTERN.exec(String(value || "").trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  return (y + 1) % 100 === Number(m[2]) ? y : null;
+};
+// today's FY start year (IST)
+const currentFyStart = (iso = new Date(Date.now() + 5.5 * 3600000).toISOString().slice(0, 10)) => {
+  const y = Number(iso.slice(0, 4));
+  return Number(iso.slice(5, 7)) >= 4 ? y : y - 1;
+};
+const futureFyCount = (settings) => {
+  const n = Number(settings && settings.future_financial_years);
+  return Number.isInteger(n) && n >= 1 && n <= MAX_FUTURE_FYS ? n : Number(DEFAULT_SETTINGS.future_financial_years);
+};
+
+// The Financial Year dropdown: the previous FY, today's FY and the next N FYs (setting
+// future_financial_years), plus every active year an admin added in Settings, minus the years
+// an admin switched off there. Oldest first.
+const listFinancialYears = async (settings) => {
+  const s = settings || (await getSettings());
+  const [rows] = await db.query(
+    `SELECT value, is_active FROM bp_setting_options WHERE list_key = 'FINANCIAL_YEAR'`,
+  );
+  const hidden = new Set(rows.filter((r) => Number(r.is_active) !== 1).map((r) => String(r.value)));
+  const years = new Set(rows.filter((r) => Number(r.is_active) === 1).map((r) => String(r.value)));
+  const start = currentFyStart();
+  for (let y = start - 1; y <= start + futureFyCount(s); y += 1) {
+    const v = fyLabel(y);
+    if (!hidden.has(v)) years.add(v);
+  }
+  return [...years].sort((a, b) => (fyStart(a) || 0) - (fyStart(b) || 0) || a.localeCompare(b));
+};
+
+// a financial year a plan / target sheet may use: one of the dropdown years
+const isValidFinancialYear = async (value) => {
+  const v = String(value || "").trim();
+  if (!v) return false;
+  return (await listFinancialYears()).includes(v);
 };
 
 const getOption = async (id) => {
@@ -140,6 +193,7 @@ const getSettings = async () => {
     final_approver_roles: raw.final_approver_roles === null || raw.final_approver_roles === undefined
       ? DEFAULT_SETTINGS.final_approver_roles
       : String(raw.final_approver_roles),
+    future_financial_years: futureFyCount(raw),
   };
 };
 
@@ -291,12 +345,25 @@ const getEmployee = async (id) => {
 };
 
 // Distributors = ledgers under "Sundry Debtors"
-const listDistributors = async ({ userIds, search, page, limit }) => {
+//   userIds          : only ledgers assigned (employee_under) to these users (null = all)
+//   excludePlanId    : leave out the ledgers already in this plan
+//   excludeOwnerIds  : leave out ledgers assigned to these users (the person preparing the plan)
+const listDistributors = async ({ userIds, search, page, limit, excludePlanId = null, excludeOwnerIds = [] }) => {
   const where = ["ag.group_name = ?"];
   const params = [DEBTOR_GROUP];
   if (userIds) {
+    if (!userIds.length) return [];
     where.push("l.employee_under IN (?)");
     params.push(userIds);
+  }
+  const notOwners = (excludeOwnerIds || []).filter(Boolean);
+  if (notOwners.length) {
+    where.push("(l.employee_under IS NULL OR l.employee_under NOT IN (?))");
+    params.push(notOwners);
+  }
+  if (excludePlanId) {
+    where.push("NOT EXISTS (SELECT 1 FROM bp_distributor_lines dl WHERE dl.plan_id = ? AND dl.ledger_id = l.id)");
+    params.push(excludePlanId);
   }
   if (search) {
     where.push("l.ledger_name LIKE ?");
@@ -305,9 +372,8 @@ const listDistributors = async ({ userIds, search, page, limit }) => {
   const lim = Math.min(Math.max(Number(limit) || 30, 1), 100);
   const off = (Math.max(Number(page) || 1, 1) - 1) * lim;
   const [rows] = await db.query(
-    `SELECT l.id AS ledger_id, l.ledger_name AS name, l.location, 'ACTIVE' AS status, l.credit_limit,
-        l.employee_under, l.state_id, gd.district_name_english AS district,
-        gs.state_name AS state,
+    `SELECT l.id AS ledger_id, l.ledger_name AS name, l.location, 'ACTIVE' AS status,
+            gd.district_name_english AS district, gs.state_name AS state,
             u.name AS employee_name
      FROM ledgers l
      INNER JOIN account_groups ag ON ag.id = l.group_id
@@ -340,9 +406,20 @@ const getDistributorLedger = async (ledgerId) => {
   return rows[0] || null;
 };
 
-const listRetailers = async ({ search, distributorLedgerId, page, limit }) => {
+//   createdBy     : only retailers created by this employee (customers.created_by) — the
+//                   Business Plan's employee
+//   excludePlanId : leave out the retailers already in this plan
+const listRetailers = async ({ search, distributorLedgerId, page, limit, createdBy = null, excludePlanId = null }) => {
   const where = ["c.type = 'retailer'"];
   const params = [];
+  if (createdBy) {
+    where.push("c.created_by = ?");
+    params.push(createdBy);
+  }
+  if (excludePlanId) {
+    where.push("NOT EXISTS (SELECT 1 FROM bp_retailer_lines rl WHERE rl.plan_id = ? AND rl.retailer_id = c.id)");
+    params.push(excludePlanId);
+  }
   if (search) {
     where.push("(c.name LIKE ? OR c.firm_name LIKE ? OR c.contact_number LIKE ?)");
     params.push(`%${search}%`, `%${search}%`, `%${search}%`);
@@ -370,7 +447,7 @@ const listRetailers = async ({ search, distributorLedgerId, page, limit }) => {
 const getRetailer = async (id) => {
   const [rows] = await db.query(
     `SELECT c.id, COALESCE(NULLIF(c.firm_name, ''), c.name) AS name, c.name AS owner_name,
-            c.contact_number, c.area, c.district,
+            c.contact_number, c.area, c.district, c.created_by,
             (SELECT rd.distributor_ledger_id FROM retailer_distributors rd
               WHERE rd.retailer_id = c.id ORDER BY rd.distributor_ledger_id LIMIT 1) AS mapped_ledger_id
      FROM customers c
@@ -438,6 +515,12 @@ module.exports = {
   listOptions,
   groupOptions,
   isActiveOption,
+  MAX_FUTURE_FYS,
+  fyLabel,
+  fyStart,
+  currentFyStart,
+  listFinancialYears,
+  isValidFinancialYear,
   getOption,
   addOption,
   updateOption,

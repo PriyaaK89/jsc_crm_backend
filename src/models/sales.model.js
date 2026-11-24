@@ -554,6 +554,53 @@ const getOverdueBills = async (connection, ledgerId, referenceDate) => {
   return rows;
 };
 
+
+// const getOverdueBills = async (connection, ledgerId, referenceDate) => {
+//   try {
+//     console.log("========== GET OVERDUE BILLS DEBUG ==========");
+//     console.log("Ledger ID:", ledgerId);
+//     console.log("Reference Date:", referenceDate);
+
+//     const query = `
+//       SELECT
+//         sbr.id,
+//         sbr.reference_no,
+//         sbr.voucher_no,
+//         sbr.due_date,
+//         sbr.bill_amount,
+//         sbr.pending_amount,
+//         s.sales_date AS bill_date,
+//         sbr.status,
+//         DATEDIFF(?, sbr.due_date) AS duration_days
+//       FROM sales_bill_references sbr
+//       LEFT JOIN sales s ON s.id = sbr.sale_id
+//       WHERE sbr.ledger_id = ?
+//         AND sbr.pending_amount > 0
+//         AND sbr.due_date IS NOT NULL
+//         AND sbr.due_date < ?
+//         AND sbr.status IN ('PENDING', 'PARTIAL')
+//       ORDER BY sbr.due_date ASC
+//     `;
+
+//     const params = [referenceDate, ledgerId, referenceDate];
+
+//     console.log("SQL Parameters:", params);
+
+//     const [rows] = await connection.query(query, params);
+
+//     console.log("Overdue Bills Found:", rows.length);
+//     console.log("Overdue Bills Data:", JSON.stringify(rows, null, 2));
+
+//     console.log("========== END OVERDUE BILLS DEBUG ==========");
+
+//     return rows;
+
+//   } catch (error) {
+//     console.error("GET OVERDUE BILLS ERROR:", error);
+//     throw error;
+//   }
+// };
+
 exports.enforceSalesRules = async (
   connection,
   customerLedger,

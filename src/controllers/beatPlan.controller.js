@@ -1180,7 +1180,14 @@ exports.getToday = wrap(async (req, res) => {
 //  NOTIFICATIONS  (bell / app inbox of the logged-in user)
 // ------------------------------------------------------------------
 
-// GET /notifications?unread=1&page=1&limit=10
+// optional ?category=ABS|BP|BEAT (Advance Booking / Business Plan / beat plan). Anything else
+// (or none) = every notification, as before.
+const notificationCategory = (q) => {
+  const c = String((q && q.category) || "").trim().toUpperCase();
+  return model.NOTIFICATION_CATEGORIES.includes(c) ? c : undefined;
+};
+
+// GET /notifications?unread=1&page=1&limit=10&category=
 exports.myNotifications = wrap(async (req, res) => {
   const page = Math.max(Number(req.query.page) || 1, 1);
   const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 50);
@@ -1188,6 +1195,7 @@ exports.myNotifications = wrap(async (req, res) => {
     unreadOnly: req.query.unread === "1",
     page,
     limit,
+    category: notificationCategory(req.query),
   });
   return ok(res, {
     items: out.rows,
@@ -1198,10 +1206,15 @@ exports.myNotifications = wrap(async (req, res) => {
   });
 });
 
-// GET /notifications/unread-count
+// GET /notifications/unread-count[?category=]  -> { unread_count, by_category: { ABS, BP, BEAT } }
 exports.unreadNotificationCount = wrap(async (req, res) => {
+  const [count, byCategory] = await Promise.all([
+    model.countUnreadNotifications(req.user.id, { category: notificationCategory(req.query) }),
+    model.countUnreadByCategory(req.user.id),
+  ]);
   return ok(res, {
-    unread_count: await model.countUnreadNotifications(req.user.id),
+    unread_count: count,
+    by_category: byCategory,
   });
 });
 
@@ -1213,7 +1226,7 @@ exports.markNotificationRead = wrap(async (req, res) => {
 
 // PATCH /notifications/read-all
 exports.markAllNotificationsRead = wrap(async (req, res) => {
-  await model.markAllNotificationsRead(req.user.id);
+  await model.markAllNotificationsRead(req.user.id, { category: notificationCategory(req.query) });
   return ok(res, null, "All marked as read");
 });
 

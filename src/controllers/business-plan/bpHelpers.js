@@ -162,6 +162,12 @@ const canPlanFor = async (req, userId) => {
   return canSeeUser(await visibleIds(req), userId);
 };
 
+// Parties a Business Plan of an employee may use (Add Distributor): the distributors assigned
+// (ledgers.employee_under) to that employee or to someone below him in the reporting line
+// (users.reporting_under). The person preparing the plan is never part of it unless the plan is
+// his own, so his own parties are not offered for an employee's plan.
+const planPartyOwners = async (employeeId) => userModel.getSubordinateIds(Number(employeeId));
+
 const assertCanPlanFor = async (req, userId) => {
   if (!(await canPlanFor(req, userId))) {
     throw new HttpError(403, "You can create a business plan only for yourself or an employee in your reporting team");
@@ -356,6 +362,7 @@ module.exports = {
   assertCanEditPlan,
   canPlanFor,
   assertCanPlanFor,
+  planPartyOwners,
   meBlock,
   QUARTER_LABEL,
   fyStartYear,

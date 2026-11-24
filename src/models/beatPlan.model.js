@@ -784,21 +784,56 @@ const clearChangeRequestNotifications = async (requestId) => {
   );
 };
 
-const countUnreadNotifications = async (userId) => {
+// Notification categories of the bell (same table, told apart by the type prefix):
+//   ABS = Advance Booking (ABS_*), BP = Business Plan + target sheets (BP_*),
+//   BEAT = everything else (beat plans, change / party requests).
+// `category` is optional everywhere: without it nothing changes.
+const NOTIFICATION_CATEGORIES = ["ABS", "BP", "BEAT"];
+const categoryWhere = (category) => {
+  switch (String(category || "").toUpperCase()) {
+    case "ABS":
+      return { sql: " AND SUBSTR(type, 1, 4) = 'ABS_'", params: [] };
+    case "BP":
+      return { sql: " AND SUBSTR(type, 1, 3) = 'BP_'", params: [] };
+    case "BEAT":
+      return { sql: " AND (type IS NULL OR (SUBSTR(type, 1, 4) <> 'ABS_' AND SUBSTR(type, 1, 3) <> 'BP_'))", params: [] };
+    default:
+      return { sql: "", params: [] };
+  }
+};
+
+const countUnreadNotifications = async (userId, { category } = {}) => {
+  const c = categoryWhere(category);
   const [[row]] = await db.query(
-    `SELECT COUNT(*) AS c FROM beat_notifications WHERE user_id = ? AND is_read = 0`,
-    [userId],
+    `SELECT COUNT(*) AS c FROM beat_notifications WHERE user_id = ? AND is_read = 0${c.sql}`,
+    [userId, ...c.params],
   );
   return Number(row.c) || 0;
 };
 
+// unread per category: { ABS, BP, BEAT }
+const countUnreadByCategory = async (userId) => {
+  const [rows] = await db.query(
+    `SELECT CASE WHEN SUBSTR(type, 1, 4) = 'ABS_' THEN 'ABS' WHEN SUBSTR(type, 1, 3) = 'BP_' THEN 'BP' ELSE 'BEAT' END AS category,
+            COUNT(*) AS c
+     FROM beat_notifications
+     WHERE user_id = ? AND is_read = 0
+     GROUP BY category`,
+    [userId],
+  );
+  const out = { ABS: 0, BP: 0, BEAT: 0 };
+  for (const r of rows) out[r.category] = Number(r.c) || 0;
+  return out;
+};
+
 const listNotifications = async (
   userId,
-  { unreadOnly = false, page = 1, limit = 10 } = {},
+  { unreadOnly = false, page = 1, limit = 10, category } = {},
 ) => {
   const lim = Math.min(Math.max(Number(limit) || 10, 1), 100);
   const off = (Math.max(Number(page) || 1, 1) - 1) * lim;
-  const where = unreadOnly ? "user_id = ? AND is_read = 0" : "user_id = ?";
+  const c = categoryWhere(category);
+  const where = (unreadOnly ? "user_id = ? AND is_read = 0" : "user_id = ?") + c.sql;
 
   const [rows] = await db.query(
     `SELECT id, user_id, plan_id, ref_id, type, title, message, is_read, created_at
@@ -806,16 +841,16 @@ const listNotifications = async (
      WHERE ${where}
      ORDER BY id DESC
      LIMIT ? OFFSET ?`,
-    [userId, lim, off],
+    [userId, ...c.params, lim, off],
   );
   const [[t]] = await db.query(
     `SELECT COUNT(*) AS c FROM beat_notifications WHERE ${where}`,
-    [userId],
+    [userId, ...c.params],
   );
   return {
     rows,
     total: Number(t.c) || 0,
-    unread: await countUnreadNotifications(userId),
+    unread: await countUnreadNotifications(userId, { category }),
   };
 };
 
@@ -827,11 +862,12 @@ const markNotificationRead = async (userId, id) => {
   );
 };
 
-const markAllNotificationsRead = async (userId) => {
+const markAllNotificationsRead = async (userId, { category } = {}) => {
+  const c = categoryWhere(category);
   await db.query(
     `UPDATE beat_notifications SET is_read = 1, read_at = NOW()
-     WHERE user_id = ? AND is_read = 0`,
-    [userId],
+     WHERE user_id = ? AND is_read = 0${c.sql}`,
+    [userId, ...c.params],
   );
 };
 
@@ -969,7 +1005,9 @@ module.exports = {
   addNotification,
   clearActionNotifications,
   clearChangeRequestNotifications,
+  NOTIFICATION_CATEGORIES,
   countUnreadNotifications,
+  countUnreadByCategory,
   listNotifications,
   markNotificationRead,
   markAllNotificationsRead,

@@ -278,6 +278,23 @@ const getPendingSalesBills = async (connection, ledgerId) => {
   return rows;
 };
 
+// const applyAmountToSalesBill = async (connection, salesBillReferenceId, amount) => {
+//   await connection.query(
+//     `
+//     UPDATE sales_bill_references
+//     SET
+//       pending_amount = GREATEST(pending_amount - ?, 0),
+//       status = CASE
+//         WHEN pending_amount - ? <= 0 THEN 'RECEIVED'
+//         WHEN pending_amount - ? < bill_amount THEN 'PARTIAL'
+//         ELSE 'PENDING'
+//       END
+//     WHERE id = ?
+//     `,
+//     [amount, amount, amount, salesBillReferenceId]
+//   );
+// };
+
 const applyAmountToSalesBill = async (connection, salesBillReferenceId, amount) => {
   await connection.query(
     `
@@ -285,15 +302,16 @@ const applyAmountToSalesBill = async (connection, salesBillReferenceId, amount) 
     SET
       pending_amount = GREATEST(pending_amount - ?, 0),
       status = CASE
-        WHEN pending_amount - ? <= 0 THEN 'RECEIVED'
-        WHEN pending_amount - ? < bill_amount THEN 'PARTIAL'
+        WHEN pending_amount <= 0 THEN 'RECEIVED'
+        WHEN pending_amount < bill_amount THEN 'PARTIAL'
         ELSE 'PENDING'
       END
     WHERE id = ?
     `,
-    [amount, amount, amount, salesBillReferenceId]
+    [amount, salesBillReferenceId]
   );
 };
+
 exports.allocateReceiptAgainstSelectedBills = async (
   connection,
   {

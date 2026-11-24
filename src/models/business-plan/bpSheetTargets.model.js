@@ -10,6 +10,15 @@
 //   sales / collection / ABS per month = the revision's monthly targets for that month
 //   distributor quarter target         = sum of the line's monthly targets in the quarter
 //   product / retailer / development   = season figure x (plan months in the quarter / plan months)
+//
+// Partial quarters (a plan that starts or ends inside the quarter, e.g. a 1 Nov – 31 Jan plan
+// in Q3 Oct–Dec): the quarter structure stays fixed, but only the months covered by an approved
+// plan carry targets. Each month says whether it is in a plan (months[i].in_plan,
+// month_in_plan[i]); a month outside every plan has no target (it is not a "zero target") and
+// needs no commitment. coverage = the part of the quarter the plans cover (first plan day ..
+// last plan day, inside the quarter). The month rule is the plan's own (calendar months touched
+// by start .. end, bpTargets.monthsOf), so the plan and the sheet always show the same monthly
+// figures: 1 Nov – 31 Jan at ₹6,00,000 = ₹2,00,000 for Nov, Dec (Q3) and Jan (Q4).
 const db = require("../../config/db");
 const plan = require("./bpPlan.model");
 const REV = require("./bpRevision.model");
@@ -75,6 +84,12 @@ const quarterTargets = async (userId, financialYear, quarter, bounds) => {
     links: [],
   };
 
+  const covered = [false, false, false];
+  const planCodes = [[], [], []];
+  const devMonthly = { new_distributors: [0, 0, 0], new_retailers: [0, 0, 0] };
+  let coverFrom = null;
+  let coverTo = null;
+
   for (const id of ids) {
     const p = await plan.getPlan(id);
     if (!p) continue;
@@ -86,6 +101,17 @@ const quarterTargets = async (userId, financialYear, quarter, bounds) => {
     const inQuarter = qMonths.filter((ym) => planMonths.includes(ym));
     if (!inQuarter.length) continue;
     const share = inQuarter.length / Math.max(planMonths.length, 1);
+    qMonths.forEach((ym, i) => {
+      if (!planMonths.includes(ym)) return;
+      covered[i] = true;
+      planCodes[i].push(sp.plan_code);
+      devMonthly.new_distributors[i] += num(sp.new_distributor_target) / Math.max(planMonths.length, 1);
+      devMonthly.new_retailers[i] += num(sp.new_retailer_target) / Math.max(planMonths.length, 1);
+    });
+    const pFrom = sp.start_date > bounds.from ? sp.start_date : bounds.from;
+    const pTo = sp.end_date < bounds.to ? sp.end_date : bounds.to;
+    if (!coverFrom || pFrom < coverFrom) coverFrom = pFrom;
+    if (!coverTo || pTo > coverTo) coverTo = pTo;
     out.links.push({ plan_id: p.id, revision_no: rev.revision_no });
     out.plans.push({
       plan_id: p.id,
@@ -194,8 +220,50 @@ const quarterTargets = async (userId, financialYear, quarter, bounds) => {
     out.kpis.abs_booking = [0, 0, 0];
     out.kpis.abs_advance = [0, 0, 0];
   }
+  out.month_in_plan = covered;
+  out.months = out.months.map((m, i) => ({ ...m, in_plan: covered[i], plan_codes: planCodes[i] }));
+  out.active_months = covered.filter(Boolean).length;
+  out.coverage = coverFrom ? { from: coverFrom, to: coverTo, full_quarter: coverFrom === bounds.from && coverTo === bounds.to } : null;
+  out.kpis.new_distributors = devMonthly.new_distributors.map(round2);
+  out.kpis.new_retailers = devMonthly.new_retailers.map(round2);
   out.revision_key = out.links.map((l) => `${l.plan_id}:${l.revision_no}`).join(",");
   return out;
 };
 
-module.exports = { QUARTER_LABEL, linkedPlanRows, quarterTargets };
+// Targets frozen before the month flags existed (signed sheets): derive them from the plans'
+// months_in_quarter, so old sheets show and review partial quarters the same way.
+const withCoverage = (t) => {
+  if (!t || !Array.isArray(t.months)) return t;
+  if (Array.isArray(t.month_in_plan) && t.coverage !== undefined && t.kpis && t.kpis.new_distributors) return t;
+  const plans = t.plans || [];
+  const months = t.months.map((m) => {
+    const codes = plans.filter((p) => (p.months_in_quarter || []).includes(m.month)).map((p) => p.plan_code);
+    return { ...m, in_plan: codes.length > 0, plan_codes: codes };
+  });
+  const covered = months.map((m) => m.in_plan);
+  let coverFrom = null;
+  let coverTo = null;
+  for (const p of plans) {
+    const f = p.start_date > t.from ? p.start_date : t.from;
+    const to = p.end_date < t.to ? p.end_date : t.to;
+    if (!coverFrom || f < coverFrom) coverFrom = f;
+    if (!coverTo || to > coverTo) coverTo = to;
+  }
+  const dev = t.development || {};
+  const active = covered.filter(Boolean).length;
+  const spread = (total) => covered.map((c) => (c && active ? round2(num(total) / active) : 0));
+  return {
+    ...t,
+    months,
+    month_in_plan: covered,
+    active_months: active,
+    coverage: coverFrom ? { from: coverFrom, to: coverTo, full_quarter: coverFrom === t.from && coverTo === t.to } : null,
+    kpis: {
+      ...(t.kpis || {}),
+      new_distributors: (t.kpis && t.kpis.new_distributors) || spread(dev.quarter_new_distributor_target),
+      new_retailers: (t.kpis && t.kpis.new_retailers) || spread(dev.quarter_new_retailer_target),
+    },
+  };
+};
+
+module.exports = { QUARTER_LABEL, linkedPlanRows, quarterTargets, withCoverage };

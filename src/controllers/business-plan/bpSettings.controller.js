@@ -38,7 +38,9 @@ const getMasters = wrap(async (req, res) => {
   ]);
   const grouped = s.groupOptions(options);
   return ok(res, {
-    financial_years: grouped.FINANCIAL_YEAR.map((o) => o.value),
+    // generated (previous FY .. today's FY + settings.future_financial_years) + admin-added years
+    financial_years: await s.listFinancialYears(settings),
+    current_financial_year: H.currentQuarter().financial_year,
     seasons: grouped.SEASON.map((o) => o.value),
     plan_types: grouped.PLAN_TYPE.map((o) => o.value),
     gap_reasons: grouped.GAP_REASON.map((o) => o.value),
@@ -112,6 +114,13 @@ const updateSettings = wrap(async (req, res) => {
   }
   if (body.lock_date !== undefined) {
     values.lock_date = body.lock_date === null || body.lock_date === "" ? null : H.date(body.lock_date, "Lock date");
+  }
+  if (body.future_financial_years !== undefined) {
+    const n = Number(body.future_financial_years);
+    if (!Number.isInteger(n) || n < 1 || n > s.MAX_FUTURE_FYS) {
+      throw new HttpError(400, `Future financial years must be a whole number from 1 to ${s.MAX_FUTURE_FYS}`);
+    }
+    values.future_financial_years = n;
   }
   if (body.final_approver_roles !== undefined) {
     const list = (Array.isArray(body.final_approver_roles) ? body.final_approver_roles : String(body.final_approver_roles || "").split(","))
@@ -199,14 +208,44 @@ const lookupEmployees = wrap(async (req, res) => {
   return ok(res, await s.listEmployees({ userIds: visible, search: H.text(req.query.search, "search", { max: 100 }) }));
 });
 
+// GET /lookups/distributors?search&plan_id|employee_id&include_in_plan=1
+//   plan_id / employee_id: only the distributors assigned to the plan's employee or to his
+//   reporting team (Add Distributor / Parent Distributor). Without them: the caller's list, as
+//   before (older app versions).
 const lookupDistributors = wrap(async (req, res) => {
+  const search = H.text(req.query.search, "search", { max: 100 });
+  const planId = H.optId(req.query.plan_id, "plan_id");
+  const employeeParam = H.optId(req.query.employee_id, "employee_id");
+  if (planId || employeeParam) {
+    let employeeId = employeeParam;
+    if (planId) {
+      const p = await plan.getPlan(planId);
+      if (!p) throw new HttpError(404, "Business plan not found");
+      if (!H.canViewPlan(await H.visibleIds(req), p)) throw new HttpError(403, "You do not have access to this business plan");
+      employeeId = p.assigned_user_id;
+    } else {
+      await H.assertCanPlanFor(req, employeeId);
+    }
+    const owners = await H.planPartyOwners(employeeId);
+    return ok(
+      res,
+      await s.listDistributors({
+        userIds: owners,
+        // the person preparing an employee's plan: his own parties are not offered
+        excludeOwnerIds: Number(employeeId) === req.user.id ? [] : [req.user.id].filter((id) => !owners.includes(id)),
+        excludePlanId: planId && req.query.include_in_plan !== "1" ? planId : null,
+        search,
+        page: req.query.page,
+        limit: req.query.limit,
+      }),
+    );
+  }
   const visible = await H.visibleIds(req);
-  // a plan's assigned employee may have distributors outside the caller's own list
   return ok(
     res,
     await s.listDistributors({
       userIds: req.query.all === "1" ? null : visible,
-      search: H.text(req.query.search, "search", { max: 100 }),
+      search,
       page: req.query.page,
       limit: req.query.limit,
     }),
@@ -253,12 +292,27 @@ const distributorProfile = wrap(async (req, res) => {
   });
 });
 
+// GET /lookups/retailers?search&distributor_ledger_id&plan_id|employee_id
+//   plan_id / employee_id: only the retailers created by the plan's employee
+//   (customers.created_by), not yet in the plan. Without them: every retailer, as before.
 const lookupRetailers = wrap(async (req, res) => {
+  const planId = H.optId(req.query.plan_id, "plan_id");
+  let employeeId = H.optId(req.query.employee_id, "employee_id");
+  if (planId) {
+    const p = await plan.getPlan(planId);
+    if (!p) throw new HttpError(404, "Business plan not found");
+    if (!H.canViewPlan(await H.visibleIds(req), p)) throw new HttpError(403, "You do not have access to this business plan");
+    employeeId = p.assigned_user_id;
+  } else if (employeeId) {
+    await H.assertCanPlanFor(req, employeeId);
+  }
   return ok(
     res,
     await s.listRetailers({
       search: H.text(req.query.search, "search", { max: 100 }),
       distributorLedgerId: H.optId(req.query.distributor_ledger_id, "distributor_ledger_id"),
+      createdBy: employeeId || null,
+      excludePlanId: planId || null,
       page: req.query.page,
       limit: req.query.limit,
     }),

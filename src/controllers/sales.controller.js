@@ -313,6 +313,7 @@ exports.checkLedgerOverdueStatus = async (req, res) => {
     }
 
     const overdueBills = await salesModel.checkOverdueBills(connection, ledgerId, salesDate);
+    console.log(overdueBills, "overbills")
 
     return res.status(200).json({
       success: true,

@@ -233,7 +233,7 @@ const planOnlyForm = (form) => {
 const resolveQuarter = async (form, existing) => {
   let financialYear = form.financialYear ?? (existing ? existing.financial_year : null);
   let quarter = form.quarter ?? (existing ? existing.quarter : null);
-  if (financialYear && !(existing && existing.financial_year === financialYear) && !(await s.isActiveOption("FINANCIAL_YEAR", financialYear))) {
+  if (financialYear && !(existing && existing.financial_year === financialYear) && !(await s.isValidFinancialYear(financialYear))) {
     throw new HttpError(400, "Select a valid financial year");
   }
   if ((financialYear && !quarter) || (!financialYear && quarter)) {
@@ -317,6 +317,12 @@ const buildRecord = async (userId, rawForm, { existing = null, source = "PLAN" }
     if (planState && !String(values.state || "").trim()) values.state = planState;
     const districts = planDistricts(qt);
     if (districts && !String(values.districts || "").trim()) values.districts = districts.slice(0, 1000);
+    // "Business Plan Period — From / To": the part of the quarter the approved plans cover
+    // (a plan starting 1 Nov shows 01 Nov – 31 Dec in Q3). No plan yet: the whole quarter.
+    if (qt && qt.coverage) {
+      values.periodFrom = appDate(qt.coverage.from);
+      values.periodTo = appDate(qt.coverage.to);
+    }
   } else {
     normalizeRows(form.tables, await loadDropdowns());
     t = totals(form.tables);
@@ -328,8 +334,9 @@ const buildRecord = async (userId, rawForm, { existing = null, source = "PLAN" }
     user_id: userId,
     financial_year: financialYear,
     quarter,
-    period_from: periodFrom,
-    period_to: periodTo,
+    // PLAN sheets: the plans' coverage inside the quarter (set above), else the typed / quarter dates
+    period_from: H.normalizeDate(values.periodFrom) || periodFrom,
+    period_to: H.normalizeDate(values.periodTo) || periodTo,
     territory_type: territoryType,
     state: (values.state || "").slice(0, 100) || null,
     ...t,
@@ -407,9 +414,13 @@ const planSubmitErrors = (sh, qt, blockingRequests) => {
   }
   const b = sh.financial_year && sh.quarter ? H.quarterBounds(sh.financial_year, sh.quarter) : null;
   const monthName = (m) => (b ? `${MONTH_KEYS[m - 1]} (${b.months[m - 1].label})` : MONTH_KEYS[m - 1]);
+  // a month outside every approved plan (partial quarter) needs no commitment; a typed value
+  // must still be a valid number
+  const inPlan = (m) => !(qt && Array.isArray(qt.month_in_plan) && qt.plans.length) || !!qt.month_in_plan[m - 1];
   for (let m = 1; m <= 3; m++) {
     for (const [k, label] of Object.entries(ACTIVITY_KPIS)) {
       const raw = v[`kpi.${k}.m${m}`];
+      if (!inPlan(m) && String(raw ?? "").trim() === "") continue;
       if (!isNumber(raw) || n(raw) < 0 || !Number.isInteger(n(raw))) {
         add(`kpi.${k}.m${m}`, `${monthName(m)}: enter your ${label} commitment (a whole number, 0 or more)`);
       }
@@ -490,10 +501,51 @@ const withQuarter = (sh) => {
 const sheetTargets = async (sh) => {
   if (sh.is_legacy || !sh.financial_year || !sh.quarter) return null;
   if (sh.status === "APPROVED" && sh.target_snapshot) {
-    return { ...sh.target_snapshot, frozen: true, frozen_at: sh.snapshot_at };
+    return { ...QT.withCoverage(sh.target_snapshot), frozen: true, frozen_at: sh.snapshot_at };
   }
   const qt = await QT.quarterTargets(sh.user_id, sh.financial_year, sh.quarter, H.quarterBounds(sh.financial_year, sh.quarter));
   return { ...qt, frozen: false };
+};
+
+// ---------------------------------------------------------------------
+//  SIGNATURE BLOCK NAMES
+// ---------------------------------------------------------------------
+// "Reporting Manager Name" and "Authorized Company Approver" are filled from the sheet's approval
+// chain (users.reporting_under -> RSM, D7) as soon as the sheet is opened, so the employee sees
+// who signs. The dates stay empty until that person approves; then the approval stamps the
+// name of whoever actually approved (e.g. an admin) and the date, exactly as before.
+//   level 1 (not Admin)  -> Reporting Manager   (an RSM who is the reporting manager signs both)
+//   final level          -> Authorized Company Approver ("Admin / Super Admin" when no RSM /
+//                           manager is in the line)
+const ADMIN_SIGNER = "Admin / Super Admin";
+const signerNames = (levels) => {
+  if (!levels || !levels.length) return { manager: "", approver: "" };
+  const first = levels.find((l) => Number(l.level_no) === 1) || levels[0];
+  const last = levels.find((l) => l.is_final) || levels[levels.length - 1];
+  const nameOf = (l) => l.approver_name || (l.approver_kind === "ADMIN" ? ADMIN_SIGNER : "");
+  return { manager: first.approver_kind === "ADMIN" ? "" : nameOf(first), approver: nameOf(last) };
+};
+
+// the chain the sheet goes (or went) through: the current approval round while it is with the
+// approvers, else the chain it would get if submitted now
+const expectedSigners = async (sh, state) => {
+  if (PENDING_STATUSES.includes(sh.status) && state && state.steps && state.steps.length) {
+    return signerNames(state.steps);
+  }
+  const excludeIds = sh.created_by && sh.created_by !== sh.user_id ? [sh.created_by] : [];
+  const levels = sh.is_legacy
+    ? await WF.chainFor(sh.user_id, { excludeIds })
+    : await WF.sheetChainFor(sh.user_id, { excludeIds });
+  return signerNames(levels);
+};
+
+// fills the empty name fields (never the dates, never a stamped name; not on a signed sheet)
+const withSignerNames = (values, status, names) => {
+  const out = { ...(values || {}) };
+  if (status === "APPROVED") return out;
+  if (!String(out.mgrName || "").trim() && status !== "MANAGER_APPROVED" && names.manager) out.mgrName = names.manager;
+  if (!String(out.apprName || "").trim() && names.approver) out.apprName = names.approver;
+  return out;
 };
 
 const respond = async (req, res, sh, message, status = 200) => {
@@ -504,8 +556,18 @@ const respond = async (req, res, sh, message, status = 200) => {
     SP.listVersions(sh.id),
     SP.listLinks(sh.id),
   ]);
+  const signers = await expectedSigners(sh, approval.state);
+  const values = withSignerNames(sh.values, sh.status, signers);
   const out = {
     ...withQuarter(sh),
+    values,
+    // who signs the sheet (names shown before they approve; *_signed = the date is stamped)
+    signers: {
+      manager_name: values.mgrName || "",
+      manager_signed: !!String((sh.values || {}).mgrDate || "").trim(),
+      approver_name: values.apprName || "",
+      approver_signed: !!String((sh.values || {}).apprDate || "").trim(),
+    },
     plan_targets: targets,
     linked_plans: links,
     revision_requests: requests,
@@ -538,10 +600,12 @@ const prefill = wrap(async (req, res) => {
   const quarter = req.query.quarter ? Number(String(req.query.quarter).replace(/^Q/i, "")) : cq.quarter;
   const bounds = H.quarterBounds(financialYear, quarter);
   if (!bounds) throw new HttpError(400, "Select a valid financial year and quarter");
-  const [qt, territory] = await Promise.all([
+  const [qt, territory, chain] = await Promise.all([
     QT.quarterTargets(req.user.id, financialYear, quarter, bounds),
     territoryValues(req.user.id, financialYear),
+    WF.sheetChainFor(req.user.id),
   ]);
+  const signers = signerNames(chain);
   return ok(res, {
     company: await companyName(),
     employeeName: emp.name,
@@ -553,9 +617,15 @@ const prefill = wrap(async (req, res) => {
     // only when a plan territory gives districts (an empty value never clears what was typed)
     ...(planDistricts(qt) ? { districts: planDistricts(qt) } : {}),
     reportingManager: emp.reporting_manager || "",
+    // signature block: who will approve (dates are stamped at approval)
+    mgrName: signers.manager,
+    apprName: signers.approver,
     signName: emp.name,
     financialYear,
     quarter: String(quarter),
+    // the part of the quarter the approved plans cover (whole quarter when no plan yet)
+    periodFrom: appDate(qt.coverage ? qt.coverage.from : bounds.from),
+    periodTo: appDate(qt.coverage ? qt.coverage.to : bounds.to),
     ...territory,
     plan_targets: qt,
   });
@@ -1075,7 +1145,9 @@ const buildReview = async (sh) => {
   const absMonthly = absEnabled ? await ABS.monthlyActuals(sh.user_id, bounds.from, bounds.to) : new Map();
   const reasonMap = new Map(reasons.map((r) => [`${String(r.review_month || "").slice(0, 7)}|${r.kpi}`, r]));
   const v = sh.values || {};
-  const devMonth = (key) => Math.round((Number(targets.development[key] || 0) / 3) * 100) / 100;
+  // monthly development targets: only months inside a plan carry a share
+  const inPlan = (i) => !Array.isArray(targets.month_in_plan) || !!targets.month_in_plan[i];
+  const devMonth = (key, i) => Number(((targets.kpis || {})[key] || [])[i] || 0);
 
   const rows = [];
   months.forEach((ym, i) => {
@@ -1093,18 +1165,21 @@ const buildReview = async (sh) => {
         case "OLD_RECOVERY": actual = c.old_recovery; break;
         case "ABS_BOOKING": target = targets.kpis.abs_booking[i]; actual = ab.booking; break;
         case "ABS_ADVANCE": target = targets.kpis.abs_advance[i]; actual = ab.advance; break;
-        case "NEW_DISTRIBUTORS": target = devMonth("quarter_new_distributor_target"); actual = a.new_distributors || 0; break;
-        case "NEW_RETAILERS": target = devMonth("quarter_new_retailer_target"); actual = a.new_retailers || 0; break;
+        case "NEW_DISTRIBUTORS": target = devMonth("new_distributors", i); actual = a.new_distributors || 0; break;
+        case "NEW_RETAILERS": target = devMonth("new_retailers", i); actual = a.new_retailers || 0; break;
         case "DISTRIBUTOR_MEETINGS": target = isNumber(v[`kpi.dm.m${i + 1}`]) ? n(v[`kpi.dm.m${i + 1}`]) : null; actual = a.distributor_visits || 0; break;
         case "RETAILER_VISITS": target = isNumber(v[`kpi.rv.m${i + 1}`]) ? n(v[`kpi.rv.m${i + 1}`]) : null; actual = a.retailer_visits || 0; break;
         case "FARMER_MEETINGS": target = isNumber(v[`kpi.fm.m${i + 1}`]) ? n(v[`kpi.fm.m${i + 1}`]) : null; actual = a.farmer_visits || 0; break;
         default: break;
       }
+      // a month outside every plan has no plan target (actuals are still shown)
+      if (!inPlan(i) && !k.activity) target = null;
       const r = reasonMap.get(`${ym}|${k.kpi}`);
       const percent = pctOf(actual, target);
       rows.push({
         month: ym,
         label: T.monthLabel(ym),
+        in_plan: inPlan(i),
         kpi: k.kpi,
         kpi_label: k.label,
         unit: k.unit,
@@ -1129,6 +1204,8 @@ const buildReview = async (sh) => {
   );
   return {
     months: targets.months,
+    month_in_plan: targets.month_in_plan || [true, true, true],
+    coverage: targets.coverage || null,
     abs_enabled: absEnabled,
     frozen_targets: !!targets.frozen,
     rows,

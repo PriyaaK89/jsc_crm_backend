@@ -10,7 +10,7 @@ router.get( "/sales-ledger-dropdown", auth, salesController.getSalesLedgerList);
 // router.post( "/create-sales-order", auth, salesController.createSales);
 
 router.post(
-    "/create-sales-order", auth, checkPermission("CREATE_TRANSACTION"),
+    "/create-sales-order", auth,
     upload.fields([
       { name: "dispatch_doc_image", maxCount: 1 },
       { name: "bill_t_image", maxCount: 1 }

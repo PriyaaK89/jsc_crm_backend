@@ -5,7 +5,7 @@ const receiptController = require("../controllers/receipt.controller");
 const upload = require("../middleware/upload.middleware");
 const auth = require("../middleware/auth.middleware");
 
-router.post( "/createReceipt", auth, checkPermission("CREATE_TRANSACTION"),  upload.single("attachment"), receiptController.createReceipt );
+router.post( "/createReceipt", auth,  upload.single("attachment"), receiptController.createReceipt );
 router.get( "/getPendingBills/:ledgerId",auth, receiptController.getPendingBills);
 router.get( "/get-receipt-invoice/:id",auth, receiptController.getReceiptInvoice);
 // routes/receipt.routes.js

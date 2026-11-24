@@ -35,14 +35,14 @@ const uploadFields = [
   { name: "partner_photo_4", maxCount: 1 },
 ];
 
-router.post( "/create-distributor", auth, checkPermission("CREATE_DISTRIBUTOR"), upload.fields(uploadFields), controller.createDistributor);
-router.get("/get-distributor/:id", auth, checkAnyPermission(["VIEW_DISTRIBUTOR", "UPDATE_DISTRIBUTOR"]), controller.getDistributor);
+router.post( "/create-distributor", auth, upload.fields(uploadFields), controller.createDistributor);
+router.get("/get-distributor/:id", auth, checkAnyPermission([ "UPDATE_DISTRIBUTOR"]), controller.getDistributor);
 router.put(
   "/update-distributor/:id", auth, checkPermission("UPDATE_DISTRIBUTOR"),
   upload.fields(uploadFields),
   controller.updateDistributor
 );
-router.get("/get-distributorsList", auth, checkPermission("VIEW_DISTRIBUTOR"), controller.getAllDistributors);
+router.get("/get-distributorsList", auth, controller.getAllDistributors);
 router.delete( "/delete-distributor/:id", auth, checkPermission("DELETE_DISTRIBUTOR"), controller.deleteDistributor);
 router.post("/upload-agreement", auth, checkPermission("UPDATE_DISTRIBUTOR"), upload.single("file"), controller.uploadAgreement);
 
@@ -50,10 +50,10 @@ router.get("/get-distributor-agreement/:distributor_id", auth, controller.getDis
 
 // ---------------- DRAFTS ----------------
 // ---------------- DRAFTS ----------------
-router.post("/distributor-drafts", auth, checkPermission("CREATE_DISTRIBUTOR"), upload.fields(uploadFields), draftController.createDraft);
-router.put("/distributor-drafts/:id", auth, checkPermission("CREATE_DISTRIBUTOR"), upload.fields(uploadFields), draftController.updateDraft);
-router.get("/distributor-drafts", auth, checkPermission("CREATE_DISTRIBUTOR"), draftController.getDrafts);
-router.get("/distributor-drafts/:id", auth, checkPermission("CREATE_DISTRIBUTOR"), draftController.getDraft);
-router.delete("/distributor-drafts/:id", auth, checkPermission("CREATE_DISTRIBUTOR"), draftController.deleteDraft);
+router.post("/distributor-drafts", auth,  upload.fields(uploadFields), draftController.createDraft);
+router.put("/distributor-drafts/:id", auth, upload.fields(uploadFields), draftController.updateDraft);
+router.get("/distributor-drafts", auth,  draftController.getDrafts);
+router.get("/distributor-drafts/:id", auth, draftController.getDraft);
+router.delete("/distributor-drafts/:id", auth,  draftController.deleteDraft);
 
 module.exports = router;

@@ -97,7 +97,17 @@ const shapeDealer = (r) => {
     balance_amount: Math.abs(balance),
     balance_type: balance < 0 ? "Cr" : "Dr",
     gst_no: r.gst_no || "",
+    // GPS of the latest visit to this dealer (visits are made at the dealer's shop);
+    // null when the dealer was never visited with GPS. Find Location falls back to the address.
+    latitude: coord(r.last_visit_lat, 90),
+    longitude: coord(r.last_visit_lng, 180),
   };
+};
+
+// a usable coordinate, or null (0 / empty / out of range = not a real GPS fix)
+const coord = (v, max) => {
+  const n = Number(v);
+  return Number.isFinite(n) && n !== 0 && Math.abs(n) <= max ? n : null;
 };
 
 /**
@@ -122,6 +132,18 @@ const listDealers = async ({ userIds, search = "", page = 1, limit = 20 }) => {
             (SELECT c.contact_number FROM customers c
               WHERE c.type = 'distributor' AND c.distributor_ledger_id = l.id
               LIMIT 1) AS customer_contact,
+            (SELECT v.latitude FROM visits v
+              INNER JOIN customers vc ON vc.id = v.customer_id
+              WHERE vc.type = 'distributor' AND vc.distributor_ledger_id = l.id
+                AND v.latitude IS NOT NULL AND v.longitude IS NOT NULL
+                AND v.latitude <> 0 AND v.longitude <> 0
+              ORDER BY v.id DESC LIMIT 1) AS last_visit_lat,
+            (SELECT v.longitude FROM visits v
+              INNER JOIN customers vc ON vc.id = v.customer_id
+              WHERE vc.type = 'distributor' AND vc.distributor_ledger_id = l.id
+                AND v.latitude IS NOT NULL AND v.longitude IS NOT NULL
+                AND v.latitude <> 0 AND v.longitude <> 0
+              ORDER BY v.id DESC LIMIT 1) AS last_visit_lng,
             ${BALANCE_SQL} AS balance
      ${FROM_SQL}
      WHERE ${w.sql}
@@ -171,4 +193,68 @@ const getLedgerOwner = async (ledgerId) => {
   return rows[0] || null;
 };
 
-module.exports = { DEBTOR_GROUP, listDealers, getLedgerOwner, _splitPhones: splitPhones };
+/**
+ * Visits made to one dealer (newest first).
+ * A distributor visit is stored against the dealer's `customers` row
+ * (type = 'distributor', distributor_ledger_id = the ledger), see customer.model.findOrCreateDistributorCustomer.
+ * @param {{ ledgerId: number, userIds: number[]|null, page?: number, limit?: number }} f
+ *   userIds = whose visits may be shown (null = everybody's)
+ */
+const listDealerVisits = async ({ ledgerId, userIds, page = 1, limit = 20 }) => {
+  const lim = Math.min(Math.max(Number(limit) || 20, 1), MAX_LIMIT);
+  const pg = Math.max(Number(page) || 1, 1);
+  if (userIds && !userIds.length) {
+    return { items: [], pagination: { page: pg, limit: lim, total: 0, total_pages: 1, has_more: false } };
+  }
+
+  const where = ["c.type = 'distributor'", "c.distributor_ledger_id = ?"];
+  const params = [ledgerId];
+  if (userIds) {
+    where.push("v.user_id IN (?)");
+    params.push(userIds);
+  }
+  const from = `
+    FROM visits v
+    INNER JOIN customers c ON c.id = v.customer_id
+    LEFT JOIN users u ON u.id = v.user_id
+    WHERE ${where.join(" AND ")}`;
+
+  const [[cnt]] = await db.query(`SELECT COUNT(*) AS total ${from}`, params);
+  const [rows] = await db.query(
+    `SELECT v.id, v.user_id, u.name AS employee_name, v.visit_type, v.visit_purpose, v.visit_outcome,
+            v.comment, v.reminder_date, v.reminder_time, v.reminder_reason, v.priority,
+            v.latitude, v.longitude, v.visit_start_time, v.visit_duration_seconds, v.created_at
+     ${from}
+     ORDER BY v.created_at DESC, v.id DESC
+     LIMIT ? OFFSET ?`,
+    [...params, lim, (pg - 1) * lim],
+  );
+
+  const total = num(cnt && cnt.total);
+  const totalPages = Math.max(Math.ceil(total / lim), 1);
+  return {
+    items: rows.map((r) => ({
+      id: r.id,
+      user_id: r.user_id,
+      employee_name: r.employee_name || "",
+      visit_type: r.visit_type || "",
+      visit_purpose: r.visit_purpose || "",
+      visit_outcome: r.visit_outcome || "",
+      comment: r.comment || "",
+      reminder_date: r.reminder_date || null,
+      reminder_time: r.reminder_time || null,
+      reminder_reason: r.reminder_reason || "",
+      priority: r.priority || "",
+      latitude: coord(r.latitude, 90),
+      longitude: coord(r.longitude, 180),
+      visit_start_time: r.visit_start_time || null,
+      visit_duration_seconds: r.visit_duration_seconds === null || r.visit_duration_seconds === undefined
+        ? null
+        : num(r.visit_duration_seconds),
+      created_at: r.created_at,
+    })),
+    pagination: { page: pg, limit: lim, total, total_pages: totalPages, has_more: pg < totalPages },
+  };
+};
+
+module.exports = { DEBTOR_GROUP, listDealers, listDealerVisits, getLedgerOwner, _splitPhones: splitPhones };

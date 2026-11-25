@@ -92,10 +92,20 @@ exports.createVisit = async (req, res) => {
     }
 
     //  EXISTING CUSTOMER FLOW
-    if (customer_type === "existing") {
+
+      if (customer_type === "existing") {
       if (!customer_id) {
         return res.status(400).json({
           message: "Customer ID is required for existing customer"
+        });
+      }
+
+      // Block duplicate visit for same customer on the same date
+      const alreadyVisited = await visitModel.hasVisitToday(user_id, customer_id);
+      if (alreadyVisited) {
+        return res.status(400).json({
+          success: false,
+          message: "You have already submitted a visit for this customer today."
         });
       }
     }

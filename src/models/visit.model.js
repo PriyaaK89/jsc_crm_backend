@@ -326,6 +326,18 @@ exports.getUserVisitDetails = async (userId, fromDate, toDate) => {
   return rows;
 };
 
+exports.hasVisitToday = async (userId, customerId) => {
+  const [rows] = await db.query(
+    `SELECT id FROM visits
+     WHERE user_id = ?
+       AND customer_id = ?
+       AND DATE(created_at) = CURDATE()
+     LIMIT 1`,
+    [userId, customerId]
+  );
+  return rows.length > 0;
+};
+
 // exports.getUserVisitDetails = async (userId, date) => {
 //   let query = `
 //     SELECT

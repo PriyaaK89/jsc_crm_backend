@@ -173,7 +173,7 @@ exports.createDistributor = async (req, res) => {
     };
 
     distributorData.security_amount = toNumber(distributorData.security_amount, "Security Amount");
-    distributorData.annual_turnover = toNumber(distributorData.annual_turnover, "Annual Turnover");
+    // distributorData.annual_turnover = toNumber(distributorData.annual_turnover, "Annual Turnover");
     distributorData.expected_sale = toNumber(distributorData.expected_sale, "Expected Sale");
     distributorData.credit_duration = toNumber(distributorData.credit_duration, "Credit Duration");
     distributorData.credit_amount = toNumber(distributorData.credit_amount, "CC/OD Amount");

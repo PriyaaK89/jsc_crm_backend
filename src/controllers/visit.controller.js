@@ -26,7 +26,7 @@ const visitTypeLabels = {
 
 // Add near the top of the controller, alongside validPurposes/labels
 const isPastVisitCutoff = () => {
-  const CUTOFF_HOUR = 19; // 7 PM
+  const CUTOFF_HOUR = 20; // 7 PM
   const CUTOFF_MINUTE = 0;
 
   // Resolve "now" in IST regardless of server's own timezone
@@ -93,22 +93,22 @@ exports.createVisit = async (req, res) => {
 
     //  EXISTING CUSTOMER FLOW
 
-      if (customer_type === "existing") {
-      if (!customer_id) {
-        return res.status(400).json({
-          message: "Customer ID is required for existing customer"
-        });
-      }
+   if (customer_type === "existing" && !customer_id) {
+  return res.status(400).json({ message: "Customer ID is required for existing customer" });
+}
 
-      // Block duplicate visit for same customer on the same date
-      const alreadyVisited = await visitModel.hasVisitToday(user_id, customer_id);
-      if (alreadyVisited) {
-        return res.status(400).json({
-          success: false,
-          message: "You have already submitted a visit for this customer today."
-        });
-      }
-    }
+if (!finalCustomerId) {
+  return res.status(400).json({ message: "Customer could not be resolved" });
+}
+
+const alreadyVisited = await visitModel.hasVisitToday(user_id, finalCustomerId);
+if (alreadyVisited) {
+  return res.status(400).json({
+    success: false,
+    message: "You have already submitted a visit for this customer today."
+  });
+}
+    
     if (!req.file) {
       return res.status(400).json({
         success: false,
